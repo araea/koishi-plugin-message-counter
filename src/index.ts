@@ -4,7 +4,7 @@ import cron from 'node-cron';
 import schedule from 'node-schedule';
 
 export const name = 'message-counter'
-const usage = `## 🎮 使用
+export const usage = `## 🎮 使用
 
 - 该插件仅记录群聊消息，私聊消息不会被统计。🙈
 - 该插件建议为指令添加指令别名，以方便用户快速查询。🚀
@@ -125,12 +125,12 @@ export function apply(ctx: Context, config: Config) {
     });
   }
 
-  ctx.on('ready', () => {
-    // 初始化定时任务
-    scheduleWeek(); // week
-    scheduleMonthlyClear(); // month
-    logger.success('加载成功，定时任务已全部就绪！')
-  })
+  // ctx.on('ready', () => {
+  // 初始化定时任务
+  scheduleWeek(); // week
+  scheduleMonthlyClear(); // month
+  // logger.success('加载成功，定时任务已全部就绪！')
+  // })
 
   ctx.command('messageCounter', '查看messageCounter帮助')
     .action(async ({ session }) => {
