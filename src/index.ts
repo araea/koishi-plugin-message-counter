@@ -284,8 +284,12 @@ export function apply(ctx: Context, config: Config) {
             await currentBot.sendMessage(guildId, `排行榜: ${countProperty}\n${result}`);
             if (enableMostActiveUserMuting && countKey === 'todayPostCount') {
               await currentBot.sendMessage(guildId, `正在尝试自动捕捉龙王......`);
-              await currentBot.muteGuildMember(guildId, usersByGuild[0].userId, 24 * 60 * 60 * 1000);
-              await currentBot.sendMessage(guildId, `诸位请放心，龙王已被成功捕捉，关押时间为 1 天！`);
+              try {
+                await currentBot.muteGuildMember(guildId, usersByGuild[0].userId, 24 * 60 * 60 * 1000);
+                await currentBot.sendMessage(guildId, `诸位请放心，龙王已被成功捕捉，关押时间为 1 天！`);
+              } catch (error) {
+                logger.error('禁言失败：Bot 不是管理员，无法禁言龙王！')
+              }
             }
           }
         })
