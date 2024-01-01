@@ -19,6 +19,7 @@ export const usage = `## 🎮 使用
 ## 📝 命令
 
 - \`messageCounter\`：查看 messageCounter 帮助。❓
+- \`messageCounter.initialize\`：初始化，清空数据表，将插件还原，需要权限等级 3 级及以上。🙏
 - \`messageCounter.rank [number]\`：发言排行榜，可以指定显示的人数，也可以使用以下选项来指定排行榜的类型：🏆
   - \`-d\`：今日发言榜。🌞
   - \`-w\`：本周发言榜。🌙
@@ -26,7 +27,7 @@ export const usage = `## 🎮 使用
   - \`-y\`：今年发言榜。🎊
   - \`-t\`：总发言榜。👑
   - \`--dragon\`：圣龙王榜，显示每个用户在所有群中的总发言次数。🐲
-  - 若未指定排行榜类型，则默认为今日发言榜。`
+  - 若未指定排行榜类型，则默认为今日发言榜。💬`
 
 const logger = new Logger('messageCounter')
 
@@ -105,14 +106,14 @@ export function apply(ctx: Context, config: Config) {
   if (isBotMessageTrackingEnabled) {
     ctx.before('send', async (session) => {
       if (isBotMessageTrackingEnabled) {
-        const { guildId, userId, username } = session
+        const { guildId, bot, username } = session
         // 判断该用户是否在数据表中
-        const getUser = await ctx.database.get('message_counter_records', { guildId, userId })
+        const getUser = await ctx.database.get('message_counter_records', { guildId, userId: bot.selfId })
         if (getUser.length === 0) {
-          await ctx.database.create('message_counter_records', { guildId, userId, username, todayPostCount: 1, thisWeekPostCount: 1, thisMonthPostCount: 1, thisYearPostCount: 1, totalPostCount: 1 })
+          await ctx.database.create('message_counter_records', { guildId, userId: bot.selfId, username: bot.user.name, todayPostCount: 1, thisWeekPostCount: 1, thisMonthPostCount: 1, thisYearPostCount: 1, totalPostCount: 1 })
         } else {
           const user = getUser[0]
-          await ctx.database.set('message_counter_records', { guildId, userId }, {
+          await ctx.database.set('message_counter_records', { guildId, userId: bot.selfId }, {
             username,
             todayPostCount: user.todayPostCount + 1,
             thisWeekPostCount: user.thisWeekPostCount + 1,
@@ -135,6 +136,13 @@ export function apply(ctx: Context, config: Config) {
   ctx.command('messageCounter', '查看messageCounter帮助')
     .action(async ({ session }) => {
       await session.execute(`messageCounter -h`);
+    });
+
+  ctx.command('messageCounter.initialize', '初始化', { authority: 3 })
+    .action(async ({ session }) => {
+      await session.send('嗯~')
+      await ctx.database.remove('message_counter_records', {})
+      await session.send('好啦~')
     });
 
   ctx.command('messageCounter.rank [number:number]', '发言排行榜')
