@@ -108,12 +108,12 @@ export function apply(ctx: Context, config: Config) {
       if (isBotMessageTrackingEnabled) {
         const { guildId, bot, username } = session
         // 判断该用户是否在数据表中
-        const getUser = await ctx.database.get('message_counter_records', { guildId, userId: bot.selfId })
+        const getUser = await ctx.database.get('message_counter_records', { guildId, userId: bot.user.name })
         if (getUser.length === 0) {
-          await ctx.database.create('message_counter_records', { guildId, userId: bot.selfId, username: bot.user.name, todayPostCount: 1, thisWeekPostCount: 1, thisMonthPostCount: 1, thisYearPostCount: 1, totalPostCount: 1 })
+          await ctx.database.create('message_counter_records', { guildId, userId: bot.user.name, username: bot.user.name, todayPostCount: 1, thisWeekPostCount: 1, thisMonthPostCount: 1, thisYearPostCount: 1, totalPostCount: 1 })
         } else {
           const user = getUser[0]
-          await ctx.database.set('message_counter_records', { guildId, userId: bot.selfId }, {
+          await ctx.database.set('message_counter_records', { guildId, userId: bot.user.name }, {
             username,
             todayPostCount: user.todayPostCount + 1,
             thisWeekPostCount: user.thisWeekPostCount + 1,
@@ -242,13 +242,11 @@ export function apply(ctx: Context, config: Config) {
     }
 
     if (autoPush) {
-      const guildIds = getUsers
-        .filter(user => user.guildId)
-        .map(user => user.guildId);
+      const guildIds = [...new Set(getUsers.map(user => user.guildId))];
 
-      await Promise.all(
-        guildIds.map(async (guildId) => {
-          for (const currentBot of ctx.bots) {
+      for (const currentBot of ctx.bots) {
+        await Promise.all(
+          guildIds.map(async (guildId) => {
             const usersByGuild = await ctx.database.get('message_counter_records', { guildId });
 
             if (usersByGuild.length === 0) {
@@ -288,12 +286,14 @@ export function apply(ctx: Context, config: Config) {
                 await currentBot.muteGuildMember(guildId, usersByGuild[0].userId, 24 * 60 * 60 * 1000);
                 await currentBot.sendMessage(guildId, `诸位请放心，龙王已被成功捕捉，关押时间为 1 天！`);
               } catch (error) {
-                logger.error('禁言失败：Bot 不是管理员，无法禁言龙王！')
+                logger.error('禁言失败，可能原因：Bot 不是管理员，无法禁言龙王！')
               }
             }
-          }
-        })
-      );
+          })
+        );
+
+      }
+
     }
 
 
