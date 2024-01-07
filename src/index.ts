@@ -1,5 +1,6 @@
 import { Context, Logger, Schema } from 'koishi'
 
+import { CronJob } from 'cron';
 import cron from 'node-cron';
 import schedule from 'node-schedule';
 
@@ -11,10 +12,13 @@ export const usage = `## 🎮 使用
 
 ## ⚙️ 配置项
 
-- \`autoPush\`：是否自动推送排行榜，默认为 \`true\`。👌
 - \`defaultMaxDisplayCount\`：默认显示的人数，默认为 \`20\`。👥
 - \`isBotMessageTrackingEnabled\`：是否统计机器人自己发送的消息，默认为 \`false\`。🤖
+- \`autoPush\`：是否自动推送排行榜，默认为 \`true\`。👌
+  - \`pushGuildIds\`：启用自动推送排行榜功能的群组列表。⌚️
 - \`enableMostActiveUserMuting\`：是否禁言每天发言最多的用户，即龙王，默认为 \`false\`。🙊
+  - \`detentionDuration\`：关押时长，单位是天，默认为 \`1\`。🙊
+  - \`muteGuildIds\`：启用关押龙王功能的群组列表。⌚️
 
 ## 📝 命令
 
@@ -32,19 +36,42 @@ export const usage = `## 🎮 使用
 const logger = new Logger('messageCounter')
 
 export interface Config {
-  autoPush: boolean
   defaultMaxDisplayCount: number
   isBotMessageTrackingEnabled: boolean
+  autoPush: boolean
+  pushGuildIds
   enableMostActiveUserMuting: boolean
+  muteGuildIds
+  detentionDuration
 }
 
-export const Config: Schema<Config> = Schema.object({
-  autoPush: Schema.boolean().default(true).description('是否自动推送排行榜'),
-  defaultMaxDisplayCount: Schema.number()
-    .min(0).default(20).description('默认显示的人数。'),
-  isBotMessageTrackingEnabled: Schema.boolean().default(false).description('是否统计 Bot 自己发送的消息。'),
-  enableMostActiveUserMuting: Schema.boolean().default(false).description('是否禁言每天发言最多的人，即龙王。'),
-})
+export const Config: Schema<Config> = Schema.intersect([
+  Schema.object({
+    defaultMaxDisplayCount: Schema.number()
+      .min(0).default(20).description('默认显示的人数。'),
+    isBotMessageTrackingEnabled: Schema.boolean().default(false).description('是否统计 Bot 自己发送的消息。'),
+  }),
+  Schema.intersect([
+    Schema.object({
+      autoPush: Schema.boolean().default(false).description('是否自动推送排行榜'),
+    }),
+    Schema.union([
+      Schema.object({
+        autoPush: Schema.const(true).required(),
+        pushGuildIds: Schema.array(String).role('table').description('启用自动推送排行榜功能的群组列表。'),
+      }), Schema.object({}),]),
+  ]),
+  Schema.intersect([
+    Schema.object({ enableMostActiveUserMuting: Schema.boolean().default(false).description('是否禁言每天发言最多的人，即龙王。'), }),
+    Schema.union([
+      Schema.object({
+        enableMostActiveUserMuting: Schema.const(true).required(),
+        detentionDuration: Schema.number().default(1).description(`关押时长，单位是天。`),
+        muteGuildIds: Schema.array(String).role('table').description('生效的群组。'),
+      }),
+      Schema.object({}),
+    ]),
+  ]),]) as any
 
 declare module 'koishi' {
   interface Tables {
@@ -67,7 +94,7 @@ interface MessageCounterRecord {
 
 export function apply(ctx: Context, config: Config) {
 
-  const { autoPush, defaultMaxDisplayCount, isBotMessageTrackingEnabled, enableMostActiveUserMuting } = config
+  const { autoPush, defaultMaxDisplayCount, isBotMessageTrackingEnabled, enableMostActiveUserMuting, pushGuildIds, muteGuildIds, detentionDuration } = config
 
   ctx.model.extend('message_counter_records', {
     id: 'unsigned',
@@ -106,15 +133,15 @@ export function apply(ctx: Context, config: Config) {
   if (isBotMessageTrackingEnabled) {
     ctx.before('send', async (session) => {
       if (isBotMessageTrackingEnabled) {
-        const { guildId, bot, username } = session
+        const { guildId, bot } = session
         // 判断该用户是否在数据表中
-        const getUser = await ctx.database.get('message_counter_records', { guildId, userId: bot.user.name })
+        const getUser = await ctx.database.get('message_counter_records', { guildId, userId: bot.user.id })
         if (getUser.length === 0) {
-          await ctx.database.create('message_counter_records', { guildId, userId: bot.user.name, username: bot.user.name, todayPostCount: 1, thisWeekPostCount: 1, thisMonthPostCount: 1, thisYearPostCount: 1, totalPostCount: 1 })
+          await ctx.database.create('message_counter_records', { guildId, userId: bot.user.id, username: bot.user.name, todayPostCount: 1, thisWeekPostCount: 1, thisMonthPostCount: 1, thisYearPostCount: 1, totalPostCount: 1 })
         } else {
           const user = getUser[0]
-          await ctx.database.set('message_counter_records', { guildId, userId: bot.user.name }, {
-            username,
+          await ctx.database.set('message_counter_records', { guildId, userId: bot.user.id }, {
+            username: bot.user.name,
             todayPostCount: user.todayPostCount + 1,
             thisWeekPostCount: user.thisWeekPostCount + 1,
             thisMonthPostCount: user.thisMonthPostCount + 1,
@@ -128,7 +155,6 @@ export function apply(ctx: Context, config: Config) {
 
   // ctx.on('ready', () => {
   // 初始化定时任务
-  scheduleWeek(); // week
   scheduleMonthlyClear(); // month
   // logger.success('加载成功，定时任务已全部就绪！')
   // })
@@ -235,23 +261,23 @@ export function apply(ctx: Context, config: Config) {
       await session.send(`排行榜: ${countProperty}\n${result}`);
     });
 
-  async function resetCounter(_key: string, countKey: string, message: string) {
+  async function resetCounter(_key, countKey: string, message: string) {
+    // countKey 排行榜类型 message 成功清除消息
     const getUsers = await ctx.database.get('message_counter_records', {});
     if (getUsers.length === 0) {
       return;
     }
-
+    // autoPush
     if (autoPush) {
-      const guildIds = [...new Set(getUsers.map(user => user.guildId))];
-
+      // 遍历 bots 获取 bot 信息，以便发送信息
       for (const currentBot of ctx.bots) {
-        await Promise.all(
-          guildIds.map(async (guildId) => {
-            const usersByGuild = await ctx.database.get('message_counter_records', { guildId });
-
-            if (usersByGuild.length === 0) {
-              return;
-            }
+        // 遍历 pushGuildIds 字符串数组 为每一个群组发送排行榜信息
+        pushGuildIds.map(async (guildId) => {
+          // 获取推送群组中的用户发言信息
+          const usersByGuild = getUsers.filter(user => user.guildId === guildId);
+          // 根据 countKey 类型，对数据进行排序，并返回最终排行榜结果
+          // 有数据再继续
+          if (usersByGuild.length !== 0) {
 
             let sortByProperty: string;
             let countProperty: string;
@@ -273,36 +299,53 @@ export function apply(ctx: Context, config: Config) {
                 sortByProperty = 'thisYearPostCount';
                 countProperty = '今年发言次数';
                 break;
+              default:
+                return; // 这种情况理论上不会出现
             }
+
             await currentBot.sendMessage(guildId, `正在尝试自动生成${countProperty}榜......`);
             usersByGuild.sort((a, b) => b[sortByProperty] - a[sortByProperty]);
             const topUsers = usersByGuild.slice(0, defaultMaxDisplayCount);
-            let i = 1;
-            const result = topUsers.map(user => `${i++}. ${user.username}: ${user[sortByProperty]}`).join('\n');
+            const result = topUsers.map((user, index) => `${index + 1}. ${user.username}: ${user[sortByProperty]}`).join('\n');
             await currentBot.sendMessage(guildId, `排行榜: ${countProperty}\n${result}`);
-            if (enableMostActiveUserMuting && countKey === 'todayPostCount') {
-              await currentBot.sendMessage(guildId, `正在尝试自动捕捉龙王......`);
-              try {
-                await currentBot.muteGuildMember(guildId, usersByGuild[0].userId, 24 * 60 * 60 * 1000);
-                await currentBot.sendMessage(guildId, `诸位请放心，龙王已被成功捕捉，关押时间为 1 天！`);
-              } catch (error) {
-                logger.error('禁言失败，可能原因：Bot 不是管理员，无法禁言龙王！')
-              }
-            }
-          })
-        );
-
+          }
+        });
       }
-
     }
 
-
-    for (const user of getUsers) {
-      const { guildId, userId } = user;
-      await ctx.database.set('message_counter_records', { guildId, userId }, { [countKey]: 0 });
+    // enableMostActiveUserMuting
+    if (enableMostActiveUserMuting && countKey === 'todayPostCount') {
+      // 遍历 bots 获取 bot 信息，以便发送信息
+      for (const currentBot of ctx.bots) {
+        // 遍历 pushGuildIds 字符串数组 为每一个群组禁言龙王
+        muteGuildIds.map(async (guildId) => {
+          // 找到那个在当前群聊中每日发言最多的人
+          // 获取当前群组中的用户发言信息
+          const usersByGuild = getUsers.filter(user => user.guildId === guildId);
+          // 有数据再继续
+          if (usersByGuild.length !== 0) {
+            await currentBot.sendMessage(guildId, `正在尝试自动捕捉龙王......`);
+            // 拉出来
+            const dragonUser = usersByGuild[0]
+            try {
+              // 禁言当前群组里的龙王 1 天
+              await currentBot.muteGuildMember(guildId, dragonUser.userId, detentionDuration * 24 * 60 * 60 * 1000);
+              await currentBot.sendMessage(guildId, `诸位请放心，龙王已被成功捕捉，关押时间为 ${detentionDuration} 天！`);
+            } catch (error) {
+              logger.error(`在【${guildId}】中禁言用户【${dragonUser.username}】（${dragonUser.userId}）失败！${error}`);
+            }
+          }
+        })
+      }
     }
+    // 排行榜推送和禁言龙王搞定之后
+    // 该干正事了 置零！
+    await ctx.database.set('message_counter_records', {}, { [countKey]: 0 });
+
     logger.success(message);
   }
+
+
   async function day() {
     await resetCounter('message_counter_records', 'todayPostCount', '今日发言榜已成功置空！');
   }
@@ -314,89 +357,13 @@ export function apply(ctx: Context, config: Config) {
   async function week() {
     await resetCounter('message_counter_records', 'thisWeekPostCount', '本周发言榜已成功置空！');
   }
+  // 创建 CronJob 对象，设置每周一的0点执行 run() 函数
+  const weekJob = new CronJob('0 0 * * 1', async () => {
+    await week();
+  });
 
-  function scheduleWeek() {
-    const oneWeekInMilliseconds = 7 * 24 * 60 * 60 * 1000; // 一周的毫秒数
-    const now = new Date();
-    const dayOfWeek = now.getDay(); // 当前是星期几
-    const hours = now.getHours();
-    const minutes = now.getMinutes();
-    const seconds = now.getSeconds();
-    const milliseconds = now.getMilliseconds();
-
-    // 检查当前时间是否已经过了每周的星期一的0点
-    if (dayOfWeek === 1 && hours === 0 && minutes === 0 && seconds === 0 && milliseconds === 0) {
-      // 如果当前时间正好是星期一的0点，则立即执行函数
-      week();
-    } else {
-      let timeUntilNextMonday = (1 + (7 - dayOfWeek)) % 7; // 距离下一个星期一的天数
-
-      // 如果今天已经过了零点，则调整计算下一个星期一的逻辑
-      if (dayOfWeek === 1 && hours > 0) {
-        timeUntilNextMonday = 7 - (hours / 24 + minutes / (24 * 60) + seconds / (24 * 60 * 60) + milliseconds / (24 * 60 * 60 * 1000));
-      }
-
-      // 计算下一个星期一的时间戳
-      const nextMondayTimestamp = now.getTime() + (timeUntilNextMonday * 24 * 60 * 60 * 1000);
-
-      // 计算距离下一个星期一0点的毫秒数
-      const timeUntilNextMondayMidnight = nextMondayTimestamp - (hours * 60 * 60 * 1000) - (minutes * 60 * 1000) - (seconds * 1000) - milliseconds;
-      if (timeUntilNextMondayMidnight > 0) {
-        if (timeUntilNextMondayMidnight > 2147483647) {
-          // 如果延迟时间超过32位整数范围，则拆分成多个定时器
-          const numberOfIntervals = Math.ceil(timeUntilNextMondayMidnight / 2147483647);
-          const intervalDelay = Math.ceil(timeUntilNextMondayMidnight / numberOfIntervals);
-
-          let currentDelay = intervalDelay;
-          let intervalsCompleted = 0;
-
-          ctx.on('dispose', () => {
-            clearTimeout(timerId1);
-          })
-
-          const timerId1 = setTimeout(() => {
-            week();
-            intervalsCompleted++;
-
-            if (intervalsCompleted < numberOfIntervals) {
-              // 设置下一个定时器
-              currentDelay += intervalDelay;
-              ctx.on('dispose', () => {
-                clearTimeout(timerId2);
-              })
-              const timerId2 = setTimeout(arguments.callee, currentDelay);
-            } else {
-              // 设置循环定时器
-              ctx.on('dispose', () => {
-                clearInterval(intervalId1);
-              })
-              const intervalId1 = setInterval(week, oneWeekInMilliseconds);
-            }
-          }, currentDelay);
-        } else {
-          // 如果延迟时间在32位整数范围内，则直接设置定时器
-          ctx.on('dispose', () => {
-            clearTimeout(timerId3);
-          })
-          const timerId3 = setTimeout(() => {
-            week();
-            ctx.on('dispose', () => {
-              clearInterval(intervalId2);
-            })
-            const intervalId2 = setInterval(week, oneWeekInMilliseconds);
-          }, timeUntilNextMondayMidnight);
-        }
-      } else {
-        week();
-        ctx.on('dispose', () => {
-          clearInterval(intervalId3);
-        })
-        const intervalId3 = setInterval(week, oneWeekInMilliseconds);
-      }
-
-    }
-  }
-
+  // 启动定时器
+  weekJob.start();
 
   async function month() {
     await resetCounter('message_counter_records', 'thisMonthPostCount', '本月发言榜已成功置空！');
@@ -406,6 +373,7 @@ export function apply(ctx: Context, config: Config) {
     const rule = '0 0 1 * *'; // 在每月的第一天的0点执行
     const monthlyClearJob = schedule.scheduleJob(rule, month);
     ctx.on('dispose', () => {
+      weekJob.stop(); // // 执行完毕后取消定时器
       monthlyClearJob.cancel();
       job.cancel
     })

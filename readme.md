@@ -23,10 +23,13 @@ koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/) 的
 
 ## ⚙️ 配置项
 
-- `autoPush`：是否自动推送排行榜，默认为 `true`。👌
 - `defaultMaxDisplayCount`：默认显示的人数，默认为 `20`。👥
 - `isBotMessageTrackingEnabled`：是否统计机器人自己发送的消息，默认为 `false`。🤖
+- `autoPush`：是否自动推送排行榜，默认为 `true`。👌
+  - `pushGuildIds`：启用自动推送排行榜功能的群组列表。⌚️
 - `enableMostActiveUserMuting`：是否禁言每天发言最多的用户，即龙王，默认为 `false`。🙊
+  - `detentionDuration`：关押时长，单位是天，默认为 `1`。🙊
+  - `muteGuildIds`：启用关押龙王功能的群组列表。⌚️
 
 ## 📝 命令
 
