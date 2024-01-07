@@ -1,7 +1,5 @@
 import { Context, Logger, Schema } from 'koishi'
 
-import { CronJob } from 'cron';
-import cron from 'node-cron';
 import schedule from 'node-schedule';
 
 export const name = 'message-counter'
@@ -152,12 +150,6 @@ export function apply(ctx: Context, config: Config) {
       }
     });
   }
-
-  // ctx.on('ready', () => {
-  // 初始化定时任务
-  scheduleMonthlyClear(); // month
-  // logger.success('加载成功，定时任务已全部就绪！')
-  // })
 
   ctx.command('messageCounter', '查看messageCounter帮助')
     .action(async ({ session }) => {
@@ -346,52 +338,50 @@ export function apply(ctx: Context, config: Config) {
   }
 
 
+
+
   async function day() {
     await resetCounter('message_counter_records', 'todayPostCount', '今日发言榜已成功置空！');
   }
 
-
   // 创建每天的 0 点定时任务
-  const job = schedule.scheduleJob('0 0 * * *', day);
+  const dayJob = schedule.scheduleJob('0 0 * * *', day);
 
   async function week() {
     await resetCounter('message_counter_records', 'thisWeekPostCount', '本周发言榜已成功置空！');
   }
-  // 创建 CronJob 对象，设置每周一的0点执行 run() 函数
-  const weekJob = new CronJob('0 0 * * 1', async () => {
-    await week();
-  });
 
-  // 启动定时器
-  weekJob.start();
+  // 创建每周一的 0 点定时任务
+  const weekJob = schedule.scheduleJob('0 0 * * 1', week);
 
   async function month() {
     await resetCounter('message_counter_records', 'thisMonthPostCount', '本月发言榜已成功置空！');
   }
 
-  function scheduleMonthlyClear() {
-    const rule = '0 0 1 * *'; // 在每月的第一天的0点执行
-    const monthlyClearJob = schedule.scheduleJob(rule, month);
-    ctx.on('dispose', () => {
-      weekJob.stop(); // // 执行完毕后取消定时器
-      monthlyClearJob.cancel();
-      job.cancel
-    })
-  }
-
+  // 创建每月的 1 号 0 点定时任务
+  const monthJob = schedule.scheduleJob('0 0 1 * *', month);
 
   async function year() {
     await resetCounter('message_counter_records', 'thisYearPostCount', '今年发言榜已成功置空！');
   }
 
-  // 创建定时任务
-  const task = cron.schedule('0 0 1 1 *', year, {
-    scheduled: true,
-    timezone: 'Asia/Shanghai',
-  });
+  // 创建每年的 1 月 1 号 0 点定时任务
+  const yearJob = schedule.scheduleJob('0 0 1 1 *', year);
+
+  function disposeJobs() {
+    dayJob.cancel();
+    weekJob.cancel();
+    monthJob.cancel();
+    yearJob.cancel();
+  }
+
+  // 当应用程序退出时，取消所有定时任务
+  process.on('exit', disposeJobs);
+  process.on('SIGINT', disposeJobs);
+  process.on('SIGTERM', disposeJobs);
 
   ctx.on('dispose', () => {
-    task.stop()
+    // 在插件停用时取消所有定时任务
+    disposeJobs()
   })
-
 }
