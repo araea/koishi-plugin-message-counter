@@ -8,7 +8,7 @@ koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/) 的
 
 该插件可以自动推送排行榜，也可以手动查询。还可以选择是否统计机器人自己的发言，以及是否禁言每天发言最多的用户（即龙王）。🤐
 
-该插件使用了 [node-cron](https://www.npmjs.com/package/node-cron) 和 [node-schedule](https://www.npmjs.com/package/node-schedule) 来实现定时任务，以及 [koishi](https://koishi.chat/) 的数据库接口来存储用户数据。📚
+该插件使用了 [node-schedule](https://www.npmjs.com/package/node-schedule) 来实现定时任务，以及 [koishi](https://koishi.chat/) 的数据库接口来存储用户数据。📚
 
 ## 📦 安装
 
