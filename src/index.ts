@@ -12,7 +12,7 @@ export const usage = `## 🎮 使用
 
 - \`defaultMaxDisplayCount\`：默认显示的人数，默认为 \`20\`。👥
 - \`isBotMessageTrackingEnabled\`：是否统计机器人自己发送的消息，默认为 \`false\`。🤖
-- \`autoPush\`：是否自动推送排行榜，默认为 \`true\`。👌
+- \`autoPush\`：是否自动推送排行榜，默认为 \`false\`。👌
   - \`pushGuildIds\`：启用自动推送排行榜功能的群组列表。⌚️
 - \`enableMostActiveUserMuting\`：是否禁言每天发言最多的用户，即龙王，默认为 \`false\`。🙊
   - \`detentionDuration\`：关押时长，单位是天，默认为 \`1\`。🙊
