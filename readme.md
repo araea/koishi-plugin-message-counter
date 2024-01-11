@@ -34,8 +34,15 @@ koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/) 的
 ## 📝 命令
 
 - `messageCounter`：查看 messageCounter 帮助。❓
-- `messageCounter.initialize`：初始化，清空数据表，将插件还原，需要权限等级 3 级及以上。🙏
-- `messageCounter.rank [number]`：发言排行榜，可以指定显示的人数，也可以使用以下选项来指定排行榜的类型：🏆
+- `messageCounter.初始化`：初始化，清空数据表，将插件还原，需要权限等级 3 级及以上。🙏
+- `messageCounter.查询 [targetUser]`：查询指定用户的发言次数信息（次数[排名]）。🔍
+  - `-d`：今日发言次数[排名]。🌞
+  - `-w`：本周发言次数[排名]。🌙
+  - `-m`：本月发言次数[排名]。📅
+  - `-y`：今年发言次数[排名]。🎊
+  - `-t`：总发言次数[排名]。👑
+  - `-a`：跨群发言总次数[排名]。🐲
+- `messageCounter.排行榜 [number]`：发言排行榜，可以指定显示的人数，也可以使用以下选项来指定排行榜的类型：🏆
   - `-d`：今日发言榜。🌞
   - `-w`：本周发言榜。🌙
   - `-m`：本月发言榜。📅
@@ -48,7 +55,6 @@ koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/) 的
 
 * [Akisa](https://forum.koishi.xyz/u/akisa/summary) - 永动机需要一个理由
 * [Koishi](https://koishi.chat/) - 机器人框架
-* [node-cron](https://www.npmjs.com/package/node-cron) - 定时任务库
 * [node-schedule](https://www.npmjs.com/package/node-schedule) - 定时任务库
 
 ## 📄 License

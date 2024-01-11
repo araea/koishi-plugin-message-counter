@@ -21,8 +21,15 @@ export const usage = `## 🎮 使用
 ## 📝 命令
 
 - \`messageCounter\`：查看 messageCounter 帮助。❓
-- \`messageCounter.initialize\`：初始化，清空数据表，将插件还原，需要权限等级 3 级及以上。🙏
-- \`messageCounter.rank [number]\`：发言排行榜，可以指定显示的人数，也可以使用以下选项来指定排行榜的类型：🏆
+- \`messageCounter.初始化\`：初始化，清空数据表，将插件还原，需要权限等级 3 级及以上。🙏
+- \`messageCounter.查询 [targetUser]\`：查询指定用户的发言次数信息（次数[排名]）。🔍
+  - \`-d\`：今日发言次数[排名]。🌞
+  - \`-w\`：本周发言次数[排名]。🌙
+  - \`-m\`：本月发言次数[排名]。📅
+  - \`-y\`：今年发言次数[排名]。🎊
+  - \`-t\`：总发言次数[排名]。👑
+  - \`-a\`：跨群发言总次数[排名]。🐲
+- \`messageCounter.排行榜 [number]\`：发言排行榜，可以指定显示的人数，也可以使用以下选项来指定排行榜的类型：🏆
   - \`-d\`：今日发言榜。🌞
   - \`-w\`：本周发言榜。🌙
   - \`-m\`：本月发言榜。📅
@@ -164,12 +171,12 @@ export function apply(ctx: Context, config: Config) {
     });
   // cx* Query
   ctx.command('messageCounter.查询 [targetUser:text]', '查询')
-    .option('day', '-d 今日发言次数')
-    .option('week', '-w 本周发言次数')
-    .option('month', '-m 本月发言次数')
-    .option('year', '-y 今年发言次数')
-    .option('total', '-t 总发言次数')
-    .option('across', '-a 跨群发言总次数')
+    .option('day', '-d 今日发言次数[排名]')
+    .option('week', '-w 本周发言次数[排名]')
+    .option('month', '-m 本月发言次数[排名]')
+    .option('year', '-y 今年发言次数[排名]')
+    .option('total', '-t 总发言次数[排名]')
+    .option('across', '-a 跨群发言总次数[排名]')
     .action(async ({ session, options }, targetUser) => {
       // 初始化所有选项为 false
       const selectedOptions = {
@@ -227,6 +234,52 @@ export function apply(ctx: Context, config: Config) {
 
 无任何发言记录。`
       }
+      const guildUsers: MessageCounterRecord[] = await ctx.database.get('message_counter_records', { guildId });
+
+      // 获取 userId 对应对象的各种种类的排名数据
+      const getUserRanking = (userId: string) => {
+        const userRecords = guildUsers.find(user => user.userId === userId);
+        if (userRecords) {
+          const rankingData = {
+            todayRank: getRank('todayPostCount', userId),
+            thisWeekRank: getRank('thisWeekPostCount', userId),
+            thisMonthRank: getRank('thisMonthPostCount', userId),
+            thisYearRank: getRank('thisYearPostCount', userId),
+            totalRank: getRank('totalPostCount', userId)
+          };
+          return rankingData;
+        } else {
+          return null; // 如果找不到对应 userId 的记录，返回 null 或者其他适当的值
+        }
+      };
+
+      // 获取指定属性的排名
+      const getRank = (property: keyof MessageCounterRecord, userId: string) => {
+        const sortedUsers = guildUsers.slice().sort((a, b) => (b[property] as number) - (a[property] as number));
+
+        const userIndex = sortedUsers.findIndex(user => user.userId === userId);
+        return userIndex !== -1 ? userIndex + 1 : null; // 如果找不到对应 userId 的记录，返回 null 或者其他适当的值
+      };
+
+      // 使用方法获取 userId 对应对象的各种种类的排名数据
+      const userRankingData = getUserRanking(userId);
+
+      const { todayRank, thisWeekRank, thisMonthRank, thisYearRank, totalRank } = userRankingData
+
+      function getAcrossUserRank(userId: string, dragons: [string, number][]): number {
+        const userIndex = dragons.findIndex(([id, _]) => id === userId);
+        if (userIndex !== -1) {
+          // 用户在 dragons 中的排名为索引加1
+          return userIndex + 1;
+        } else {
+          // 如果用户不在 dragons 中，返回一个特定值（比如-1）表示未上榜
+          return -1;
+        }
+      }
+      const getDragons = await ctx.database.get('message_counter_records', {});
+      const dragons = getSortedDragons(getDragons)
+      const acrossRank = getAcrossUserRank(userId, dragons);
+
       const { todayPostCount, thisWeekPostCount, thisMonthPostCount, thisYearPostCount, totalPostCount } = targetUserRecord[0]
 
       const userRecords: MessageCounterRecord[] = await ctx.database.get('message_counter_records', { userId });
@@ -239,22 +292,22 @@ export function apply(ctx: Context, config: Config) {
       let message = `查询对象：${username}\n\n`;
 
       if (day) {
-        message += `今日发言次数：${todayPostCount}\n`;
+        message += `今日发言次数：${todayPostCount}[${todayRank}]\n`;
       }
       if (week) {
-        message += `本周发言次数：${thisWeekPostCount}\n`;
+        message += `本周发言次数：${thisWeekPostCount}[${thisWeekRank}]\n`;
       }
       if (month) {
-        message += `本月发言次数：${thisMonthPostCount}\n`;
+        message += `本月发言次数：${thisMonthPostCount}[${thisMonthRank}]\n`;
       }
       if (year) {
-        message += `今年发言次数：${thisYearPostCount}\n`;
+        message += `今年发言次数：${thisYearPostCount}[${thisYearRank}]\n`;
       }
       if (total) {
-        message += `总发言次数：${totalPostCount}\n`;
+        message += `总发言次数：${totalPostCount}[${totalRank}]\n`;
       }
       if (across) {
-        message += `跨群发言总次数：${totalPostCountAcrossGuilds}\n`;
+        message += `跨群发言总次数：${totalPostCountAcrossGuilds}[${acrossRank}]\n`;
       }
 
       // 返回消息
@@ -310,40 +363,27 @@ export function apply(ctx: Context, config: Config) {
           return;
         }
 
-        const dragonsMap = new Map<string, number>(); // 用于存储每个 userId 对应的总发言次数
-
-        for (const dragon of getDragons) {
-          const { userId, totalPostCount } = dragon;
-          const key = `${userId}`;
-
-          if (dragonsMap.has(key)) {
-            // 如果已经存在同一个 userId 的记录，则累加总发言次数
-            dragonsMap.set(key, dragonsMap.get(key)! + totalPostCount);
-          } else {
-            // 否则，添加新的记录
-            dragonsMap.set(key, totalPostCount);
-          }
-        }
-
-        // 将 dragonsMap 转换为数组，并按照总发言次数降序排序
-        const dragons = Array.from(dragonsMap.entries()).sort((a, b) => b[1] - a[1]);
+        const dragons = getSortedDragons(getDragons)
 
         // 只保留前 number 个用户
         const topDragons = dragons.slice(0, number);
 
-        const result = [];
-        let i = 1;
-        for (const [key, dragonPostCount] of topDragons) {
-          const getUser = await ctx.database.get('message_counter_records', { userId: key }); // 假设可以根据 userId 查询用户信息的方法为 ctx.database.get，并且返回一个用户对象
+        // 获取用户信息并构建结果数组
+        const resultPromises = topDragons.map(async ([key, dragonPostCount], index) => {
+          const getUser = await ctx.database.get('message_counter_records', { userId: key });
           const user = getUser[0];
           if (user) {
-            result.push(`${i++}. ${user.username}: ${dragonPostCount}`);
+            return `${index + 1}. ${user.username}: ${dragonPostCount}`;
           }
-        }
+          return null;
+        });
+
+        const result = (await Promise.all(resultPromises)).filter((item) => item !== null) as string[];
 
         await session.send(`圣龙王榜: \n${result.join('\n')}`);
         return;
       }
+
 
       getUsers.sort((a, b) => b[sortByProperty] - a[sortByProperty]);
       const topUsers = getUsers.slice(0, number);
@@ -436,8 +476,17 @@ export function apply(ctx: Context, config: Config) {
     logger.success(message);
   }
 
+  function getSortedDragons(records: MessageCounterRecord[]): [string, number][] {
+    const dragonsMap: { [userId: string]: number } = {};
+    for (const dragon of records) {
+      const { userId, totalPostCount } = dragon;
+      const key = `${userId}`;
+      dragonsMap[key] = (dragonsMap[key] || 0) + totalPostCount;
+    }
 
-
+    const dragons = Object.entries(dragonsMap).sort((a, b) => b[1] - a[1]);
+    return dragons;
+  }
 
   async function day() {
     await resetCounter('message_counter_records', 'todayPostCount', '今日发言榜已成功置空！');
