@@ -224,8 +224,8 @@ export function apply(ctx: Context, config: Config) {
       if (targetUser) {
         const userIdRegex = /<at id="([^"]+)"(?: name="([^"]+)")?\/>/;
         const match = targetUser.match(userIdRegex);
-        userId = match[1];
-        username = match[2]
+        userId = match?.[1] ?? userId;
+        username = match?.[2] ?? username;
       }
       const targetUserRecord = await ctx.database.get('message_counter_records', { guildId, userId })
       if (targetUserRecord.length === 0) {
