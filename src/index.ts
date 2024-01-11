@@ -150,20 +150,119 @@ export function apply(ctx: Context, config: Config) {
       }
     });
   }
-
+  // mc*
   ctx.command('messageCounter', '查看messageCounter帮助')
     .action(async ({ session }) => {
       await session.execute(`messageCounter -h`);
     });
-
-  ctx.command('messageCounter.initialize', '初始化', { authority: 3 })
+  // csh*
+  ctx.command('messageCounter.初始化', '初始化', { authority: 3 })
     .action(async ({ session }) => {
       await session.send('嗯~')
       await ctx.database.remove('message_counter_records', {})
       await session.send('好啦~')
     });
+  // cx* Query
+  ctx.command('messageCounter.查询 [targetUser:text]', '查询')
+    .option('day', '-d 今日发言次数')
+    .option('week', '-w 本周发言次数')
+    .option('month', '-m 本月发言次数')
+    .option('year', '-y 今年发言次数')
+    .option('total', '-t 总发言次数')
+    .option('across', '-a 跨群发言总次数')
+    .action(async ({ session, options }, targetUser) => {
+      // 初始化所有选项为 false
+      const selectedOptions = {
+        day: false,
+        week: false,
+        month: false,
+        year: false,
+        total: false,
+        across: false
+      };
 
-  ctx.command('messageCounter.rank [number:number]', '发言排行榜')
+      // 检查用户选择的选项，如果存在则将其设置为 true
+      if (options.day) {
+        selectedOptions.day = true;
+      }
+      if (options.week) {
+        selectedOptions.week = true;
+      }
+      if (options.month) {
+        selectedOptions.month = true;
+      }
+      if (options.year) {
+        selectedOptions.year = true;
+      }
+      if (options.total) {
+        selectedOptions.total = true;
+      }
+      if (options.across) {
+        selectedOptions.across = true;
+      }
+
+      // 如果没有选项被选择，则将所有选项设置为 true
+      const allOptionsSelected = Object.values(selectedOptions).every(value => value === false);
+      if (allOptionsSelected) {
+        Object.keys(selectedOptions).forEach(key => {
+          selectedOptions[key] = true;
+        });
+      }
+
+      const { day, week, month, year, total, across } = selectedOptions;
+      // selectedOptions 对象包含了用户选择的选项
+
+      // 查询： 直接获取 返回提示 跨群总榜
+      let { guildId, userId, username } = session
+      if (targetUser) {
+        const userIdRegex = /<at id="([^"]+)"(?: name="([^"]+)")?\/>/;
+        const match = targetUser.match(userIdRegex);
+        userId = match[1];
+        username = match[2]
+      }
+      const targetUserRecord = await ctx.database.get('message_counter_records', { guildId, userId })
+      if (targetUserRecord.length === 0) {
+        await ctx.database.create('message_counter_records', { guildId, userId, username })
+        return `查询对象：${username}
+
+无任何发言记录。`
+      }
+      const { todayPostCount, thisWeekPostCount, thisMonthPostCount, thisYearPostCount, totalPostCount } = targetUserRecord[0]
+
+      const userRecords: MessageCounterRecord[] = await ctx.database.get('message_counter_records', { userId });
+
+      // 使用 reduce 方法计算跨群总发言次数
+      const totalPostCountAcrossGuilds = userRecords.reduce((total, record) => {
+        return total + record.totalPostCount;
+      }, 0);
+
+      let message = `查询对象：${username}\n\n`;
+
+      if (day) {
+        message += `今日发言次数：${todayPostCount}\n`;
+      }
+      if (week) {
+        message += `本周发言次数：${thisWeekPostCount}\n`;
+      }
+      if (month) {
+        message += `本月发言次数：${thisMonthPostCount}\n`;
+      }
+      if (year) {
+        message += `今年发言次数：${thisYearPostCount}\n`;
+      }
+      if (total) {
+        message += `总发言次数：${totalPostCount}\n`;
+      }
+      if (across) {
+        message += `跨群发言总次数：${totalPostCountAcrossGuilds}\n`;
+      }
+
+      // 返回消息
+      return message;
+    });
+
+  // phb* r*
+  ctx.command('messageCounter.排行榜 [number:number]', '发言排行榜')
     .option('day', '-d 今日发言榜')
     .option('week', '-w 本周发言榜')
     .option('month', '-m 本月发言榜')
