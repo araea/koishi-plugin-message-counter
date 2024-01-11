@@ -292,22 +292,22 @@ export function apply(ctx: Context, config: Config) {
       let message = `查询对象：${username}\n\n`;
 
       if (day) {
-        message += `今日发言次数：${todayPostCount}[${todayRank}]\n`;
+        message += `今日发言次数[排名]：${todayPostCount}[${todayRank}]\n`;
       }
       if (week) {
-        message += `本周发言次数：${thisWeekPostCount}[${thisWeekRank}]\n`;
+        message += `本周发言次数[排名]：${thisWeekPostCount}[${thisWeekRank}]\n`;
       }
       if (month) {
-        message += `本月发言次数：${thisMonthPostCount}[${thisMonthRank}]\n`;
+        message += `本月发言次数[排名]：${thisMonthPostCount}[${thisMonthRank}]\n`;
       }
       if (year) {
-        message += `今年发言次数：${thisYearPostCount}[${thisYearRank}]\n`;
+        message += `今年发言次数[排名]：${thisYearPostCount}[${thisYearRank}]\n`;
       }
       if (total) {
-        message += `总发言次数：${totalPostCount}[${totalRank}]\n`;
+        message += `总发言次数[排名]：${totalPostCount}[${totalRank}]\n`;
       }
       if (across) {
-        message += `跨群发言总次数：${totalPostCountAcrossGuilds}[${acrossRank}]\n`;
+        message += `跨群发言总次数[排名]：${totalPostCountAcrossGuilds}[${acrossRank}]\n`;
       }
 
       // 返回消息
