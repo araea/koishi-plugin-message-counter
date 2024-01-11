@@ -10,7 +10,7 @@ export const usage = `## 🎮 使用
 
 ## ⚙️ 配置项
 
-- \`defaultMaxDisplayCount\`：默认显示的人数，默认为 \`20\`。👥
+- \`defaultMaxDisplayCount\`：排行榜默认显示的人数，默认为 \`20\`。👥
 - \`isBotMessageTrackingEnabled\`：是否统计机器人自己发送的消息，默认为 \`false\`。🤖
 - \`autoPush\`：是否自动推送排行榜，默认为 \`false\`。👌
   - \`pushGuildIds\`：启用自动推送排行榜功能的群组列表。⌚️
@@ -53,7 +53,7 @@ export interface Config {
 export const Config: Schema<Config> = Schema.intersect([
   Schema.object({
     defaultMaxDisplayCount: Schema.number()
-      .min(0).default(20).description('默认显示的人数。'),
+      .min(0).default(20).description('排行榜默认显示的人数，默认值为 20。'),
     isBotMessageTrackingEnabled: Schema.boolean().default(false).description('是否统计 Bot 自己发送的消息。'),
   }),
   Schema.intersect([
