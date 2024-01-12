@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-message-counter",
   "description": "用于统计群聊中用户的发言次数，并生成各种排行榜，包括日榜、周榜、月榜、年榜、总榜和圣龙王榜。🐉",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [

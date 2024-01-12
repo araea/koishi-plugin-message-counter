@@ -1,4 +1,4 @@
-import { Context, Logger, Schema } from 'koishi'
+import { Context, Logger, Schema, sleep } from 'koishi'
 
 import schedule from 'node-schedule';
 
@@ -7,16 +7,6 @@ export const usage = `## 🎮 使用
 
 - 该插件仅记录群聊消息，私聊消息不会被统计。🙈
 - 该插件建议为指令添加指令别名，以方便用户快速查询。🚀
-
-## ⚙️ 配置项
-
-- \`defaultMaxDisplayCount\`：排行榜默认显示的人数，默认为 \`20\`。👥
-- \`isBotMessageTrackingEnabled\`：是否统计机器人自己发送的消息，默认为 \`false\`。🤖
-- \`autoPush\`：是否自动推送排行榜，默认为 \`false\`。👌
-  - \`pushGuildIds\`：启用自动推送排行榜功能的群组列表。⌚️
-- \`enableMostActiveUserMuting\`：是否禁言每天发言最多的用户，即龙王，默认为 \`false\`。🙊
-  - \`detentionDuration\`：关押时长，单位是天，默认为 \`1\`。🙊
-  - \`muteGuildIds\`：启用关押龙王功能的群组列表。⌚️
 
 ## 📝 命令
 
@@ -44,8 +34,10 @@ export interface Config {
   defaultMaxDisplayCount: number
   isBotMessageTrackingEnabled: boolean
   autoPush: boolean
+  leaderboardGenerationWaitTime
   pushGuildIds
   enableMostActiveUserMuting: boolean
+  dragonKingDetainmentTime
   muteGuildIds
   detentionDuration
 }
@@ -63,6 +55,7 @@ export const Config: Schema<Config> = Schema.intersect([
     Schema.union([
       Schema.object({
         autoPush: Schema.const(true).required(),
+        leaderboardGenerationWaitTime: Schema.number().min(0).default(3).description(`自动生成排行榜的等待时间，单位是秒。`),
         pushGuildIds: Schema.array(String).role('table').description('启用自动推送排行榜功能的群组列表。'),
       }), Schema.object({}),]),
   ]),
@@ -71,6 +64,7 @@ export const Config: Schema<Config> = Schema.intersect([
     Schema.union([
       Schema.object({
         enableMostActiveUserMuting: Schema.const(true).required(),
+        dragonKingDetainmentTime: Schema.number().min(0).default(5).description(`关押龙王的等待时间，单位是秒。`),
         detentionDuration: Schema.number().default(1).description(`关押时长，单位是天。`),
         muteGuildIds: Schema.array(String).role('table').description('生效的群组。'),
       }),
@@ -99,7 +93,8 @@ interface MessageCounterRecord {
 
 export function apply(ctx: Context, config: Config) {
 
-  const { autoPush, defaultMaxDisplayCount, isBotMessageTrackingEnabled, enableMostActiveUserMuting, pushGuildIds, muteGuildIds, detentionDuration } = config
+  const { autoPush, defaultMaxDisplayCount, isBotMessageTrackingEnabled, enableMostActiveUserMuting, pushGuildIds,
+    muteGuildIds, detentionDuration, dragonKingDetainmentTime, leaderboardGenerationWaitTime } = config
 
   ctx.model.extend('message_counter_records', {
     id: 'unsigned',
@@ -438,6 +433,7 @@ export function apply(ctx: Context, config: Config) {
             usersByGuild.sort((a, b) => b[sortByProperty] - a[sortByProperty]);
             const topUsers = usersByGuild.slice(0, defaultMaxDisplayCount);
             const result = topUsers.map((user, index) => `${index + 1}. ${user.username}: ${user[sortByProperty]}`).join('\n');
+            await sleep(leaderboardGenerationWaitTime * 1000)
             await currentBot.sendMessage(guildId, `排行榜: ${countProperty}\n${result}`);
           }
         });
@@ -460,6 +456,7 @@ export function apply(ctx: Context, config: Config) {
             const dragonUser = usersByGuild[0]
             try {
               // 禁言当前群组里的龙王 1 天
+              await sleep(dragonKingDetainmentTime * 1000)
               await currentBot.muteGuildMember(guildId, dragonUser.userId, detentionDuration * 24 * 60 * 60 * 1000);
               await currentBot.sendMessage(guildId, `诸位请放心，龙王已被成功捕捉，关押时间为 ${detentionDuration} 天！`);
             } catch (error) {
