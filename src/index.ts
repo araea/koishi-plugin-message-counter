@@ -321,7 +321,7 @@ export function apply(ctx: Context, config: Config) {
       const { guildId } = session;
 
       if (typeof number !== 'number' || isNaN(number) || number < 0) {
-        return session.send('请输入大于等于 0 的数字作为排行榜的参数。');
+        return '请输入大于等于 0 的数字作为排行榜的参数。'
       }
 
       if (!number) {
