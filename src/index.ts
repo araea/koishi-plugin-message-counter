@@ -18,6 +18,7 @@ export const usage = `## 🎮 使用
   - \`-m\`：本月发言次数[排名]。📅
   - \`-y\`：今年发言次数[排名]。🎊
   - \`-t\`：总发言次数[排名]。👑
+  - \`--dag\`：跨群今日发言总次数[排名]。👑
   - \`-a\`：跨群发言总次数[排名]。🐲
 - \`messageCounter.排行榜 [number]\`：发言排行榜，可以指定显示的人数，也可以使用以下选项来指定排行榜的类型：🏆
   - \`-d\`：今日发言榜。🌞
@@ -25,6 +26,7 @@ export const usage = `## 🎮 使用
   - \`-m\`：本月发言榜。📅
   - \`-y\`：今年发言榜。🎊
   - \`-t\`：总发言榜。👑
+  - \`--dag\`：跨群今日发言榜。👑
   - \`--dragon\`：圣龙王榜，显示每个用户在所有群中的总发言次数。🐲
   - 若未指定排行榜类型，则默认为今日发言榜。💬`
 
@@ -171,6 +173,7 @@ export function apply(ctx: Context, config: Config) {
     .option('month', '-m 本月发言次数[排名]')
     .option('year', '-y 今年发言次数[排名]')
     .option('total', '-t 总发言次数[排名]')
+    .option('dag', '--dag 跨群今日发言总次数[排名]')
     .option('across', '-a 跨群发言总次数[排名]')
     .action(async ({ session, options }, targetUser) => {
       // 初始化所有选项为 false
@@ -180,7 +183,8 @@ export function apply(ctx: Context, config: Config) {
         month: false,
         year: false,
         total: false,
-        across: false
+        across: false,
+        dag: false
       };
 
       // 检查用户选择的选项，如果存在则将其设置为 true
@@ -202,6 +206,9 @@ export function apply(ctx: Context, config: Config) {
       if (options.across) {
         selectedOptions.across = true;
       }
+      if (options.dag) {
+        selectedOptions.dag = true;
+      }
 
       // 如果没有选项被选择，则将所有选项设置为 true
       const allOptionsSelected = Object.values(selectedOptions).every(value => value === false);
@@ -211,7 +218,7 @@ export function apply(ctx: Context, config: Config) {
         });
       }
 
-      const { day, week, month, year, total, across } = selectedOptions;
+      const { day, week, month, year, total, across, dag } = selectedOptions;
       // selectedOptions 对象包含了用户选择的选项
 
       // 查询： 直接获取 返回提示 跨群总榜
@@ -271,11 +278,10 @@ export function apply(ctx: Context, config: Config) {
           return -1;
         }
       }
+      // 跨群发言总次数和排名信息
       const getDragons = await ctx.database.get('message_counter_records', {});
       const dragons = getSortedDragons(getDragons)
       const acrossRank = getAcrossUserRank(userId, dragons);
-
-      const { todayPostCount, thisWeekPostCount, thisMonthPostCount, thisYearPostCount, totalPostCount } = targetUserRecord[0]
 
       const userRecords: MessageCounterRecord[] = await ctx.database.get('message_counter_records', { userId });
 
@@ -283,6 +289,36 @@ export function apply(ctx: Context, config: Config) {
       const totalPostCountAcrossGuilds = userRecords.reduce((total, record) => {
         return total + record.totalPostCount;
       }, 0);
+
+      // 跨群今日发言总次数和排名信息
+      const getUsers = await ctx.database.get('message_counter_records', {});
+      if (getUsers.length === 0) {
+        return;
+      }
+      // 创建新数组
+      const aggregatedUserRecords: { [key: string]: { userId: string, todayPostCountAll: number, username: string } } = getUsers.reduce((acc, user) => {
+        if (!acc[user.userId]) {
+          acc[user.userId] = {
+            userId: user.userId,
+            todayPostCountAll: 0,
+            username: user.username
+          };
+        }
+        acc[user.userId].todayPostCountAll += user.todayPostCount;
+        return acc;
+      }, {});
+
+      // 转换为数组并按 todayPostCountAll 降序排序
+      const sortedUserRecords = Object.values(aggregatedUserRecords).sort((a, b) => b.todayPostCountAll - a.todayPostCountAll);
+
+
+      // 找到 userId 对应的记录
+      const userIndex = sortedUserRecords.findIndex(user => user.userId === userId);
+      const userRecord = sortedUserRecords[userIndex];
+      const dayAcrossRank = userIndex + 1; // 排名从 1 开始
+
+      const { todayPostCount, thisWeekPostCount, thisMonthPostCount, thisYearPostCount, totalPostCount } = targetUserRecord[0]
+
 
       let message = `查询对象：${username}\n\n`;
 
@@ -301,6 +337,9 @@ export function apply(ctx: Context, config: Config) {
       if (total) {
         message += `总发言次数[排名]：${totalPostCount}[${totalRank}]\n`;
       }
+      if (dag) {
+        message += `跨群今日发言次数[排名]：${userRecord.todayPostCountAll}[${dayAcrossRank}]\n`;
+      }
       if (across) {
         message += `跨群发言总次数[排名]：${totalPostCountAcrossGuilds}[${acrossRank}]\n`;
       }
@@ -316,6 +355,7 @@ export function apply(ctx: Context, config: Config) {
     .option('month', '-m 本月发言榜')
     .option('year', '-y 今年发言榜')
     .option('total', '-t 总发言榜')
+    .option('dag', '--dag 跨群日发言榜')
     .option('dragon', '--dragon 圣龙王榜')
     .action(async ({ session, options }, number) => {
       const { guildId } = session;
@@ -325,7 +365,7 @@ export function apply(ctx: Context, config: Config) {
       }
 
       if (typeof number !== 'number' || isNaN(number) || number < 0) {
-        return '请输入大于等于 0 的数字作为排行榜的参数。'
+        return '请输入大于等于 0 的数字作为排行榜的参数。';
       }
 
       const getUsers = await ctx.database.get('message_counter_records', { guildId });
@@ -354,6 +394,42 @@ export function apply(ctx: Context, config: Config) {
       } else {
         sortByProperty = 'todayPostCount';
         countProperty = '今日发言次数';
+      }
+
+      if (options.dag) {
+        const getUsers = await ctx.database.get('message_counter_records', {});
+        if (getUsers.length === 0) {
+          return;
+        }
+
+        // 处理 getUsers 数组，生成排行榜 rank
+        const userMap = new Map(); // 用于存储 userId 对应的总 todayPostCountAll
+        const usernameMap = new Map(); // 用于存储 userId 对应的 username
+
+        // 遍历 getUsers，将所有 userId 相同的记录的 todayPostCount 全部加在一起
+        for (const user of getUsers) {
+          const { userId, todayPostCount, username } = user;
+          if (userMap.has(userId)) {
+            userMap.set(userId, userMap.get(userId) + todayPostCount);
+          } else {
+            userMap.set(userId, todayPostCount);
+            usernameMap.set(userId, username);
+          }
+        }
+
+        // 将 userMap 转换为数组并按 todayPostCountAll 降序排序
+        const sortedUsers = Array.from(userMap).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+        // 生成排行榜 rank
+        let rank = '排行榜：跨群总发言次数：\n';
+        sortedUsers.forEach((user, index) => {
+          const userId = user[0];
+          const todayPostCountAll = user[1];
+          const username = usernameMap.get(userId);
+          rank += `${index + 1}. ${username}: ${todayPostCountAll}\n`;
+        });
+
+        return (rank);
       }
 
       if (options.dragon) {
