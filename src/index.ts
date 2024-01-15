@@ -1,4 +1,4 @@
-import { Context, Fragment, Logger, Schema, sleep } from 'koishi'
+import { Context, Logger, Schema, sleep } from 'koishi'
 
 import schedule from 'node-schedule';
 
@@ -19,10 +19,6 @@ export const usage = `## 🎮 使用
   - \`-y\`：今年发言次数[排名]。🎊
   - \`-t\`：总发言次数[排名]。👑
   - \`-a\`：跨群发言总次数[排名]。🐲
-  - \`--dayAcross\`：跨群日发言总次数[排名]。🐲
-  - \`--weekAcross\`：跨群周发言总次数[排名]。🐲
-  - \`--monthAcross\`：跨群月发言总次数[排名]。🐲
-  - \`--yearAcross\`：跨群年发言总次数[排名]。🐲
 - \`messageCounter.排行榜 [number]\`：发言排行榜，可以指定显示的人数，也可以使用以下选项来指定排行榜的类型：🏆
   - \`-d\`：今日发言榜。🌞
   - \`-w\`：本周发言榜。🌙
@@ -30,10 +26,6 @@ export const usage = `## 🎮 使用
   - \`-y\`：今年发言榜。🎊
   - \`-t\`：总发言榜。👑
   - \`--dragon\`：圣龙王榜，显示每个用户在所有群中的总发言次数。🐲
-  - \`--dayAcross\`：跨群日榜。🐲
-  - \`--weekAcross\`：跨群周榜。🐲
-  - \`--monthAcross\`：跨群月榜。🐲
-  - \`--yearAcross\`：跨群年榜。🐲
   - 若未指定排行榜类型，则默认为今日发言榜。💬`
 
 const logger = new Logger('messageCounter')
@@ -42,12 +34,12 @@ export interface Config {
   defaultMaxDisplayCount: number
   isBotMessageTrackingEnabled: boolean
   autoPush: boolean
-  leaderboardGenerationWaitTime: any
-  pushGuildIds: any
+  leaderboardGenerationWaitTime
+  pushGuildIds
   enableMostActiveUserMuting: boolean
-  dragonKingDetainmentTime: any
-  muteGuildIds: any
-  detentionDuration: any
+  dragonKingDetainmentTime
+  muteGuildIds
+  detentionDuration
 }
 
 export const Config: Schema<Config> = Schema.intersect([
@@ -180,10 +172,6 @@ export function apply(ctx: Context, config: Config) {
     .option('year', '-y 今年发言次数[排名]')
     .option('total', '-t 总发言次数[排名]')
     .option('across', '-a 跨群发言总次数[排名]')
-    .option('dayAcross', '--dayAcross 跨群日发言总次数[排名]')
-    .option('weekAcross', '--weekAcross  跨群周发言总次数[排名]')
-    .option('monthAcross', '--monthAcross  跨群月发言总次数[排名]')
-    .option('yearAcross', '--yearAcross  跨群年发言总次数[排名]')
     .action(async ({ session, options }, targetUser) => {
       // 初始化所有选项为 false
       const selectedOptions = {
@@ -316,22 +304,7 @@ export function apply(ctx: Context, config: Config) {
       if (across) {
         message += `跨群发言总次数[排名]：${totalPostCountAcrossGuilds}[${acrossRank}]\n`;
       }
-      if (options.dayAcross) {
-        const { userRank, userPostCount } = await getCrossGuildRank('daily', userId, defaultMaxDisplayCount, getDragons)
-        message += `跨群日发言总次数[排名]：${userPostCount}[${userRank}]\n`
-      }
-      if (options.weekAcross) {
-        const { userRank, userPostCount } = await getCrossGuildRank('weekly', userId, defaultMaxDisplayCount, getDragons)
-        message += `跨群周发言总次数[排名]：${userPostCount}[${userRank}]\n`
-      }
-      if (options.monthAcross) {
-        const { userRank, userPostCount } = await getCrossGuildRank('monthly', userId, defaultMaxDisplayCount, getDragons)
-        message += `跨群月发言总次数[排名]：${userPostCount}[${userRank}]\n`
-      }
-      if (options.yearAcross) {
-        const { userRank, userPostCount } = await getCrossGuildRank('yearly', userId, defaultMaxDisplayCount, getDragons)
-        message += `跨群年发言总次数[排名]：${userPostCount}[${userRank}]\n`
-      }
+
       // 返回消息
       return message;
     });
@@ -344,20 +317,15 @@ export function apply(ctx: Context, config: Config) {
     .option('year', '-y 今年发言榜')
     .option('total', '-t 总发言榜')
     .option('dragon', '--dragon 圣龙王榜')
-    .option('dayAcross', '--dayAcross 跨群日榜')
-    .option('weekAcross', '--weekAcross 跨群周榜')
-    .option('monthAcross', '--monthAcross 跨群月榜')
-    .option('yearAcross', '--yearAcross 跨群年榜')
-
     .action(async ({ session, options }, number) => {
-      const { guildId, userId } = session;
-
-      if (typeof number !== 'number' || isNaN(number) || number < 0) {
-        return '请输入大于等于 0 的数字作为排行榜的参数。'
-      }
+      const { guildId } = session;
 
       if (!number) {
         number = defaultMaxDisplayCount;
+      }
+
+      if (typeof number !== 'number' || isNaN(number) || number < 0) {
+        return '请输入大于等于 0 的数字作为排行榜的参数。'
       }
 
       const getUsers = await ctx.database.get('message_counter_records', { guildId });
@@ -414,24 +382,7 @@ export function apply(ctx: Context, config: Config) {
         await session.send(`圣龙王榜: \n${result.join('\n')}`);
         return;
       }
-      const getDayUsers = await ctx.database.get('message_counter_records', {});
-      if (getDayUsers.length === 0) {
-        return;
-      }
-      let rankString: void | Fragment | PromiseLike<void | Fragment>;
-      if (options.dayAcross) {
-        ({ rankString } = await getCrossGuildRank('daily', userId, number, getDayUsers));
-        return rankString;
-      } else if (options.weekAcross) {
-        ({ rankString } = await getCrossGuildRank('weekly', userId, number, getDayUsers));
-        return rankString;
-      } else if (options.monthAcross) {
-        ({ rankString } = await getCrossGuildRank('monthly', userId, number, getDayUsers));
-        return rankString;
-      } else if (options.yearAcross) {
-        ({ rankString } = await getCrossGuildRank('yearly', userId, number, getDayUsers));
-        return rankString;
-      }
+
 
       getUsers.sort((a, b) => b[sortByProperty] - a[sortByProperty]);
       const topUsers = getUsers.slice(0, number);
@@ -440,38 +391,7 @@ export function apply(ctx: Context, config: Config) {
       await session.send(`排行榜: ${countProperty}\n${result}`);
     });
 
-  async function getCrossGuildRank(type: 'daily' | 'weekly' | 'monthly' | 'yearly', userId: string, number: number, records: MessageCounterRecord[]) {
-    const userRecords = records.filter(record => record.userId === userId);
-    const timeFrame = type === 'daily' ? 'todayPostCount' :
-      type === 'weekly' ? 'thisWeekPostCount' :
-        type === 'monthly' ? 'thisMonthPostCount' :
-          type === 'yearly' ? 'thisYearPostCount' : '';
-
-    const combinedUserRecords = userRecords.reduce((acc, cur) => {
-      const foundIndex = acc.findIndex(item => item.userId === cur.userId);
-      if (foundIndex !== -1) {
-        acc[foundIndex][timeFrame] += cur[timeFrame];
-      } else {
-        acc.push({ ...cur });
-      }
-      return acc;
-    }, [] as MessageCounterRecord[]);
-
-    combinedUserRecords.sort((a, b) => b[timeFrame] - a[timeFrame]);
-
-    const userRank = combinedUserRecords.findIndex(record => record.userId === userId) + 1;
-    const userPostCount = combinedUserRecords.find(record => record.userId === userId)?.[timeFrame] ?? 0;
-
-    const topTen = combinedUserRecords.slice(0, number).map((record, index) => `${index + 1}. ${record.username}: ${record[timeFrame]}`);
-
-    const rankString = `跨群发言${type === 'daily' ? '日' : type === 'weekly' ? '周' : type === 'monthly' ? '月' : '年'}榜：
-    ${topTen.join("\n")}`;
-
-    return { rankString, userRank, userPostCount };
-  }
-
-
-  async function resetCounter(_key: string, countKey: string, message: string) {
+  async function resetCounter(_key, countKey: string, message: string) {
     // countKey 排行榜类型 message 成功清除消息
     const getUsers = await ctx.database.get('message_counter_records', {});
     if (getUsers.length === 0) {
@@ -482,7 +402,7 @@ export function apply(ctx: Context, config: Config) {
       // 遍历 bots 获取 bot 信息，以便发送信息
       for (const currentBot of ctx.bots) {
         // 遍历 pushGuildIds 字符串数组 为每一个群组发送排行榜信息
-        pushGuildIds.map(async (guildId: string) => {
+        pushGuildIds.map(async (guildId) => {
           // 获取推送群组中的用户发言信息
           const usersByGuild = getUsers.filter(user => user.guildId === guildId);
           // 根据 countKey 类型，对数据进行排序，并返回最终排行榜结果
@@ -529,7 +449,7 @@ export function apply(ctx: Context, config: Config) {
       // 遍历 bots 获取 bot 信息，以便发送信息
       for (const currentBot of ctx.bots) {
         // 遍历 pushGuildIds 字符串数组 为每一个群组禁言龙王
-        muteGuildIds.map(async (guildId: string) => {
+        muteGuildIds.map(async (guildId) => {
           // 找到那个在当前群聊中每日发言最多的人
           // 获取当前群组中的用户发言信息
           const usersByGuild = getUsers.filter(user => user.guildId === guildId);
