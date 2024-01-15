@@ -418,7 +418,7 @@ export function apply(ctx: Context, config: Config) {
         }
 
         // 将 userMap 转换为数组并按 todayPostCountAll 降序排序
-        const sortedUsers = Array.from(userMap).sort((a, b) => b[1] - a[1]).slice(0, 10);
+        const sortedUsers = Array.from(userMap).sort((a, b) => b[1] - a[1]).slice(0, number);
 
         // 生成排行榜 rank
         let rank = '排行榜：跨群总发言次数：\n';
