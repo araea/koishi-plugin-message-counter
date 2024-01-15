@@ -44,6 +44,10 @@ koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/) 的
   - `-y`：今年发言次数[排名]。🎊
   - `-t`：总发言次数[排名]。👑
   - `-a`：跨群发言总次数[排名]。🐲
+  - `--dayAcross`：跨群日发言总次数[排名]。🐲
+  - `--weekAcross`：跨群周发言总次数[排名]。🐲
+  - `--monthAcross`：跨群月发言总次数[排名]。🐲
+  - `--yearAcross`：跨群年发言总次数[排名]。🐲
 - `messageCounter.排行榜 [number]`：发言排行榜，可以指定显示的人数，也可以使用以下选项来指定排行榜的类型：🏆
   - `-d`：今日发言榜。🌞
   - `-w`：本周发言榜。🌙
@@ -51,6 +55,10 @@ koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/) 的
   - `-y`：今年发言榜。🎊
   - `-t`：总发言榜。👑
   - `--dragon`：圣龙王榜，显示每个用户在所有群中的总发言次数。🐲
+  - `--dayAcross`：跨群日榜。🐲
+  - `--weekAcross`：跨群周榜。🐲
+  - `--monthAcross`：跨群月榜。🐲
+  - `--yearAcross`：跨群年榜。🐲
   - 若未指定排行榜类型，则默认为今日发言榜。💬
 
 ## 🙏 致谢
