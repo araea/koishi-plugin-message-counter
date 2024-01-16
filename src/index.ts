@@ -421,7 +421,7 @@ export function apply(ctx: Context, config: Config) {
         const sortedUsers = Array.from(userMap).sort((a, b) => b[1] - a[1]).slice(0, number);
 
         // 生成排行榜 rank
-        let rank = '排行榜：跨群总发言次数：\n';
+        let rank = '排行榜：跨群今日总发言次数：\n';
         sortedUsers.forEach((user, index) => {
           const userId = user[0];
           const todayPostCountAll = user[1];
