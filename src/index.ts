@@ -365,25 +365,25 @@ export function apply(ctx: Context, config: Config) {
       let message = isTextToImageConversionEnabled ? `# 查询对象：${username}\n\n` : `查询对象：${username}\n\n`;
 
       if (day) {
-        message += `今日发言次数[排名]：${todayPostCount}[${todayRank}]\n`;
+        message += `${isTextToImageConversionEnabled?'## ':''}今日发言次数[排名]：${todayPostCount} 次[${todayRank}]\n`;
       }
       if (week) {
-        message += `本周发言次数[排名]：${thisWeekPostCount}[${thisWeekRank}]\n`;
+        message += `${isTextToImageConversionEnabled?'## ':''}本周发言次数[排名]：${thisWeekPostCount} 次[${thisWeekRank}]\n`;
       }
       if (month) {
-        message += `本月发言次数[排名]：${thisMonthPostCount}[${thisMonthRank}]\n`;
+        message += `${isTextToImageConversionEnabled?'## ':''}本月发言次数[排名]：${thisMonthPostCount} 次[${thisMonthRank}]\n`;
       }
       if (year) {
-        message += `今年发言次数[排名]：${thisYearPostCount}[${thisYearRank}]\n`;
+        message += `${isTextToImageConversionEnabled?'## ':''}今年发言次数[排名]：${thisYearPostCount} 次[${thisYearRank}]\n`;
       }
       if (total) {
-        message += `总发言次数[排名]：${totalPostCount}[${totalRank}]\n`;
+        message += `${isTextToImageConversionEnabled?'## ':''}总发言次数[排名]：${totalPostCount} 次[${totalRank}]\n`;
       }
       if (dag) {
-        message += `跨群今日发言次数[排名]：${userRecord.todayPostCountAll}[${dayAcrossRank}]\n`;
+        message += `${isTextToImageConversionEnabled?'## ':''}跨群今日发言次数[排名]：${userRecord.todayPostCountAll} 次[${dayAcrossRank}]\n`;
       }
       if (across) {
-        message += `跨群发言总次数[排名]：${totalPostCountAcrossGuilds}[${acrossRank}]\n`;
+        message += `${isTextToImageConversionEnabled?'## ':''}跨群发言总次数[排名]：${totalPostCountAcrossGuilds} 次[${acrossRank}]\n`;
       }
 
       if (isTextToImageConversionEnabled) {
@@ -473,7 +473,7 @@ export function apply(ctx: Context, config: Config) {
           const userId = user[0];
           const todayPostCountAll = user[1];
           const username = usernameMap.get(userId);
-          rank += `${index + 1}. ${username}: ${todayPostCountAll}\n`;
+          rank += `${isTextToImageConversionEnabled?'## ':''}${index + 1}. ${username}：${todayPostCountAll} 次\n`;
         });
 
         if (isTextToImageConversionEnabled) {
@@ -501,7 +501,7 @@ export function apply(ctx: Context, config: Config) {
           const getUser = await ctx.database.get('message_counter_records', {userId: key});
           const user = getUser[0];
           if (user) {
-            return `${index + 1}. ${user.username}: ${dragonPostCount}`;
+            return `${isTextToImageConversionEnabled?'## ':''}${index + 1}. ${user.username}：${dragonPostCount} 次`;
           }
           return null;
         });
@@ -520,12 +520,12 @@ export function apply(ctx: Context, config: Config) {
       getUsers.sort((a, b) => b[sortByProperty] - a[sortByProperty]);
       const topUsers = getUsers.slice(0, number);
       let i = 1;
-      const result = topUsers.map(user => `${i++}. ${user.username}: ${user[sortByProperty]}`).join('\n');
+      const result = topUsers.map(user => `${isTextToImageConversionEnabled?'## ':''}${i++}. ${user.username}：${user[sortByProperty]} 次`).join('\n');
       if (isTextToImageConversionEnabled) {
-        const imageBuffer = await ctx.markdownToImage.convertToImage(`# 排行榜: ${countProperty}\n${result}`)
+        const imageBuffer = await ctx.markdownToImage.convertToImage(`# 排行榜：${countProperty}\n${result}`)
         return h.image(imageBuffer, `image/png`)
       }
-      await session.send(`排行榜: ${countProperty}\n${result}`);
+      await session.send(`排行榜：${countProperty}\n${result}`);
     });
 
   async function resetCounter(_key, countKey: string, message: string) {
@@ -573,13 +573,13 @@ export function apply(ctx: Context, config: Config) {
             await currentBot.sendMessage(guildId, `正在尝试自动生成${countProperty}榜......`);
             usersByGuild.sort((a, b) => b[sortByProperty] - a[sortByProperty]);
             const topUsers = usersByGuild.slice(0, defaultMaxDisplayCount);
-            const result = topUsers.map((user, index) => `${index + 1}. ${user.username}: ${user[sortByProperty]}`).join('\n');
+            const result = topUsers.map((user, index) => `${isTextToImageConversionEnabled?'## ':''}${index + 1}. ${user.username}：${user[sortByProperty]} 次`).join('\n');
             await sleep(leaderboardGenerationWaitTime * 1000)
             if (isTextToImageConversionEnabled) {
-              const imageBuffer = await ctx.markdownToImage.convertToImage(`# 排行榜: ${countProperty}\n${result}`)
+              const imageBuffer = await ctx.markdownToImage.convertToImage(`# 排行榜：${countProperty}\n${result}`)
               await currentBot.sendMessage(guildId, h.image(imageBuffer, `image/png`));
             } else {
-              await currentBot.sendMessage(guildId, `排行榜: ${countProperty}\n${result}`);
+              await currentBot.sendMessage(guildId, `排行榜：${countProperty}\n${result}`);
             }
 
           }
