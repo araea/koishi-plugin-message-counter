@@ -1,8 +1,12 @@
-import { Context, Logger, Schema, sleep } from 'koishi'
+import {Context, Logger, Schema, sleep} from 'koishi'
 
 import schedule from 'node-schedule';
+import {} from 'koishi-plugin-markdown-to-image-service'
 
 export const name = 'message-counter'
+export const inject = {
+  optional: ['markdownToImage'],
+}
 export const usage = `## 🎮 使用
 
 - 该插件仅记录群聊消息，私聊消息不会被统计。🙈
@@ -35,6 +39,7 @@ const logger = new Logger('messageCounter')
 export interface Config {
   defaultMaxDisplayCount: number
   isBotMessageTrackingEnabled: boolean
+  isTextToImageConversionEnabled: boolean
   autoPush: boolean
   leaderboardGenerationWaitTime
   pushGuildIds
@@ -49,6 +54,7 @@ export const Config: Schema<Config> = Schema.intersect([
     defaultMaxDisplayCount: Schema.number()
       .min(0).default(20).description('排行榜默认显示的人数，默认值为 20。'),
     isBotMessageTrackingEnabled: Schema.boolean().default(false).description('是否统计 Bot 自己发送的消息。'),
+    isTextToImageConversionEnabled: Schema.boolean().default(false).description(`是否开启将文本转为图片的功能（可选），如需启用，需要启用 \`markdownToImage\` 服务。`),
   }),
   Schema.intersect([
     Schema.object({
@@ -62,7 +68,7 @@ export const Config: Schema<Config> = Schema.intersect([
       }), Schema.object({}),]),
   ]),
   Schema.intersect([
-    Schema.object({ enableMostActiveUserMuting: Schema.boolean().default(false).description('是否禁言每天发言最多的人，即龙王。'), }),
+    Schema.object({enableMostActiveUserMuting: Schema.boolean().default(false).description('是否禁言每天发言最多的人，即龙王。'),}),
     Schema.union([
       Schema.object({
         enableMostActiveUserMuting: Schema.const(true).required(),
@@ -95,8 +101,18 @@ interface MessageCounterRecord {
 
 export function apply(ctx: Context, config: Config) {
 
-  const { autoPush, defaultMaxDisplayCount, isBotMessageTrackingEnabled, enableMostActiveUserMuting, pushGuildIds,
-    muteGuildIds, detentionDuration, dragonKingDetainmentTime, leaderboardGenerationWaitTime } = config
+  const {
+    autoPush,
+    defaultMaxDisplayCount,
+    isBotMessageTrackingEnabled,
+    isTextToImageConversionEnabled,
+    enableMostActiveUserMuting,
+    pushGuildIds,
+    muteGuildIds,
+    detentionDuration,
+    dragonKingDetainmentTime,
+    leaderboardGenerationWaitTime
+  } = config
 
   ctx.model.extend('message_counter_records', {
     id: 'unsigned',
@@ -108,20 +124,29 @@ export function apply(ctx: Context, config: Config) {
     thisMonthPostCount: 'integer',
     thisYearPostCount: 'integer',
     totalPostCount: 'integer',
-  }, { primary: 'id', autoInc: true, });
+  }, {primary: 'id', autoInc: true,});
 
   // 限定在群组中
   ctx = ctx.guild()
 
   ctx.on('message', async (session) => {
-    const { guildId, userId, username } = session
+    const {guildId, userId, username} = session
     // 判断该用户是否在数据表中
-    const getUser = await ctx.database.get('message_counter_records', { guildId, userId })
+    const getUser = await ctx.database.get('message_counter_records', {guildId, userId})
     if (getUser.length === 0) {
-      await ctx.database.create('message_counter_records', { guildId, userId, username, todayPostCount: 1, thisWeekPostCount: 1, thisMonthPostCount: 1, thisYearPostCount: 1, totalPostCount: 1 })
+      await ctx.database.create('message_counter_records', {
+        guildId,
+        userId,
+        username,
+        todayPostCount: 1,
+        thisWeekPostCount: 1,
+        thisMonthPostCount: 1,
+        thisYearPostCount: 1,
+        totalPostCount: 1
+      })
     } else {
       const user = getUser[0]
-      await ctx.database.set('message_counter_records', { guildId, userId }, {
+      await ctx.database.set('message_counter_records', {guildId, userId}, {
         username,
         todayPostCount: user.todayPostCount + 1,
         thisWeekPostCount: user.thisWeekPostCount + 1,
@@ -135,14 +160,23 @@ export function apply(ctx: Context, config: Config) {
   if (isBotMessageTrackingEnabled) {
     ctx.before('send', async (session) => {
       if (isBotMessageTrackingEnabled) {
-        const { guildId, bot } = session
+        const {guildId, bot} = session
         // 判断该用户是否在数据表中
-        const getUser = await ctx.database.get('message_counter_records', { guildId, userId: bot.user.id })
+        const getUser = await ctx.database.get('message_counter_records', {guildId, userId: bot.user.id})
         if (getUser.length === 0) {
-          await ctx.database.create('message_counter_records', { guildId, userId: bot.user.id, username: bot.user.name, todayPostCount: 1, thisWeekPostCount: 1, thisMonthPostCount: 1, thisYearPostCount: 1, totalPostCount: 1 })
+          await ctx.database.create('message_counter_records', {
+            guildId,
+            userId: bot.user.id,
+            username: bot.user.name,
+            todayPostCount: 1,
+            thisWeekPostCount: 1,
+            thisMonthPostCount: 1,
+            thisYearPostCount: 1,
+            totalPostCount: 1
+          })
         } else {
           const user = getUser[0]
-          await ctx.database.set('message_counter_records', { guildId, userId: bot.user.id }, {
+          await ctx.database.set('message_counter_records', {guildId, userId: bot.user.id}, {
             username: bot.user.name,
             todayPostCount: user.todayPostCount + 1,
             thisWeekPostCount: user.thisWeekPostCount + 1,
@@ -156,12 +190,12 @@ export function apply(ctx: Context, config: Config) {
   }
   // mc*
   ctx.command('messageCounter', '查看messageCounter帮助')
-    .action(async ({ session }) => {
+    .action(async ({session}) => {
       await session.execute(`messageCounter -h`);
     });
   // csh*
-  ctx.command('messageCounter.初始化', '初始化', { authority: 3 })
-    .action(async ({ session }) => {
+  ctx.command('messageCounter.初始化', '初始化', {authority: 3})
+    .action(async ({session}) => {
       await session.send('嗯~')
       await ctx.database.remove('message_counter_records', {})
       await session.send('好啦~')
@@ -175,7 +209,7 @@ export function apply(ctx: Context, config: Config) {
     .option('total', '-t 总发言次数[排名]')
     .option('dag', '--dag 跨群今日发言总次数[排名]')
     .option('across', '-a 跨群发言总次数[排名]')
-    .action(async ({ session, options }, targetUser) => {
+    .action(async ({session, options}, targetUser) => {
       // 初始化所有选项为 false
       const selectedOptions = {
         day: false,
@@ -218,25 +252,25 @@ export function apply(ctx: Context, config: Config) {
         });
       }
 
-      const { day, week, month, year, total, across, dag } = selectedOptions;
+      const {day, week, month, year, total, across, dag} = selectedOptions;
       // selectedOptions 对象包含了用户选择的选项
 
       // 查询： 直接获取 返回提示 跨群总榜
-      let { guildId, userId, username } = session
+      let {guildId, userId, username} = session
       if (targetUser) {
         const userIdRegex = /<at id="([^"]+)"(?: name="([^"]+)")?\/>/;
         const match = targetUser.match(userIdRegex);
         userId = match?.[1] ?? userId;
         username = match?.[2] ?? username;
       }
-      const targetUserRecord = await ctx.database.get('message_counter_records', { guildId, userId })
+      const targetUserRecord = await ctx.database.get('message_counter_records', {guildId, userId})
       if (targetUserRecord.length === 0) {
-        await ctx.database.create('message_counter_records', { guildId, userId, username })
+        await ctx.database.create('message_counter_records', {guildId, userId, username})
         return `查询对象：${username}
 
 无任何发言记录。`
       }
-      const guildUsers: MessageCounterRecord[] = await ctx.database.get('message_counter_records', { guildId });
+      const guildUsers: MessageCounterRecord[] = await ctx.database.get('message_counter_records', {guildId});
 
       // 获取 userId 对应对象的各种种类的排名数据
       const getUserRanking = (userId: string) => {
@@ -266,7 +300,7 @@ export function apply(ctx: Context, config: Config) {
       // 使用方法获取 userId 对应对象的各种种类的排名数据
       const userRankingData = getUserRanking(userId);
 
-      const { todayRank, thisWeekRank, thisMonthRank, thisYearRank, totalRank } = userRankingData
+      const {todayRank, thisWeekRank, thisMonthRank, thisYearRank, totalRank} = userRankingData
 
       function getAcrossUserRank(userId: string, dragons: [string, number][]): number {
         const userIndex = dragons.findIndex(([id, _]) => id === userId);
@@ -278,12 +312,13 @@ export function apply(ctx: Context, config: Config) {
           return -1;
         }
       }
+
       // 跨群发言总次数和排名信息
       const getDragons = await ctx.database.get('message_counter_records', {});
       const dragons = getSortedDragons(getDragons)
       const acrossRank = getAcrossUserRank(userId, dragons);
 
-      const userRecords: MessageCounterRecord[] = await ctx.database.get('message_counter_records', { userId });
+      const userRecords: MessageCounterRecord[] = await ctx.database.get('message_counter_records', {userId});
 
       // 使用 reduce 方法计算跨群总发言次数
       const totalPostCountAcrossGuilds = userRecords.reduce((total, record) => {
@@ -296,7 +331,9 @@ export function apply(ctx: Context, config: Config) {
         return;
       }
       // 创建新数组
-      const aggregatedUserRecords: { [key: string]: { userId: string, todayPostCountAll: number, username: string } } = getUsers.reduce((acc, user) => {
+      const aggregatedUserRecords: {
+        [key: string]: { userId: string, todayPostCountAll: number, username: string }
+      } = getUsers.reduce((acc, user) => {
         if (!acc[user.userId]) {
           acc[user.userId] = {
             userId: user.userId,
@@ -317,10 +354,16 @@ export function apply(ctx: Context, config: Config) {
       const userRecord = sortedUserRecords[userIndex];
       const dayAcrossRank = userIndex + 1; // 排名从 1 开始
 
-      const { todayPostCount, thisWeekPostCount, thisMonthPostCount, thisYearPostCount, totalPostCount } = targetUserRecord[0]
+      const {
+        todayPostCount,
+        thisWeekPostCount,
+        thisMonthPostCount,
+        thisYearPostCount,
+        totalPostCount
+      } = targetUserRecord[0]
 
 
-      let message = `查询对象：${username}\n\n`;
+      let message = isTextToImageConversionEnabled ? `# 查询对象：${username}\n\n` : `查询对象：${username}\n\n`;
 
       if (day) {
         message += `今日发言次数[排名]：${todayPostCount}[${todayRank}]\n`;
@@ -344,6 +387,10 @@ export function apply(ctx: Context, config: Config) {
         message += `跨群发言总次数[排名]：${totalPostCountAcrossGuilds}[${acrossRank}]\n`;
       }
 
+      if (isTextToImageConversionEnabled) {
+        const imageBuffer = await ctx.markdownToImage.convertToImage(message)
+        return h.image(imageBuffer, `image/png`)
+      }
       // 返回消息
       return message;
     });
@@ -357,8 +404,8 @@ export function apply(ctx: Context, config: Config) {
     .option('total', '-t 总发言榜')
     .option('dag', '--dag 跨群日发言榜')
     .option('dragon', '--dragon 圣龙王榜')
-    .action(async ({ session, options }, number) => {
-      const { guildId } = session;
+    .action(async ({session, options}, number) => {
+      const {guildId} = session;
 
       if (!number) {
         number = defaultMaxDisplayCount;
@@ -368,7 +415,7 @@ export function apply(ctx: Context, config: Config) {
         return '请输入大于等于 0 的数字作为排行榜的参数。';
       }
 
-      const getUsers = await ctx.database.get('message_counter_records', { guildId });
+      const getUsers = await ctx.database.get('message_counter_records', {guildId});
       if (getUsers.length === 0) {
         return;
       }
@@ -396,6 +443,7 @@ export function apply(ctx: Context, config: Config) {
         countProperty = '今日发言次数';
       }
 
+      // 跨群日榜
       if (options.dag) {
         const getUsers = await ctx.database.get('message_counter_records', {});
         if (getUsers.length === 0) {
@@ -408,7 +456,7 @@ export function apply(ctx: Context, config: Config) {
 
         // 遍历 getUsers，将所有 userId 相同的记录的 todayPostCount 全部加在一起
         for (const user of getUsers) {
-          const { userId, todayPostCount, username } = user;
+          const {userId, todayPostCount, username} = user;
           if (userMap.has(userId)) {
             userMap.set(userId, userMap.get(userId) + todayPostCount);
           } else {
@@ -421,7 +469,7 @@ export function apply(ctx: Context, config: Config) {
         const sortedUsers = Array.from(userMap).sort((a, b) => b[1] - a[1]).slice(0, number);
 
         // 生成排行榜 rank
-        let rank = '排行榜：跨群今日总发言次数：\n';
+        let rank = isTextToImageConversionEnabled ? '# 排行榜：跨群今日总发言次数：\n' : '排行榜：跨群今日总发言次数：\n';
         sortedUsers.forEach((user, index) => {
           const userId = user[0];
           const todayPostCountAll = user[1];
@@ -429,9 +477,15 @@ export function apply(ctx: Context, config: Config) {
           rank += `${index + 1}. ${username}: ${todayPostCountAll}\n`;
         });
 
+        if (isTextToImageConversionEnabled) {
+          const imageBuffer = await ctx.markdownToImage.convertToImage(rank)
+          return h.image(imageBuffer, `image/png`)
+        }
+
         return (rank);
       }
 
+      // 圣龙王榜
       if (options.dragon) {
         const getDragons = await ctx.database.get('message_counter_records', {});
         if (getDragons.length === 0) {
@@ -445,7 +499,7 @@ export function apply(ctx: Context, config: Config) {
 
         // 获取用户信息并构建结果数组
         const resultPromises = topDragons.map(async ([key, dragonPostCount], index) => {
-          const getUser = await ctx.database.get('message_counter_records', { userId: key });
+          const getUser = await ctx.database.get('message_counter_records', {userId: key});
           const user = getUser[0];
           if (user) {
             return `${index + 1}. ${user.username}: ${dragonPostCount}`;
@@ -455,6 +509,10 @@ export function apply(ctx: Context, config: Config) {
 
         const result = (await Promise.all(resultPromises)).filter((item) => item !== null) as string[];
 
+        if (isTextToImageConversionEnabled) {
+          const imageBuffer = await ctx.markdownToImage.convertToImage(`# 圣龙王榜: \n${result.join('\n')}`)
+          return h.image(imageBuffer, `image/png`)
+        }
         await session.send(`圣龙王榜: \n${result.join('\n')}`);
         return;
       }
@@ -464,6 +522,10 @@ export function apply(ctx: Context, config: Config) {
       const topUsers = getUsers.slice(0, number);
       let i = 1;
       const result = topUsers.map(user => `${i++}. ${user.username}: ${user[sortByProperty]}`).join('\n');
+      if (isTextToImageConversionEnabled) {
+        const imageBuffer = await ctx.markdownToImage.convertToImage(`# 排行榜: ${countProperty}\n${result}`)
+        return h.image(imageBuffer, `image/png`)
+      }
       await session.send(`排行榜: ${countProperty}\n${result}`);
     });
 
@@ -514,7 +576,13 @@ export function apply(ctx: Context, config: Config) {
             const topUsers = usersByGuild.slice(0, defaultMaxDisplayCount);
             const result = topUsers.map((user, index) => `${index + 1}. ${user.username}: ${user[sortByProperty]}`).join('\n');
             await sleep(leaderboardGenerationWaitTime * 1000)
-            await currentBot.sendMessage(guildId, `排行榜: ${countProperty}\n${result}`);
+            if (isTextToImageConversionEnabled) {
+              const imageBuffer = await ctx.markdownToImage.convertToImage(`# 排行榜: ${countProperty}\n${result}`)
+              await currentBot.sendMessage(guildId, h.image(imageBuffer, `image/png`));
+            } else {
+              await currentBot.sendMessage(guildId, `排行榜: ${countProperty}\n${result}`);
+            }
+
           }
         });
       }
@@ -548,7 +616,7 @@ export function apply(ctx: Context, config: Config) {
     }
     // 排行榜推送和禁言龙王搞定之后
     // 该干正事了 置零！
-    await ctx.database.set('message_counter_records', {}, { [countKey]: 0 });
+    await ctx.database.set('message_counter_records', {}, {[countKey]: 0});
 
     logger.success(message);
   }
@@ -556,7 +624,7 @@ export function apply(ctx: Context, config: Config) {
   function getSortedDragons(records: MessageCounterRecord[]): [string, number][] {
     const dragonsMap: { [userId: string]: number } = {};
     for (const dragon of records) {
-      const { userId, totalPostCount } = dragon;
+      const {userId, totalPostCount} = dragon;
       const key = `${userId}`;
       dragonsMap[key] = (dragonsMap[key] || 0) + totalPostCount;
     }
