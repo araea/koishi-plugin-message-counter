@@ -1,4 +1,4 @@
-import {Context, Logger, Schema, sleep} from 'koishi'
+import {Context, Logger, Schema, sleep, h} from 'koishi'
 
 import schedule from 'node-schedule';
 import {} from 'koishi-plugin-markdown-to-image-service'
