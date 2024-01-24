@@ -25,6 +25,7 @@ koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/) 的
 
 - `defaultMaxDisplayCount`：排行榜默认显示的人数，默认为 `20`。👥
 - `isBotMessageTrackingEnabled`：是否统计机器人自己发送的消息，默认为 `false`。🤖
+- `isTextToImageConversionEnabled`：是否开启将文本转为图片的功能（可选），如需启用，需要启用 `markdownToImage` 服务。🤖
 - `autoPush`：是否自动推送排行榜，默认为 `false`。👌
   - `leaderboardGenerationWaitTime`：自动生成排行榜的等待时间，单位是秒，默认为 `3`。⌚️
   - `pushGuildIds`：启用自动推送排行榜功能的群组列表。⌚️

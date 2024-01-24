@@ -1,4 +1,4 @@
-import {Context, Logger, Schema, sleep, h} from 'koishi'
+import {Context, h, Logger, Schema, sleep} from 'koishi'
 
 import schedule from 'node-schedule';
 import {} from 'koishi-plugin-markdown-to-image-service'
@@ -276,14 +276,13 @@ export function apply(ctx: Context, config: Config) {
       const getUserRanking = (userId: string) => {
         const userRecords = guildUsers.find(user => user.userId === userId);
         if (userRecords) {
-          const rankingData = {
+          return {
             todayRank: getRank('todayPostCount', userId),
             thisWeekRank: getRank('thisWeekPostCount', userId),
             thisMonthRank: getRank('thisMonthPostCount', userId),
             thisYearRank: getRank('thisYearPostCount', userId),
             totalRank: getRank('totalPostCount', userId)
           };
-          return rankingData;
         } else {
           return null; // 如果找不到对应 userId 的记录，返回 null 或者其他适当的值
         }
@@ -629,8 +628,7 @@ export function apply(ctx: Context, config: Config) {
       dragonsMap[key] = (dragonsMap[key] || 0) + totalPostCount;
     }
 
-    const dragons = Object.entries(dragonsMap).sort((a, b) => b[1] - a[1]);
-    return dragons;
+    return Object.entries(dragonsMap).sort((a, b) => b[1] - a[1]);
   }
 
   async function day() {
