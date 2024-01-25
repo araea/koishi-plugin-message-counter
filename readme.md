@@ -4,11 +4,13 @@
 
 ## 🎈 介绍
 
-koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/) 的机器人插件，用于统计群聊中用户的发言次数，并生成各种排行榜，包括日榜、周榜、月榜、年榜、总榜和圣龙王榜。🐉
+koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/)
+的机器人插件，用于统计群聊中用户的发言次数，并生成各种排行榜，包括日榜、周榜、月榜、年榜、总榜和圣龙王榜。🐉
 
 该插件可以自动推送排行榜，也可以手动查询。还可以选择是否统计机器人自己的发言，以及是否禁言每天发言最多的用户（即龙王）。🤐
 
-该插件使用了 [node-schedule](https://www.npmjs.com/package/node-schedule) 来实现定时任务，以及 [koishi](https://koishi.chat/) 的数据库接口来存储用户数据。📚
+该插件使用了 [node-schedule](https://www.npmjs.com/package/node-schedule)
+来实现定时任务，以及 [koishi](https://koishi.chat/) 的数据库接口来存储用户数据。📚
 
 ## 📦 安装
 
@@ -20,6 +22,7 @@ koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/) 的
 
 - 该插件仅记录群聊消息，私聊消息不会被统计。🙈
 - 该插件建议为指令添加指令别名，以方便用户快速查询。🚀
+- 可以选择启用 `isTextToImageConversionEnabled`（文字转图片）功能，但更建议使用 `imagify` 插件（在插件市场搜索），视觉效果更佳，渲染速度更快（可能）。
 
 ## ⚙️ 配置项
 
