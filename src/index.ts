@@ -540,7 +540,7 @@ export function apply(ctx: Context, config: Config) {
       // 遍历 bots 获取 bot 信息，以便发送信息
       for (const currentBot of ctx.bots) {
         // 遍历 pushGuildIds 字符串数组 为每一个群组发送排行榜信息
-        pushGuildIds.map(async (guildId) => {
+        for (const guildId of pushGuildIds) {
           // 获取推送群组中的用户发言信息
           const usersByGuild = getUsers.filter(user => user.guildId === guildId);
           // 根据 countKey 类型，对数据进行排序，并返回最终排行榜结果
@@ -575,16 +575,16 @@ export function apply(ctx: Context, config: Config) {
             usersByGuild.sort((a, b) => b[sortByProperty] - a[sortByProperty]);
             const topUsers = usersByGuild.slice(0, defaultMaxDisplayCount);
             const result = topUsers.map((user, index) => `${isTextToImageConversionEnabled ? '## ' : ''}${index + 1}. ${user.username}：${user[sortByProperty]} 次`).join('\n');
-            await sleep(leaderboardGenerationWaitTime * 1000)
+            await sleep(leaderboardGenerationWaitTime * 1000);
             if (isTextToImageConversionEnabled) {
-              const imageBuffer = await ctx.markdownToImage.convertToImage(`# 排行榜：${countProperty}\n${result}`)
+              const imageBuffer = await ctx.markdownToImage.convertToImage(`# 排行榜：${countProperty}\n${result}`);
               await currentBot.sendMessage(guildId, h.image(imageBuffer, `image/png`));
             } else {
               await currentBot.sendMessage(guildId, `排行榜：${countProperty}\n${result}`);
             }
 
           }
-        });
+        }
       }
     }
 
@@ -593,7 +593,7 @@ export function apply(ctx: Context, config: Config) {
       // 遍历 bots 获取 bot 信息，以便发送信息
       for (const currentBot of ctx.bots) {
         // 遍历 pushGuildIds 字符串数组 为每一个群组禁言龙王
-        muteGuildIds.map(async (guildId) => {
+        for (const guildId of muteGuildIds) {
           // 找到那个在当前群聊中每日发言最多的人
           // 获取当前群组中的用户发言信息
           const usersByGuild = getUsers.filter(user => user.guildId === guildId);
@@ -601,17 +601,17 @@ export function apply(ctx: Context, config: Config) {
           if (usersByGuild.length !== 0) {
             await currentBot.sendMessage(guildId, `正在尝试自动捕捉龙王......`);
             // 拉出来
-            const dragonUser = usersByGuild[0]
+            const dragonUser = usersByGuild[0];
             try {
               // 禁言当前群组里的龙王 1 天
-              await sleep(dragonKingDetainmentTime * 1000)
+              await sleep(dragonKingDetainmentTime * 1000);
               await currentBot.muteGuildMember(guildId, dragonUser.userId, detentionDuration * 24 * 60 * 60 * 1000);
               await currentBot.sendMessage(guildId, `诸位请放心，龙王已被成功捕捉，关押时间为 ${detentionDuration} 天！`);
             } catch (error) {
               logger.error(`在【${guildId}】中禁言用户【${dragonUser.username}】（${dragonUser.userId}）失败！${error}`);
             }
           }
-        })
+        }
       }
     }
     // 排行榜推送和禁言龙王搞定之后
