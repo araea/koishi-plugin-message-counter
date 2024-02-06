@@ -95,7 +95,7 @@ declare module 'koishi' {
 
 interface MessageCounterRecord {
   id: number;
-  guildId: string;
+  channelId: string;
   userId: string;
   username: string;
   todayPostCount: number;
@@ -124,7 +124,7 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.model.extend('message_counter_records', {
     id: 'unsigned',
-    guildId: 'string',
+    channelId: 'string',
     userId: 'string',
     username: 'string',
     todayPostCount: 'unsigned',
@@ -139,12 +139,12 @@ export function apply(ctx: Context, config: Config) {
   ctx = ctx.guild()
 
   ctx.on('message', async (session) => {
-    const {guildId, userId, username} = session
+    const {channelId, userId, username} = session
     // 判断该用户是否在数据表中
-    const getUser = await ctx.database.get('message_counter_records', {guildId, userId})
+    const getUser = await ctx.database.get('message_counter_records', {channelId, userId})
     if (getUser.length === 0) {
       await ctx.database.create('message_counter_records', {
-        guildId,
+        channelId,
         userId,
         username,
         todayPostCount: 1,
@@ -155,7 +155,7 @@ export function apply(ctx: Context, config: Config) {
       })
     } else {
       const user = getUser[0]
-      await ctx.database.set('message_counter_records', {guildId, userId}, {
+      await ctx.database.set('message_counter_records', {channelId, userId}, {
         username,
         todayPostCount: user.todayPostCount + 1,
         thisWeekPostCount: user.thisWeekPostCount + 1,
@@ -169,12 +169,12 @@ export function apply(ctx: Context, config: Config) {
   if (isBotMessageTrackingEnabled) {
     ctx.before('send', async (session) => {
       if (isBotMessageTrackingEnabled) {
-        const {guildId, bot} = session
+        const {channelId, bot} = session
         // 判断该用户是否在数据表中
-        const getUser = await ctx.database.get('message_counter_records', {guildId, userId: bot.user.id})
+        const getUser = await ctx.database.get('message_counter_records', {channelId, userId: bot.user.id})
         if (getUser.length === 0) {
           await ctx.database.create('message_counter_records', {
-            guildId,
+            channelId,
             userId: bot.user.id,
             username: bot.user.name,
             todayPostCount: 1,
@@ -185,7 +185,7 @@ export function apply(ctx: Context, config: Config) {
           })
         } else {
           const user = getUser[0]
-          await ctx.database.set('message_counter_records', {guildId, userId: bot.user.id}, {
+          await ctx.database.set('message_counter_records', {channelId, userId: bot.user.id}, {
             username: bot.user.name,
             todayPostCount: user.todayPostCount + 1,
             thisWeekPostCount: user.thisWeekPostCount + 1,
@@ -270,21 +270,21 @@ export function apply(ctx: Context, config: Config) {
       // selectedOptions 对象包含了用户选择的选项
 
       // 查询： 直接获取 返回提示 跨群总榜
-      let {guildId, userId, username} = session
+      let {channelId, userId, username} = session
       if (targetUser) {
         const userIdRegex = /<at id="([^"]+)"(?: name="([^"]+)")?\/>/;
         const match = targetUser.match(userIdRegex);
         userId = match?.[1] ?? userId;
         username = match?.[2] ?? username;
       }
-      const targetUserRecord = await ctx.database.get('message_counter_records', {guildId, userId})
+      const targetUserRecord = await ctx.database.get('message_counter_records', {channelId, userId})
       if (targetUserRecord.length === 0) {
-        await ctx.database.create('message_counter_records', {guildId, userId, username})
+        await ctx.database.create('message_counter_records', {channelId, userId, username})
         return `查询对象：${username}
 
 无任何发言记录。`
       }
-      const guildUsers: MessageCounterRecord[] = await ctx.database.get('message_counter_records', {guildId});
+      const guildUsers: MessageCounterRecord[] = await ctx.database.get('message_counter_records', {channelId});
 
       // 获取 userId 对应对象的各种种类的排名数据
       const getUserRanking = (userId: string) => {
@@ -427,7 +427,7 @@ export function apply(ctx: Context, config: Config) {
     .option('dag', '--dag 跨群日发言榜')
     .option('dragon', '--dragon 圣龙王榜')
     .action(async ({session, options}, number) => {
-      const {guildId} = session;
+      const {channelId} = session;
 
       if (!number) {
         number = defaultMaxDisplayCount;
@@ -437,7 +437,7 @@ export function apply(ctx: Context, config: Config) {
         return '请输入大于等于 0 的数字作为排行榜的参数。';
       }
 
-      const getUsers = await ctx.database.get('message_counter_records', {guildId});
+      const getUsers = await ctx.database.get('message_counter_records', {channelId});
       if (getUsers.length === 0) {
         return;
       }
@@ -578,9 +578,9 @@ export function apply(ctx: Context, config: Config) {
       // 遍历 bots 获取 bot 信息，以便发送信息
       for (const currentBot of ctx.bots) {
         // 遍历 pushGuildIds 字符串数组 为每一个群组发送排行榜信息
-        for (const guildId of pushGuildIds) {
+        for (const channelId of pushGuildIds) {
           // 获取推送群组中的用户发言信息
-          const usersByGuild = getUsers.filter(user => user.guildId === guildId);
+          const usersByGuild = getUsers.filter(user => user.channelId === channelId);
           // 根据 countKey 类型，对数据进行排序，并返回最终排行榜结果
           // 有数据再继续
           if (usersByGuild.length !== 0) {
@@ -613,7 +613,7 @@ export function apply(ctx: Context, config: Config) {
                 return; // 这种情况理论上不会出现
             }
 
-            await currentBot.sendMessage(guildId, `正在尝试自动生成${countProperty}榜......`);
+            await currentBot.sendMessage(channelId, `正在尝试自动生成${countProperty}榜......`);
             usersByGuild.sort((a, b) => b[sortByProperty] - a[sortByProperty]);
             const topUsers = usersByGuild.slice(0, defaultMaxDisplayCount);
             const result = topUsers.map((user, index) => `${isTextToImageConversionEnabled ? '## ' : ''}${index + 1}. ${user.username}：${user[sortByProperty]} 次`).join('\n');
@@ -624,9 +624,9 @@ export function apply(ctx: Context, config: Config) {
             await sleep(leaderboardGenerationWaitTime * 1000);
             if (isTextToImageConversionEnabled) {
               const imageBuffer = await ctx.markdownToImage.convertToImage(rank);
-              await currentBot.sendMessage(guildId, h.image(imageBuffer, `image/png`));
+              await currentBot.sendMessage(channelId, h.image(imageBuffer, `image/png`));
             } else {
-              await currentBot.sendMessage(guildId, rank);
+              await currentBot.sendMessage(channelId, rank);
             }
 
           }
@@ -639,22 +639,22 @@ export function apply(ctx: Context, config: Config) {
       // 遍历 bots 获取 bot 信息，以便发送信息
       for (const currentBot of ctx.bots) {
         // 遍历 pushGuildIds 字符串数组 为每一个群组禁言龙王
-        for (const guildId of muteGuildIds) {
+        for (const channelId of muteGuildIds) {
           // 找到那个在当前群聊中每日发言最多的人
           // 获取当前群组中的用户发言信息
-          const usersByGuild = getUsers.filter(user => user.guildId === guildId);
+          const usersByGuild = getUsers.filter(user => user.channelId === channelId);
           // 有数据再继续
           if (usersByGuild.length !== 0) {
-            await currentBot.sendMessage(guildId, `正在尝试自动捕捉龙王......`);
+            await currentBot.sendMessage(channelId, `正在尝试自动捕捉龙王......`);
             // 拉出来
             const dragonUser = usersByGuild[0];
             try {
               // 禁言当前群组里的龙王 1 天
               await sleep(dragonKingDetainmentTime * 1000);
-              await currentBot.muteGuildMember(guildId, dragonUser.userId, detentionDuration * 24 * 60 * 60 * 1000);
-              await currentBot.sendMessage(guildId, `诸位请放心，龙王已被成功捕捉，关押时间为 ${detentionDuration} 天！`);
+              await currentBot.muteGuildMember(channelId, dragonUser.userId, detentionDuration * 24 * 60 * 60 * 1000);
+              await currentBot.sendMessage(channelId, `诸位请放心，龙王已被成功捕捉，关押时间为 ${detentionDuration} 天！`);
             } catch (error) {
-              logger.error(`在【${guildId}】中禁言用户【${dragonUser.username}】（${dragonUser.userId}）失败！${error}`);
+              logger.error(`在【${channelId}】中禁言用户【${dragonUser.username}】（${dragonUser.userId}）失败！${error}`);
             }
           }
         }
@@ -675,7 +675,7 @@ export function apply(ctx: Context, config: Config) {
     for (const user of users) {
       await ctx.database.set('message_counter_records', {
         userId: user.userId,
-        guildId: user.guildId
+        channelId: user.channelId
       }, {yesterdayPostCount: user.todayPostCount})
     }
   }
