@@ -2,6 +2,7 @@ import {Context, h, Logger, Schema, sleep} from 'koishi'
 
 import schedule from 'node-schedule';
 import {} from 'koishi-plugin-markdown-to-image-service'
+import {transformKey} from "@koishijs/plugin-adapter-satori";
 
 export const name = 'message-counter'
 export const inject = {
@@ -23,6 +24,7 @@ export const usage = `## 🎮 使用
   - \`-m\`：本月发言次数[排名]。📅
   - \`-y\`：今年发言次数[排名]。🎊
   - \`-t\`：总发言次数[排名]。👑
+  - \`--yesterday\`：昨日发言次数[排名]。⬅️
   - \`--dag\`：跨群今日发言总次数[排名]。👑
   - \`-a\`：跨群发言总次数[排名]。🐲
 - \`messageCounter.排行榜 [number]\`：发言排行榜，可以指定显示的人数，也可以使用以下选项来指定排行榜的类型：🏆
@@ -31,6 +33,7 @@ export const usage = `## 🎮 使用
   - \`-m\`：本月发言榜。📅
   - \`-y\`：今年发言榜。🎊
   - \`-t\`：总发言榜。👑
+  - \`--yesterday\`：昨日发言榜。⬅️
   - \`--dag\`：跨群今日发言榜。👑
   - \`--dragon\`：圣龙王榜，显示每个用户在所有群中的总发言次数。🐲
   - 若未指定排行榜类型，则默认为今日发言榜。💬`
@@ -38,16 +41,17 @@ export const usage = `## 🎮 使用
 const logger = new Logger('messageCounter')
 
 export interface Config {
+  isTimeInfoSupplementEnabled: boolean
   defaultMaxDisplayCount: number
   isBotMessageTrackingEnabled: boolean
   isTextToImageConversionEnabled: boolean
   autoPush: boolean
-  leaderboardGenerationWaitTime
-  pushGuildIds
+  leaderboardGenerationWaitTime: number
+  pushGuildIds: string[]
   enableMostActiveUserMuting: boolean
-  dragonKingDetainmentTime
-  muteGuildIds
-  detentionDuration
+  dragonKingDetainmentTime: number
+  muteGuildIds: string[]
+  detentionDuration: number
 }
 
 export const Config: Schema<Config> = Schema.intersect([
@@ -55,6 +59,7 @@ export const Config: Schema<Config> = Schema.intersect([
     defaultMaxDisplayCount: Schema.number()
       .min(0).default(20).description('排行榜默认显示的人数，默认值为 20。'),
     isBotMessageTrackingEnabled: Schema.boolean().default(false).description('是否统计 Bot 自己发送的消息。'),
+    isTimeInfoSupplementEnabled: Schema.boolean().default(true).description('是否在显示排行榜时补充时间信息。'),
     isTextToImageConversionEnabled: Schema.boolean().default(false).description(`是否开启将文本转为图片的功能（可选），如需启用，需要启用 \`markdownToImage\` 服务。`),
   }),
   Schema.intersect([
@@ -98,6 +103,7 @@ interface MessageCounterRecord {
   thisMonthPostCount: number;
   thisYearPostCount: number;
   totalPostCount: number;
+  yesterdayPostCount: number
 }
 
 export function apply(ctx: Context, config: Config) {
@@ -106,6 +112,7 @@ export function apply(ctx: Context, config: Config) {
     autoPush,
     defaultMaxDisplayCount,
     isBotMessageTrackingEnabled,
+    isTimeInfoSupplementEnabled,
     isTextToImageConversionEnabled,
     enableMostActiveUserMuting,
     pushGuildIds,
@@ -120,11 +127,12 @@ export function apply(ctx: Context, config: Config) {
     guildId: 'string',
     userId: 'string',
     username: 'string',
-    todayPostCount: 'integer',
-    thisWeekPostCount: 'integer',
-    thisMonthPostCount: 'integer',
-    thisYearPostCount: 'integer',
-    totalPostCount: 'integer',
+    todayPostCount: 'unsigned',
+    thisWeekPostCount: 'unsigned',
+    thisMonthPostCount: 'unsigned',
+    thisYearPostCount: 'unsigned',
+    totalPostCount: 'unsigned',
+    yesterdayPostCount: 'unsigned',
   }, {primary: 'id', autoInc: true,});
 
   // 限定在群组中
@@ -208,6 +216,7 @@ export function apply(ctx: Context, config: Config) {
     .option('month', '-m 本月发言次数[排名]')
     .option('year', '-y 今年发言次数[排名]')
     .option('total', '-t 总发言次数[排名]')
+    .option('yesterday', '--yesterday 昨日发言总次数[排名]')
     .option('dag', '--dag 跨群今日发言总次数[排名]')
     .option('across', '-a 跨群发言总次数[排名]')
     .action(async ({session, options}, targetUser) => {
@@ -218,8 +227,9 @@ export function apply(ctx: Context, config: Config) {
         month: false,
         year: false,
         total: false,
+        yesterday: false,
         across: false,
-        dag: false
+        dag: false,
       };
 
       // 检查用户选择的选项，如果存在则将其设置为 true
@@ -238,6 +248,9 @@ export function apply(ctx: Context, config: Config) {
       if (options.total) {
         selectedOptions.total = true;
       }
+      if (options.yesterday) {
+        selectedOptions.yesterday = true;
+      }
       if (options.across) {
         selectedOptions.across = true;
       }
@@ -253,7 +266,7 @@ export function apply(ctx: Context, config: Config) {
         });
       }
 
-      const {day, week, month, year, total, across, dag} = selectedOptions;
+      const {day, week, month, year, total, across, dag, yesterday} = selectedOptions;
       // selectedOptions 对象包含了用户选择的选项
 
       // 查询： 直接获取 返回提示 跨群总榜
@@ -282,7 +295,8 @@ export function apply(ctx: Context, config: Config) {
             thisWeekRank: getRank('thisWeekPostCount', userId),
             thisMonthRank: getRank('thisMonthPostCount', userId),
             thisYearRank: getRank('thisYearPostCount', userId),
-            totalRank: getRank('totalPostCount', userId)
+            totalRank: getRank('totalPostCount', userId),
+            yesterdayRank: getRank('yesterdayPostCount', userId),
           };
         } else {
           return null; // 如果找不到对应 userId 的记录，返回 null 或者其他适当的值
@@ -300,7 +314,7 @@ export function apply(ctx: Context, config: Config) {
       // 使用方法获取 userId 对应对象的各种种类的排名数据
       const userRankingData = getUserRanking(userId);
 
-      const {todayRank, thisWeekRank, thisMonthRank, thisYearRank, totalRank} = userRankingData
+      const {todayRank, thisWeekRank, thisMonthRank, thisYearRank, totalRank, yesterdayRank} = userRankingData
 
       function getAcrossUserRank(userId: string, dragons: [string, number][]): number {
         const userIndex = dragons.findIndex(([id, _]) => id === userId);
@@ -359,7 +373,8 @@ export function apply(ctx: Context, config: Config) {
         thisWeekPostCount,
         thisMonthPostCount,
         thisYearPostCount,
-        totalPostCount
+        totalPostCount,
+        yesterdayPostCount,
       } = targetUserRecord[0]
 
 
@@ -379,6 +394,9 @@ export function apply(ctx: Context, config: Config) {
       }
       if (total) {
         message += `${isTextToImageConversionEnabled ? '## ' : ''}总发言次数[排名]：${totalPostCount} 次[${totalRank}]\n`;
+      }
+      if (yesterday) {
+        message += `${isTextToImageConversionEnabled ? '## ' : ''}昨日发言次数[排名]：${yesterdayPostCount} 次[${yesterdayRank}]\n`;
       }
       if (dag) {
         message += `${isTextToImageConversionEnabled ? '## ' : ''}跨群今日发言次数[排名]：${userRecord.todayPostCountAll} 次[${dayAcrossRank}]\n`;
@@ -402,6 +420,7 @@ export function apply(ctx: Context, config: Config) {
     .option('month', '-m 本月发言榜')
     .option('year', '-y 今年发言榜')
     .option('total', '-t 总发言榜')
+    .option('yesterday', '--yesterday 昨日发言榜')
     .option('dag', '--dag 跨群日发言榜')
     .option('dragon', '--dragon 圣龙王榜')
     .action(async ({session, options}, number) => {
@@ -438,10 +457,15 @@ export function apply(ctx: Context, config: Config) {
       } else if (options.total) {
         sortByProperty = 'totalPostCount';
         countProperty = '总发言次数';
+      } else if (options.yesterday) {
+        sortByProperty = 'yesterdayPostCount';
+        countProperty = '昨日发言次数';
       } else {
-        sortByProperty = 'todayPostCount';
+        sortByProperty = 'todayPostCount'
         countProperty = '今日发言次数';
       }
+
+      const currentBeijingTime = getCurrentBeijingTime();
 
       // 跨群日榜
       if (options.dag) {
@@ -476,13 +500,16 @@ export function apply(ctx: Context, config: Config) {
           const username = usernameMap.get(userId);
           rank += `${isTextToImageConversionEnabled ? '## ' : ''}${index + 1}. ${username}：${todayPostCountAll} 次\n`;
         });
+        if (isTimeInfoSupplementEnabled) {
+          rank = isTextToImageConversionEnabled ? `# ${currentBeijingTime}\n${rank}` : `${currentBeijingTime}\n${rank}`
+        }
 
         if (isTextToImageConversionEnabled) {
           const imageBuffer = await ctx.markdownToImage.convertToImage(rank)
           return h.image(imageBuffer, `image/png`)
         }
 
-        return (rank);
+        return rank;
       }
 
       // 圣龙王榜
@@ -509,11 +536,15 @@ export function apply(ctx: Context, config: Config) {
 
         const result = (await Promise.all(resultPromises)).filter((item) => item !== null) as string[];
 
+        let rank = isTextToImageConversionEnabled ? `# 圣龙王榜: \n${result.join('\n')}` : `圣龙王榜: \n${result.join('\n')}`
+        if (isTimeInfoSupplementEnabled) {
+          rank = isTextToImageConversionEnabled ? `# ${currentBeijingTime}\n${rank}` : `${currentBeijingTime}\n${rank}`
+        }
         if (isTextToImageConversionEnabled) {
-          const imageBuffer = await ctx.markdownToImage.convertToImage(`# 圣龙王榜: \n${result.join('\n')}`)
+          const imageBuffer = await ctx.markdownToImage.convertToImage(rank)
           return h.image(imageBuffer, `image/png`)
         }
-        await session.send(`圣龙王榜: \n${result.join('\n')}`);
+        await session.send(rank);
         return;
       }
 
@@ -522,11 +553,15 @@ export function apply(ctx: Context, config: Config) {
       const topUsers = getUsers.slice(0, number);
       let i = 1;
       const result = topUsers.map(user => `${isTextToImageConversionEnabled ? '## ' : ''}${i++}. ${user.username}：${user[sortByProperty]} 次`).join('\n');
+      let rank = isTextToImageConversionEnabled ? `# 排行榜：${countProperty}\n${result}` : `排行榜：${countProperty}\n${result}`
+      if (isTimeInfoSupplementEnabled) {
+        rank = isTextToImageConversionEnabled ? `# ${currentBeijingTime}\n${rank}` : `${currentBeijingTime}\n${rank}`
+      }
       if (isTextToImageConversionEnabled) {
-        const imageBuffer = await ctx.markdownToImage.convertToImage(`# 排行榜：${countProperty}\n${result}`)
+        const imageBuffer = await ctx.markdownToImage.convertToImage(rank)
         return h.image(imageBuffer, `image/png`)
       }
-      await session.send(`排行榜：${countProperty}\n${result}`);
+      await session.send(rank);
     });
 
   async function resetCounter(_key, countKey: string, message: string) {
@@ -546,26 +581,30 @@ export function apply(ctx: Context, config: Config) {
           // 根据 countKey 类型，对数据进行排序，并返回最终排行榜结果
           // 有数据再继续
           if (usersByGuild.length !== 0) {
-
+            const {year, month, day} = getYesterdayDateParts();
             let sortByProperty: string;
             let countProperty: string;
-
+            let dateStr: string;
             switch (countKey) {
               case 'todayPostCount':
                 sortByProperty = 'todayPostCount';
                 countProperty = '今日发言次数';
+                dateStr = `${year}年${month}月${day}日`;
                 break;
               case 'thisWeekPostCount':
                 sortByProperty = 'thisWeekPostCount';
                 countProperty = '本周发言次数';
+                dateStr = `${year}年${month}月${day}日`;
                 break;
               case 'thisMonthPostCount':
                 sortByProperty = 'thisMonthPostCount';
                 countProperty = '本月发言次数';
+                dateStr = `${year}年${month}月`;
                 break;
               case 'thisYearPostCount':
                 sortByProperty = 'thisYearPostCount';
                 countProperty = '今年发言次数';
+                dateStr = `${year}年`;
                 break;
               default:
                 return; // 这种情况理论上不会出现
@@ -575,12 +614,16 @@ export function apply(ctx: Context, config: Config) {
             usersByGuild.sort((a, b) => b[sortByProperty] - a[sortByProperty]);
             const topUsers = usersByGuild.slice(0, defaultMaxDisplayCount);
             const result = topUsers.map((user, index) => `${isTextToImageConversionEnabled ? '## ' : ''}${index + 1}. ${user.username}：${user[sortByProperty]} 次`).join('\n');
+            let rank = isTextToImageConversionEnabled ? `# 排行榜：${countProperty}\n${result}` : `排行榜：${countProperty}\n${result}`
+            if (isTimeInfoSupplementEnabled) {
+              rank = isTextToImageConversionEnabled ? `# ${dateStr}\n${rank}` : `${dateStr}\n${rank}`
+            }
             await sleep(leaderboardGenerationWaitTime * 1000);
             if (isTextToImageConversionEnabled) {
-              const imageBuffer = await ctx.markdownToImage.convertToImage(`# 排行榜：${countProperty}\n${result}`);
+              const imageBuffer = await ctx.markdownToImage.convertToImage(rank);
               await currentBot.sendMessage(guildId, h.image(imageBuffer, `image/png`));
             } else {
-              await currentBot.sendMessage(guildId, `排行榜：${countProperty}\n${result}`);
+              await currentBot.sendMessage(guildId, rank);
             }
 
           }
@@ -615,10 +658,69 @@ export function apply(ctx: Context, config: Config) {
       }
     }
     // 排行榜推送和禁言龙王搞定之后
-    // 该干正事了 置零！
+    // 该干正事了 置零！执行之前，先把今天的全部给昨天
+    if (countKey === 'todayPostCount') {
+      await updateYesterdayCount(getUsers)
+    }
     await ctx.database.set('message_counter_records', {}, {[countKey]: 0});
 
     logger.success(message);
+  }
+
+  // ch*
+  async function updateYesterdayCount(users: MessageCounterRecord[]): Promise<void> {
+    for (const user of users) {
+      await ctx.database.set('message_counter_records', {
+        userId: user.userId,
+        guildId: user.guildId
+      }, {yesterdayPostCount: user.todayPostCount})
+    }
+  }
+
+  // hs*
+  function getYesterdayDateParts(): { year: number, month: number, day: number } {
+    // 获取当前时间
+    const today = new Date();
+    // 获取昨天的日期
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    // 获取年、月、日信息
+    const options: Intl.DateTimeFormatOptions = {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      timeZone: 'Asia/Shanghai'
+    };
+    const yesterdayDateString = yesterday.toLocaleString('zh-CN', options);
+    const [year, month, day] = yesterdayDateString.split('/').map(Number);
+
+    return {year, month, day};
+  }
+
+  function getYesterdayDateString(): string {
+    // 获取当前时间
+    const today = new Date();
+    // 获取昨天的日期
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    // 设置时区为中国标准时间
+    const options: Intl.DateTimeFormatOptions = {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      timeZone: 'Asia/Shanghai'
+    };
+    // 格式化日期为字符串
+    return yesterday.toLocaleString('zh-CN', options);
+  }
+
+  function getCurrentBeijingTime(): string {
+    const beijingTime = new Date().toLocaleString("zh-CN", {timeZone: "Asia/Shanghai"});
+    const date = beijingTime.split(" ")[0];
+    const time = beijingTime.split(" ")[1];
+
+    return `${date} ${time}`;
   }
 
   function getSortedDragons(records: MessageCounterRecord[]): [string, number][] {

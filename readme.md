@@ -28,6 +28,7 @@ koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/)
 
 - `defaultMaxDisplayCount`：排行榜默认显示的人数，默认为 `20`。👥
 - `isBotMessageTrackingEnabled`：是否统计机器人自己发送的消息，默认为 `false`。🤖
+- `isTimeInfoSupplementEnabled`：是否在显示排行榜时补充时间信息，默认值为 `true`。
 - `isTextToImageConversionEnabled`：是否开启将文本转为图片的功能（可选），如需启用，需要启用 `markdownToImage` 服务。🤖
 - `autoPush`：是否自动推送排行榜，默认为 `false`。👌
   - `leaderboardGenerationWaitTime`：自动生成排行榜的等待时间，单位是秒，默认为 `3`。⌚️
@@ -47,6 +48,7 @@ koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/)
   - `-m`：本月发言次数[排名]。📅
   - `-y`：今年发言次数[排名]。🎊
   - `-t`：总发言次数[排名]。👑
+  - `--yesterday`：昨日发言次数[排名]。⬅️
   - `--dag`：跨群今日发言总次数[排名]。👑
   - `-a`：跨群发言总次数[排名]。🐲
 - `messageCounter.排行榜 [number]`：发言排行榜，可以指定显示的人数，也可以使用以下选项来指定排行榜的类型：🏆
@@ -55,6 +57,7 @@ koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/)
   - `-m`：本月发言榜。📅
   - `-y`：今年发言榜。🎊
   - `-t`：总发言榜。👑
+  - `--yesterday`：昨日发言榜。⬅️
   - `--dag`：跨群今日发言榜。👑
   - `--dragon`：圣龙王榜，显示每个用户在所有群中的总发言次数。🐲
   - 若未指定排行榜类型，则默认为今日发言榜。💬
