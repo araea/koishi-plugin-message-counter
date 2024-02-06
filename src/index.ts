@@ -16,9 +16,12 @@ export const usage = `## 🎮 使用
 
 ## 📝 命令
 
+### messageCounter
+
 - \`messageCounter\`：查看 messageCounter 帮助。❓
 - \`messageCounter.初始化\`：初始化，清空数据表，将插件还原，需要权限等级 3 级及以上。🙏
 - \`messageCounter.查询 [targetUser]\`：查询指定用户的发言次数信息（次数[排名]）。🔍
+
   - \`-d\`：今日发言次数[排名]。🌞
   - \`-w\`：本周发言次数[排名]。🌙
   - \`-m\`：本月发言次数[排名]。📅
@@ -27,7 +30,9 @@ export const usage = `## 🎮 使用
   - \`--yesterday\`：昨日发言次数[排名]。⬅️
   - \`--dag\`：跨群今日发言总次数[排名]。👑
   - \`-a\`：跨群发言总次数[排名]。🐲
+
 - \`messageCounter.排行榜 [number]\`：发言排行榜，可以指定显示的人数，也可以使用以下选项来指定排行榜的类型：🏆
+
   - \`-d\`：今日发言榜。🌞
   - \`-w\`：本周发言榜。🌙
   - \`-m\`：本月发言榜。📅
@@ -58,29 +63,33 @@ export const Config: Schema<Config> = Schema.intersect([
   Schema.object({
     defaultMaxDisplayCount: Schema.number()
       .min(0).default(20).description('排行榜默认显示的人数，默认值为 20。'),
-    isBotMessageTrackingEnabled: Schema.boolean().default(false).description('是否统计 Bot 自己发送的消息。'),
     isTimeInfoSupplementEnabled: Schema.boolean().default(true).description('是否在显示排行榜时补充时间信息。'),
+  }).description('排行榜显示设置'),
+  Schema.object({
+    isBotMessageTrackingEnabled: Schema.boolean().default(false).description('是否统计 Bot 自己发送的消息。'),
+  }).description('消息追踪设置'),
+  Schema.object({
     isTextToImageConversionEnabled: Schema.boolean().default(false).description(`是否开启将文本转为图片的功能（可选），如需启用，需要启用 \`markdownToImage\` 服务。`),
-  }),
+  }).description('图片转换功能设置'),
   Schema.intersect([
     Schema.object({
-      autoPush: Schema.boolean().default(false).description('是否自动推送排行榜'),
-    }),
+      autoPush: Schema.boolean().default(false).description('是否自动推送排行榜。'),
+    }).description('自动推送设置'),
     Schema.union([
       Schema.object({
         autoPush: Schema.const(true).required(),
         leaderboardGenerationWaitTime: Schema.number().min(0).default(3).description(`自动生成排行榜的等待时间，单位是秒。`),
-        pushGuildIds: Schema.array(String).role('table').description('启用自动推送排行榜功能的群组列表。'),
+        pushChannelIds: Schema.array(String).role('table').description('启用自动推送排行榜功能的频道列表。'),
       }), Schema.object({}),]),
   ]),
   Schema.intersect([
-    Schema.object({enableMostActiveUserMuting: Schema.boolean().default(false).description('是否禁言每天发言最多的人，即龙王。'),}),
+    Schema.object({enableMostActiveUserMuting: Schema.boolean().default(false).description('是否禁言每天发言最多的人，即龙王。'),}).description('用户禁言设置'),
     Schema.union([
       Schema.object({
         enableMostActiveUserMuting: Schema.const(true).required(),
         dragonKingDetainmentTime: Schema.number().min(0).default(5).description(`关押龙王的等待时间，单位是秒。`),
         detentionDuration: Schema.number().default(1).description(`关押时长，单位是天。`),
-        muteGuildIds: Schema.array(String).role('table').description('生效的群组。'),
+        muteChannelIds: Schema.array(String).role('table').description('生效的频道。'),
       }),
       Schema.object({}),
     ]),
