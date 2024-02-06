@@ -379,7 +379,10 @@ export function apply(ctx: Context, config: Config) {
 
 
       let message = isTextToImageConversionEnabled ? `# 查询对象：${username}\n\n` : `查询对象：${username}\n\n`;
-
+      if (isTimeInfoSupplementEnabled) {
+        const currentBeijingTime = getCurrentBeijingTime();
+        message = isTextToImageConversionEnabled ? `# ${currentBeijingTime}\n${message}` : `${currentBeijingTime}\n${message}`
+      }
       if (day) {
         message += `${isTextToImageConversionEnabled ? '## ' : ''}今日发言次数[排名]：${todayPostCount} 次[${todayRank}]\n`;
       }
