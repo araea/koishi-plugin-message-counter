@@ -71,7 +71,11 @@ export const usage = `## 🎮 使用
   - \`-y\`：今年发言榜。🎊
   - \`-t\`：总发言榜。👑
   - \`--yesterday\`：昨日发言榜。⬅️
-  - 若未指定排行榜类型，则默认为今日发言榜。💬`
+  - 若未指定排行榜类型，则默认为今日发言榜。💬
+
+## 🐱 QQ 群
+
+- 956758505`
 
 const logger = new Logger('messageCounter')
 

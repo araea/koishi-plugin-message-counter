@@ -137,6 +137,14 @@ koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/) 的
 * [shangxue](https://forum.koishi.xyz/u/shangxue/summary) - 感谢上学大人对推送所有频道配置项的建议！👍
 * [nullbczd](https://forum.koishi.xyz/u/nullbczd/summary) - 感谢 nullbczd 大人对水平柱状图样式等功能的贡献！👍
 
-## 📄 License
+## 🐱 QQ 群
+
+- 956758505
+
+## ✨ License
 
 MIT License © 2024
+
+希望您喜欢这款插件！ 💫
+
+如有任何问题或建议，欢迎联系我哈~ 🎈
