@@ -924,24 +924,31 @@ export async function apply(ctx: Context, config: Config) {
     }
 
     if (countKey === 'todayPostCount') {
-      await updateYesterdayCount(getUsers)
+      updateYesterdayCount(getUsers)
     }
     await ctx.database.set('message_counter_records', {}, {[countKey]: 0});
 
     logger.success(message);
   }
-
-  // ch*
+  // hs*
   async function updateYesterdayCount(users: MessageCounterRecord[]): Promise<void> {
-    for (const user of users) {
-      await ctx.database.set('message_counter_records', {
-        userId: user.userId,
-        channelId: user.channelId
-      }, {yesterdayPostCount: user.todayPostCount})
+    const batchSize = 100;
+    const totalUsers = users.length;
+
+    for (let i = 0; i < totalUsers; i += batchSize) {
+      const batchUsers = users.slice(i, i + batchSize);
+
+      const batchPromises = batchUsers.map(user => {
+        return ctx.database.set('message_counter_records', {
+          userId: user.userId,
+          channelId: user.channelId
+        }, { yesterdayPostCount: user.todayPostCount });
+      });
+
+      await Promise.all(batchPromises);
     }
   }
 
-  // hs*
   async function replaceAtTags(session, content: string): Promise<string> {
     // 正则表达式用于匹配 at 标签
     const atRegex = /<at id="(\d+)"(?: name="([^"]*)")?\/>/g;
