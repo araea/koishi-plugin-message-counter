@@ -10,6 +10,7 @@ import * as fs from 'fs';
 
 export const name = 'message-counter'
 export const inject = {
+  required: ['database'],
   optional: ['markdownToImage', 'puppeteer', 'canvas'],
 }
 export const usage = `## 🎮 使用
@@ -892,6 +893,7 @@ export async function apply(ctx: Context, config: Config) {
       await session.send(rank);
     });
 
+  // hs*
   async function resetCounter(_key, countKey: string, message: string) {
     const getUsers = await ctx.database.get('message_counter_records', {});
     if (getUsers.length === 0) {
@@ -930,7 +932,7 @@ export async function apply(ctx: Context, config: Config) {
 
     logger.success(message);
   }
-  // hs*
+
   async function updateYesterdayCount(users: MessageCounterRecord[]): Promise<void> {
     const batchSize = 100;
     const totalUsers = users.length;
