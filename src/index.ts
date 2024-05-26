@@ -562,7 +562,7 @@ export async function apply(ctx: Context, config: Config) {
         message += `${isTextToImageConversionEnabled ? '## ' : ''}本群昨日发言次数[排名]：${yesterdayPostCount} 次${isUserMessagePercentageVisible ? ` ${calculatePercentage(yesterdayPostCount, totalSums.yesterdayPostCount)}` : ''}[${yesterdayRank}]\n`;
       }
       if (day) {
-        message += `${isTextToImageConversionEnabled ? '## ' : ''}本群今日发言次数[排名]：${todayPostCount} 次${isUserMessagePercentageVisible ? ` ${calculatePercentage(todayPostCount, totalSums.totalPostCount)}` : ''}[${todayRank}]\n`;
+        message += `${isTextToImageConversionEnabled ? '## ' : ''}本群今日发言次数[排名]：${todayPostCount} 次${isUserMessagePercentageVisible ? ` ${calculatePercentage(todayPostCount, totalSums.todayPostCount)}` : ''}[${todayRank}]\n`;
       }
       if (week) {
         message += `${isTextToImageConversionEnabled ? '## ' : ''}本群本周发言次数[排名]：${thisWeekPostCount} 次${isUserMessagePercentageVisible ? ` ${calculatePercentage(thisWeekPostCount, totalSums.thisWeekPostCount)}` : ''}[${thisWeekRank}]\n`;
