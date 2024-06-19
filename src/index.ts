@@ -1450,8 +1450,10 @@ export async function apply(ctx: Context, config: Config) {
 
   async function generateRankingChartStyle3(rankTimeTitle, rankTitle, data: RankingData[]) {
     await updateDataWithBase64(data)
-
-    const browser = ctx.puppeteer.browser;
+    let browser;
+    ctx.inject(['puppeteer'], async (ctx) => {
+      browser = ctx.puppeteer.browser;
+    });
     const context = await browser.createBrowserContext()
     const page = await context.newPage()
 
@@ -2015,7 +2017,10 @@ async function getAverageColor(avatarBase64) {
 ${rankingHtml}
 </body>
 </html>`
-    const browser = ctx.puppeteer.browser
+    let browser;
+    ctx.inject(['puppeteer'], async (ctx) => {
+      browser = ctx.puppeteer.browser;
+    });
     const context = await browser.createBrowserContext()
     const page = await context.newPage()
     await page.setViewport({width: config.width, height: 100, deviceScaleFactor: 1});
@@ -2153,7 +2158,10 @@ ${rankingHtml}
 ${rankingHtml}
 </body>
 </html>`
-    const browser = ctx.puppeteer.browser
+    let browser;
+    ctx.inject(['puppeteer'], async (ctx) => {
+      browser = ctx.puppeteer.browser;
+    });
     const context = await browser.createBrowserContext()
     const page = await context.newPage()
     await page.setViewport({width: config.width, height: 100, deviceScaleFactor: 1});
