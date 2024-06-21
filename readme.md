@@ -28,6 +28,10 @@ koishi-plugin-message-counter 是一个基于 [Koishi](https://koishi.chat/) 的
 
 ## ⚙️ 配置项
 
+### 功能设置
+
+- `isYesterdayCommentRankingDisabled`：是否禁用昨日发言排行榜，默认为 `false`。🔕'
+
 ### 排行榜显示设置
 
 - `defaultMaxDisplayCount`：排行榜默认显示的人数，默认为 `20`。👥

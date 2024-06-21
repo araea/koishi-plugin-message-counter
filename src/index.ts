@@ -112,10 +112,14 @@ export interface Config {
   groupPushDelayRandomizationSeconds: number;
   hiddenUserIdsInLeaderboard: string[];
   hiddenChannelIdsInLeaderboard: string[];
+  isYesterdayCommentRankingDisabled: boolean;
 }
 
 // pz* pzx*
 export const Config: Schema<Config> = Schema.intersect([
+  Schema.object({
+    isYesterdayCommentRankingDisabled: Schema.boolean().default(false).description('是否禁用昨日发言排行榜。开启后可用于解决群组消息过多导致的每日 0 点卡顿问题。'),
+  }).description('功能设置'),
   Schema.object({
     defaultMaxDisplayCount: Schema.number()
       .min(0).default(20).description('排行榜默认显示的人数。'),
@@ -925,7 +929,7 @@ export async function apply(ctx: Context, config: Config) {
       }
     }
 
-    if (countKey === 'todayPostCount') {
+    if (countKey === 'todayPostCount' && !config.isYesterdayCommentRankingDisabled) {
       updateYesterdayCount(getUsers)
     }
     await ctx.database.set('message_counter_records', {}, {[countKey]: 0});
