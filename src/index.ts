@@ -967,7 +967,16 @@ export async function apply(ctx: Context, config: Config) {
 
       // 如果 name 不存在，根据 userId 获取相应的 name
       if (!name) {
-        const guildMember = await session.bot.getGuildMember(session.guildId, userId);
+        let guildMember;
+        try {
+          guildMember = await session.bot.getGuildMember(session.guildId, userId);
+        } catch (error) {
+          guildMember = {
+            user: {
+              name: '未知用户',
+            },
+          };
+        }
 
         // 替换原始的 at 标签
         const newAtTag = `<at id="${userId}" name="${guildMember.user.name}"/>`;
