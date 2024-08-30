@@ -13,66 +13,56 @@ export const inject = {
   required: ['database'],
   optional: ['markdownToImage', 'puppeteer', 'canvas'],
 }
-export const usage = `## 🎮 使用
+export const usage = `## 🎮 使用指南
 
-- 该插件仅记录群聊消息，私聊消息不会被统计。🙈
-- 该插件建议为指令添加指令别名，以方便用户快速查询。🚀
-- 水平柱状图样式 3，可以为用户添加自定义图标，可在 \`data/messageCounterIcons\` 文件夹下添加用户图标，文件名为 userId，例如：\`1234567890.png\`。🎨
-  - 同一个用户可以添加多个图标，会同时显示。多个图片请使用文件名形如：\`1234567890-1.png\`, \`1234567890-2.png\`（防止文件名相同）。🎨
-- 水平柱状图样式 3，可以为用户添加自定义水平柱状条，可在 \`data/messageCounterBarBgImgs\` 文件夹下添加水平柱状条，图片大小请最好设置宽高为 850*50，文件名为 userId，例如：\`1234567890.png\`。🎨
-  - 同一个用户可以添加多个水平柱状条，会随机选择一个。多个图片请使用文件名形如：\`1234567890-1.png\`, \`1234567890-2.png\`（防止文件名相同）。🎨
-> 添加完图片后，记得重启插件哦 ~
+### 基本使用
+
+- 插件仅统计群聊消息，私聊消息不会被记录 🙈。
+- 建议为插件指令设置别名，方便用户快速查询 🚀。
+
+### 高级功能：自定义水平柱状图
+
+水平柱状图样式 3 支持强大的自定义功能，让你的排行榜更加个性化！🎨
+
+* **自定义用户图标**:
+  - 在 \`data/messageCounterIcons\` 文件夹下添加用户图标，文件名为用户 ID (例如 \`1234567890.png\`)。
+  - 支持为同一用户添加多个图标，它们会同时显示。多个图标的文件名需形如  \`1234567890-1.png\`、 \`1234567890-2.png\` 。
+* **自定义水平柱状条背景**:
+  - 在 \`data/messageCounterBarBgImgs\` 文件夹下添加水平柱状条背景图片，建议图片尺寸为 850*50 像素，文件名为用户 ID (例如
+    \`1234567890.png\`)。
+  - 支持为同一用户添加多个背景图片，插件会随机选择一个显示。多个图片的文件名需形如 \`1234567890-1.png\`、\`1234567890-2.png\`。
+
+> 添加完图片后，记得重启插件以使更改生效！ 🔄
 
 ## 📝 命令
 
 ### messageCounter
 
-- \`messageCounter\`：查看 messageCounter 帮助。❓
-- \`messageCounter.初始化\`：初始化，清空数据表，将插件还原，需要权限等级 3 级及以上。🙏
-- \`messageCounter.查询 [targetUser]\`：查询指定用户的发言次数信息（次数[排名]）。🔍
+- \`messageCounter\`: 查看 messageCounter 插件帮助 ❓。
+- \`messageCounter.初始化\`: 初始化插件，清空数据表，将插件还原至初始状态，需要权限等级 3 级及以上 🙏。
+- \`messageCounter.查询 [targetUser]\`: 查询指定用户的发言次数信息（次数[排名]）🔍。
 
-  - \`--yesterday\`：昨日发言次数[排名]。⬅️
-  - \`-d\`：今日发言次数[排名]。🌞
-  - \`-w\`：本周发言次数[排名]。🌙
-  - \`-m\`：本月发言次数[排名]。📅
-  - \`-y\`：今年发言次数[排名]。🎊
-  - \`-t\`：总发言次数[排名]。👑
-  - \`--ydag\`：跨群昨日发言次数[排名]。👑
-  - \`--dag\`：跨群今日发言次数[排名]。👑
-  - \`--wag\`：跨群本周发言次数[排名]。👑
-  - \`--mag\`：跨群本月发言次数[排名]。👑
-  - \`--yag\`：跨群今年发言次数[排名]。👑
-  - \`-a\`：跨群发言总次数[排名]。🐲
+  - \`--yesterday\`/\`-d\`/\`-w\`/\`-m\`/\`-y\`/\`-t\`: 分别查询昨日/今日/本周/本月/今年/总发言次数[排名] 🗓️。
+  - \`--ydag\`/\`--dag\`/\`--wag\`/\`--mag\`/\`--yag\`/\`-a\`: 分别查询跨群昨日/今日/本周/本月/今年/总发言次数[排名] 🌎。
 
-- \`messageCounter.排行榜 [number]\`：发言排行榜，可以指定显示的人数，也可以使用以下选项来指定排行榜的类型：🏆
 
-  - \`--whites\`：白名单，只显示白名单用户，可用\`空格\`、中英文\`逗号\`和\`、\`作为分隔符。👼
-  - \`--blacks\`：黑名单，不显示黑名单用户，可用\`空格\`、中英文\`逗号\`和\`、\`作为分隔符。👿
-  - \`--yesterday\`：昨日发言榜。⬅️
-  - \`-d\`：今日发言榜。🌞
-  - \`-w\`：本周发言榜。🌙
-  - \`-m\`：本月发言榜。📅
-  - \`-y\`：今年发言榜。🎊
-  - \`-t\`：总发言榜。👑
-  - \`--ydag\`：跨群昨日发言榜。👑
-  - \`--dag\`：跨群今日发言榜。👑
-  - \`--wag\`：跨群本周发言榜。👑
-  - \`--mag\`：跨群本月发言榜。👑
-  - \`--yag\`：跨群今年发言榜。👑
-  - \`--dragon\`：圣龙王榜，显示每个用户在所有群中的总发言次数。🐲
-  - 若未指定排行榜类型，则默认为今日发言榜。💬
+- \`messageCounter.排行榜 [number]\`: 发言排行榜，可以指定显示的人数，也可以使用以下选项来指定排行榜的类型 🏆：
 
-- \`messageCounter.群排行榜 [number:number]\`：各个群聊的发言排行榜，可以指定显示的数量，也可以使用以下选项来指定排行榜的类型：🏆
+  - \`--whites\`: 白名单，只显示白名单用户，可用空格、中英文逗号和顿号作为分隔符 👼。
+  - \`--blacks\`: 黑名单，不显示黑名单用户，可用空格、中英文逗号和顿号作为分隔符 👿。
+  - \`--yesterday\`/\`-d\`/\`-w\`/\`-m\`/\`-y\`/\`-t\`:  分别查询昨日/今日/本周/本月/今年/总发言排行榜 🗓️。
+  - \`--ydag\`/\`--dag\`/\`--wag\`/\`--mag\`/\`--yag\`/\`--dragon\`: 分别查询跨群昨日/今日/本周/本月/今年/总发言排行榜（圣龙王榜）
+    🌎🐲。
+  - 若未指定排行榜类型，则默认为今日发言榜 💬。
 
-  - \`--whites\`：白名单，只显示白名单群，可用\`空格\`、中英文\`逗号\`和\`、\`作为分隔符。👼
-  - \`--blacks\`：黑名单，不显示黑名单群，可用\`空格\`、中英文\`逗号\`和\`、\`作为分隔符。👿
-  - \`-d\`：今日发言榜。🌞
-  - \`-w\`：本周发言榜。🌙
-  - \`-m\`：本月发言榜。📅
-  - \`-y\`：今年发言榜。🎊
-  - \`-t\`：总发言榜。👑
-  - \`--yesterday\`：昨日发言榜。⬅️
-  - 若未指定排行榜类型，则默认为今日发言榜。💬
+- \`messageCounter.群排行榜 [number:number]\`:  各个群聊的发言排行榜，可以指定显示的数量，也可以使用以下选项来指定排行榜的类型
+  🏆：
+
+  - \`-s\`: 指定用户的群发言排行榜，可用 at 或 用户 ID 指定 👤。
+  - \`--whites\`: 白名单，只显示白名单群，可用空格、中英文逗号和顿号作为分隔符 👼。
+  - \`--blacks\`: 黑名单，不显示黑名单群，可用空格、中英文逗号和顿号作为分隔符 👿。
+  - \`-d\`/\`-w\`/\`-m\`/\`-y\`/\`-t\`/\`--yesterday\`: 分别查询昨日/今日/本周/本月/今年/总发言排行榜 🗓️。
+  - 若未指定排行榜类型，则默认为今日发言榜 💬。
 
 ## 🐱 QQ 群
 
@@ -624,6 +614,7 @@ export async function apply(ctx: Context, config: Config) {
 
   // gqfyphb* r* qr* qphb*
   ctx.command('messageCounter.群排行榜 [number:number]', '群发言排行榜')
+    .option('specificUser', '-s <user:text> 特定用户的群发言榜', {fallback: ''})
     .option('whites', '--whites <whites:text> 白名单（仅显示）', {fallback: ''})
     .option('blacks', '--blacks <blacks:text> 黑名单（排除）', {fallback: ''})
     .option('yesterday', '--yesterday 昨日发言榜')
@@ -644,6 +635,29 @@ export async function apply(ctx: Context, config: Config) {
 
       if (config.hiddenChannelIdsInLeaderboard.length !== 0) {
         options.blacks += '' + config.hiddenChannelIdsInLeaderboard.join(' ');
+      }
+
+      let userId = ''
+      if (options.specificUser) {
+        const atElements = h.select(options.specificUser, 'at')
+        if (atElements.length > 0) {
+          userId = atElements[0].attrs.id
+        }
+        if (!userId) {
+          userId = options.specificUser
+        }
+      }
+
+      let username = ''
+      if (userId) {
+        const userRecords: MessageCounterRecord[] = await ctx.database.get('message_counter_records', {userId});
+        if (userRecords.length === 0) {
+          return `指定用户不存在。`
+        }
+        username = getUsernameByChannelId(userRecords, session.channelId)
+        if (!username) {
+          username = userRecords[0].username
+        }
       }
 
       const whites = splitWhitesOrBlacksString(options.whites)
@@ -683,13 +697,14 @@ export async function apply(ctx: Context, config: Config) {
         countProperty = '今日发言次数';
       }
 
-      const result = sumValuesByKey(messageCounterRecords, sortByProperty);
+      const result = sumValuesByKey(messageCounterRecords, sortByProperty, userId);
       const totalSum = calculateTotalSum(result);
       const currentBeijingTime = getCurrentBeijingTime();
       const rankTimeTitle = `${currentBeijingTime}`
-      const rankTitle = `群排行榜：${countProperty}`
+      const prefix = `群排行榜：` + (username ? `${username} 的` : ``);
+      const rankTitle = `${prefix}${countProperty}`
       const rankingData: RankingData[] = [];
-      let rank = `${isTextToImageConversionEnabled ? `# ` : ``}群排行榜：${countProperty}\n`;
+      let rank = `${isTextToImageConversionEnabled ? `# ` : ``}${prefix}${countProperty}\n`;
       const rankingString = await generateRankingString(result, totalSum, rankingData, number);
 
       if (isTimeInfoSupplementEnabled) {
@@ -898,6 +913,11 @@ export async function apply(ctx: Context, config: Config) {
     });
 
   // hs*
+  function getUsernameByChannelId(records: MessageCounterRecord[], channelId: string): string | undefined {
+    const record = records.find(record => record.channelId === channelId);
+    return record ? record.username : undefined;
+  }
+
   async function resetCounter(_key, countKey: string, message: string) {
     const getUsers = await ctx.database.get('message_counter_records', {});
     if (getUsers.length === 0) {
@@ -948,7 +968,7 @@ export async function apply(ctx: Context, config: Config) {
         return ctx.database.set('message_counter_records', {
           userId: user.userId,
           channelId: user.channelId
-        }, { yesterdayPostCount: user.todayPostCount });
+        }, {yesterdayPostCount: user.todayPostCount});
       });
 
       await Promise.all(batchPromises);
@@ -1339,32 +1359,32 @@ export async function apply(ctx: Context, config: Config) {
     return rankingString;
   }
 
-  function sumValuesByKey(records: MessageCounterRecord[], key: keyof MessageCounterRecord): {
+  function sumValuesByKey(records: MessageCounterRecord[], key: keyof MessageCounterRecord, userId: string = ''): {
     channelId: string,
     channelName: string,
     sum: number
   }[] {
     const channelMap = new Map<string, { channelName?: string, sum: number }>();
 
-    for (const record of records) {
+    const filteredRecords = userId
+      ? records.filter(record => record.userId === userId)
+      : records;
+
+    for (const record of filteredRecords) {
       const {channelId, channelName} = record;
       const value = record[key];
 
-      if (channelMap.has(channelId)) {
-        const existingValue = channelMap.get(channelId)!;
-        channelMap.set(channelId, {channelName, sum: existingValue.sum + Number(value)});
-      } else {
-        channelMap.set(channelId, {channelName, sum: Number(value)});
-      }
+      channelMap.set(channelId, {
+        channelName,
+        sum: (channelMap.get(channelId)?.sum || 0) + Number(value)
+      });
     }
 
-    const result: { channelId: string, channelName: string, sum: number }[] = [];
-
-    for (const [channelId, {channelName, sum}] of channelMap) {
-      result.push({channelId, channelName, sum});
-    }
-
-    return result;
+    return Array.from(channelMap.entries()).map(([channelId, {channelName, sum}]) => ({
+      channelId,
+      channelName,
+      sum
+    }));
   }
 
 
