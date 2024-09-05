@@ -1465,12 +1465,13 @@ export async function apply(ctx: Context, config: Config) {
     return buffer.toString('base64');
   };
 
-  const updateDataWithBase64 = async (data: RankingData[]): Promise<void> => {
-    for (const item of data) {
-      item.avatarBase64 = await resizeImageToBase64(item.avatar);
-    }
-  };
-
+  async function updateDataWithBase64(data: RankingData[]) {
+    await Promise.all(
+      data.map(async (item) => {
+        item.avatarBase64 = await resizeImageToBase64(item.avatar);
+      })
+    );
+  }
 
   // 加深颜色
   function darkenColor(color: string, amount: number): string {
