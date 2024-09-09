@@ -274,17 +274,19 @@ export async function apply(ctx: Context, config: Config) {
     // 判断该用户是否在数据表中
     const getUser = await ctx.database.get('message_counter_records', {channelId, userId})
     if (getUser.length === 0) {
-      await ctx.database.create('message_counter_records', {
-        channelId,
-        channelName: channelName ?? event.channel.name ?? channelId,
-        userId,
-        username,
-        todayPostCount: 1,
-        thisWeekPostCount: 1,
-        thisMonthPostCount: 1,
-        thisYearPostCount: 1,
-        totalPostCount: 1
-      })
+      if (userId) {
+        await ctx.database.create('message_counter_records', {
+          channelId,
+          channelName: channelName ?? event.channel.name ?? channelId,
+          userId,
+          username,
+          todayPostCount: 1,
+          thisWeekPostCount: 1,
+          thisMonthPostCount: 1,
+          thisYearPostCount: 1,
+          totalPostCount: 1
+        })
+      }
     } else {
       const user = getUser[0]
       await ctx.database.set('message_counter_records', {channelId, userId}, {
