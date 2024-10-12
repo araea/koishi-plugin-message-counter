@@ -1,7 +1,7 @@
 * text eol=lf
-
 *.png -text
 *.jpg -text
 *.ico -text
 *.gif -text
 *.webp -text
+*.woff2 filter=lfs diff=lfs merge=lfs -text
