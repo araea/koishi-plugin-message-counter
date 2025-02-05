@@ -98,6 +98,10 @@ export interface Config {
   hiddenUserIdsInLeaderboard: string[];
   hiddenChannelIdsInLeaderboard: string[];
   isYesterdayCommentRankingDisabled: boolean;
+
+  backgroundType: string;
+  apiBackgroundConfig: apiBackgroundConfig;
+  backgroundValue: string;
 }
 
 // pz* pzx*
@@ -127,6 +131,15 @@ export const Config: Schema<Config> = Schema.intersect([
     shouldMoveIconToBarEndLeft: Schema.boolean().default(true).description('（仅样式 3）是否将自定义图标移动到水平柱状条末端的左侧，关闭后将放在用户名的右侧。'),
     horizontalBarBackgroundOpacity: Schema.number().min(0).max(1).default(0.6).description('（仅样式 3）自定义水平柱状条背景的不透明度，值越小则越透明。'),
     horizontalBarBackgroundFullOpacity: Schema.number().min(0).max(1).default(0).description('（仅样式 3）自定义水平柱状条背景整条的不透明度，值越小则越透明。'),
+    backgroundType: Schema.union(['none', 'api', 'css']).default('none').description('（仅样式 3）背景自定义类型。'),
+    apiBackgroundConfig: Schema.object({
+      apiUrl: Schema.string(),
+      apiKey: Schema.string(),
+      responseType: Schema.union(['binary', 'url', 'base64']).default('binary'),
+    }).collapse().description('（仅样式 3）API 背景配置。'),
+    backgroundValue: Schema.string().role('textarea', { rows: [2, 4] }).default(`body {
+        background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
+      }`).description('（仅样式 3）背景 css 值。'),
     horizontalBarChartStyle: Schema.union([
       Schema.const('1').description('样式 1 (名称与柱状条不同一行)'),
       Schema.const('2').description('样式 2 (名称与柱状条同一行)'),
@@ -172,6 +185,12 @@ declare module 'koishi' {
 }
 
 // jk*
+interface apiBackgroundConfig {
+  apiUrl: string;
+  apiKey: string;
+  responseType: string;
+}
+
 interface MessageCounterRecord {
   id: number;
   channelId: string;
@@ -1449,17 +1468,50 @@ export async function apply(ctx: Context, config: Config) {
   }
 
   const resizeImageToBase64 = async (url: string): Promise<string> => {
-    const response = await fetch(url);
-    const imageBuffer = Buffer.from(await response.arrayBuffer());
+    const MAX_RETRIES = 3;
+    const INITIAL_BACKOFF = 300; // 初始重试等待时间（毫秒）
 
-    const canvas = await ctx.canvas.createCanvas(50, 50);
-    const context = canvas.getContext('2d');
+    // 带重试和超时的 fetch 实现
+    const fetchWithRetry = async (url: string, attempt = 0): Promise<Response> => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
 
-    const image = await ctx.canvas.loadImage(imageBuffer);
-    context.drawImage(image, 0, 0, 50, 50);
+        const response = await fetch(url, {signal: controller.signal});
+        clearTimeout(timeoutId);
 
-    const buffer = await canvas.toBuffer('image/png');
-    return buffer.toString('base64');
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} - ${response.statusText}`);
+        }
+        return response;
+      } catch (error) {
+        if (attempt >= MAX_RETRIES - 1) throw error; // 达到最大重试次数
+
+        await new Promise(resolve =>
+          setTimeout(resolve, INITIAL_BACKOFF * Math.pow(2, attempt))
+        );
+        return fetchWithRetry(url, attempt + 1);
+      }
+    };
+
+    try {
+      // 尝试获取响应（含重试）
+      const response = await fetchWithRetry(url);
+      const imageBuffer = Buffer.from(await response.arrayBuffer());
+
+      // 创建 Canvas 并绘制图像
+      const canvas = await ctx.canvas.createCanvas(50, 50);
+      const context = canvas.getContext('2d');
+      const image = await ctx.canvas.loadImage(imageBuffer);
+
+      context.drawImage(image, 0, 0, 50, 50);
+      const buffer = await canvas.toBuffer('image/png');
+
+      return buffer.toString('base64');
+    } catch (error) {
+      // 统一错误处理，可在此替换为默认图像或记录日志
+      throw new Error(`Failed to process image: ${error.message}`);
+    }
   };
 
   async function updateDataWithBase64(data: RankingData[]) {
@@ -1488,6 +1540,82 @@ export async function apply(ctx: Context, config: Config) {
     const context = await browser.createBrowserContext()
     const page = await context.newPage()
 
+    // Background customization logic
+    let backgroundStyle = '';
+    if (config?.backgroundType === 'api') {
+      try {
+        // Fetch random background image from an API
+        const apiUrl = config.apiBackgroundConfig?.apiUrl || 'https://t.mwm.moe/fj';
+        const apiKey = config.apiBackgroundConfig?.apiKey || '';
+        const responseType = config.apiBackgroundConfig?.responseType || 'binary';
+
+        let backgroundImage;
+
+        if (responseType === 'binary') {
+          // 处理二进制图片数据
+          const response = await fetch(apiUrl, {
+            headers: {
+              'Authorization': `Bearer ${apiKey}`
+            }
+          });
+          const imageBlob = await response.blob();
+          const arrayBuffer = await imageBlob.arrayBuffer();
+          const base64Image = Buffer.from(arrayBuffer).toString('base64');
+          backgroundImage = `data:image/png;base64,${base64Image}`;
+        } else if (responseType === 'url') {
+          // URL 类型的处理保持不变
+          const response = await fetch(apiUrl, {
+            headers: {
+              'Authorization': `Bearer ${apiKey}`
+            }
+          });
+          const backgroundData = await response.json();
+          backgroundImage = backgroundData.imageUrl;
+        } else {
+          // Base64 类型的处理
+          const response = await fetch(apiUrl, {
+            headers: {
+              'Authorization': `Bearer ${apiKey}`
+            }
+          });
+          const backgroundData = await response.json();
+          backgroundImage = `data:image/png;base64,${backgroundData.imageBase64 || backgroundData}`;
+        }
+
+        backgroundStyle = `
+        body {
+          background-image: url('${backgroundImage}');
+          background-size: cover;
+          background-position: center;
+          background-repeat: no-repeat;
+        }
+      `;
+      } catch (error) {
+        logger.error('Failed to fetch background image:', error);
+        // Fallback to default background if API call fails
+      //   backgroundStyle = `
+      //   body {
+      //     background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
+      //   }
+      // `;
+      }
+    } else if (config?.backgroundType === 'css') {
+      // Use custom CSS background provided by the user
+      backgroundStyle = config.backgroundValue || `
+      body {
+        background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
+      }
+    `;
+    }
+    // else {
+      // Default background if no customization is provided
+    //   backgroundStyle = `
+    //   body {
+    //     background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
+    //   }
+    // `;
+    // }
+
     const htmlContent = `
 <html lang="en">
 <head>
@@ -1511,11 +1639,16 @@ export async function apply(ctx: Context, config: Config) {
             .ranking-title {
             text-align: center;
             margin-bottom: 20px;
+          color: #333; /* Improved visibility */
         }
 
-    body {
-      font-family: 'JMH', 'SJbangkaijianti', 'SJkaishu';
-    }
+        body {
+            font-family: 'JMH', 'SJbangkaijianti', 'SJkaishu';
+            margin: 0;
+            padding: 20px;
+        }
+            ${backgroundStyle}
+
     </style>
 </head>
 <body>
