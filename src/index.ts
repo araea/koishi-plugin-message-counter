@@ -281,7 +281,12 @@ export async function apply(ctx: Context, config: Config) {
   // jt*
   ctx.on('message', async (session) => {
     const {channelId, event, userId, username} = session
-    const groupList = await session.bot.getGuildList()
+    let groupList
+    if (typeof session.bot?.getGuildList === 'function') {
+      groupList = await session.bot.getGuildList()
+    } else { 
+      return
+    }
     const groups = groupList.data;
     const channelName = getNameFromChannelId(groups, channelId);
     await ctx.database.set('message_counter_records', {channelId}, {channelName})
@@ -319,7 +324,12 @@ export async function apply(ctx: Context, config: Config) {
     ctx.before('send', async (session) => {
       if (isBotMessageTrackingEnabled) {
         const {channelId, bot, event} = session
-        const groupList = await session.bot.getGuildList()
+        let groupList
+        if (typeof session.bot?.getGuildList === 'function') {
+          groupList = await session.bot.getGuildList()
+        } else { 
+          return
+        }
         const groups = groupList.data;
         const channelName = getNameFromChannelId(groups, channelId);
         await ctx.database.set('message_counter_records', {channelId}, {channelName})
@@ -1005,13 +1015,17 @@ export async function apply(ctx: Context, config: Config) {
       if (!name) {
         let guildMember;
         try {
-          guildMember = await session.bot.getGuildMember(session.guildId, userId);
+          if (typeof session.bot?.getGuildMember === 'function') {
+            guildMember = await session.bot.getGuildMember(session.guildId, userId);
+          } else { 
+            guildMember = {
+              user: {
+                name: '未知用户',
+              },
+            }
+          }
         } catch (error) {
-          guildMember = {
-            user: {
-              name: '未知用户',
-            },
-          };
+          logger.error(error)
         }
 
         // 替换原始的 at 标签
@@ -1249,7 +1263,7 @@ export async function apply(ctx: Context, config: Config) {
     getUsers = filterRecordsByWhitesAndBlacks([], config.hiddenUserIdsInLeaderboard, getUsers, 'userId')
     let channelIds: string[] = pushChannelIds
     for (const currentBot of ctx.bots) {
-      if (config.shouldSendLeaderboardNotificationsToAllChannels) {
+      if (typeof currentBot.getGuildList === 'function' && config.shouldSendLeaderboardNotificationsToAllChannels) {
         const groupList = await currentBot.getGuildList()
         const groups = groupList.data;
         channelIds = groups.map(group => group.id);
