@@ -430,7 +430,7 @@ export async function apply(ctx: Context, config: Config) {
           channelId,
           channelName: channelName ?? event.channel.name ?? channelId,
           userId,
-          username: username,
+          username,
           todayPostCount: 1,
           thisWeekPostCount: 1,
           thisMonthPostCount: 1,
