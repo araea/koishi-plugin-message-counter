@@ -53,7 +53,7 @@
   "devDependencies": {
     "@types/node-schedule": "^2",
     "@types/pako": "^2",
-    "koishi-plugin-markdown-to-image-service": "^1.2.1",
+    "koishi-plugin-markdown-to-image-service": "^1.2.5",
     "koishi-plugin-puppeteer": "^3.9.0"
   }
 }
