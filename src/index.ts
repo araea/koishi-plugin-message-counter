@@ -404,7 +404,8 @@ export async function apply(ctx: Context, config: Config) {
   // jt*
   ctx.on("message", async (session: any) => {
     const { channelId, event, userId } = session;
-    const username = await getSessionUserName(session);
+    session.observeUser(["id", "name", "permissions"]);
+    const username = session.user?.name || session.username;
 
     let groupList;
     if (typeof session.bot?.getGuildList === "function") {
@@ -419,7 +420,6 @@ export async function apply(ctx: Context, config: Config) {
       { channelId },
       { channelName: channelName ?? event.channel.name ?? channelId }
     );
-    // 判断该用户是否在数据表中
     const getUser = await ctx.database.get("message_counter_records", {
       channelId,
       userId,
@@ -473,7 +473,6 @@ export async function apply(ctx: Context, config: Config) {
           { channelId },
           { channelName: channelName ?? event.channel.name ?? channelId }
         );
-        // 判断该用户是否在数据表中
         const getUser = await ctx.database.get("message_counter_records", {
           channelId,
           userId: bot.user.id,
@@ -1405,10 +1404,6 @@ export async function apply(ctx: Context, config: Config) {
     });
 
   // hs*
-  async function getSessionUserName(session: any): Promise<string> {
-    return (await session.user?.name) || session.username;
-  }
-
   function getUsernameByChannelId(
     records: MessageCounterRecord[],
     channelId: string
