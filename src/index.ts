@@ -1096,18 +1096,31 @@ export async function apply(ctx: Context, config: Config) {
       }
 
       if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
-        // const thisRankInfo = await getChannelResultWithRank(
-        //   session.channelId,
-        //   result,
-        //   totalSum
-        // );
-        const updatedRankingData = markUserInRanking(rankingData, '426230045');
+        const thisRankInfo = await getChannelResultWithRank(
+          session.channelId,
+          result,
+          totalSum
+        );
+        let updatedRankingData: any = markUserInRanking(
+          rankingData,
+          session.channelId
+        );
+        const showUserInExtraRow =
+          thisRankInfo &&
+          !rankingData.some((item) => item.userId === thisRankInfo.userId);
 
+        if (showUserInExtraRow) {
+          updatedRankingData = [...updatedRankingData, thisRankInfo];
+        }
+        updatedRankingData = markUserInRanking(
+          updatedRankingData,
+          session.channelId
+        );
         const imageBuffer = await LeaderboardToHorizontalBarChartConversion(
           rankTimeTitle,
           rankTitle,
           updatedRankingData,
-          // thisRankInfo
+          thisRankInfo
         );
         return h.image(imageBuffer, `image/${config.imageType}`);
       }
@@ -1247,7 +1260,8 @@ export async function apply(ctx: Context, config: Config) {
           number,
           currentBeijingTime,
           accumulateSums,
-          "todayPostCount"
+          "todayPostCount",
+          session.userId
         );
       }
 
@@ -1259,7 +1273,8 @@ export async function apply(ctx: Context, config: Config) {
           number,
           currentBeijingTime,
           accumulateSums,
-          "thisWeekPostCount"
+          "thisWeekPostCount",
+          session.userId
         );
       }
 
@@ -1271,7 +1286,8 @@ export async function apply(ctx: Context, config: Config) {
           number,
           currentBeijingTime,
           accumulateSums,
-          "thisMonthPostCount"
+          "thisMonthPostCount",
+          session.userId
         );
       }
 
@@ -1283,7 +1299,8 @@ export async function apply(ctx: Context, config: Config) {
           number,
           currentBeijingTime,
           accumulateSums,
-          "thisYearPostCount"
+          "thisYearPostCount",
+          session.userId
         );
       }
 
@@ -1295,7 +1312,8 @@ export async function apply(ctx: Context, config: Config) {
           number,
           currentBeijingTime,
           accumulateSums,
-          "yesterdayPostCount"
+          "yesterdayPostCount",
+          session.userId
         );
       }
 
@@ -1305,6 +1323,24 @@ export async function apply(ctx: Context, config: Config) {
 
         // 只保留前 number 个用户
         const topDragons = dragons.slice(0, number);
+
+        // 检查指定的 userId 是否在 topDragons 中
+        const userExists = topDragons.some(
+          (dragon) => dragon[0] === session.userId
+        );
+
+        // 如果用户不在 topDragons 中，则将该用户添加到末尾
+        if (!userExists) {
+          // 在原始数据中查找该用户
+          const userDragon = dragons.find(
+            (dragon) => dragon[0] === session.userId
+          );
+
+          // 如果在原始数据中找到该用户，则添加到末尾
+          if (userDragon) {
+            topDragons.push(userDragon);
+          }
+        }
 
         const rankingData: RankingData[] = [];
         // 获取用户信息并构建结果数组
@@ -1350,10 +1386,14 @@ export async function apply(ctx: Context, config: Config) {
             : `${currentBeijingTime}\n${rank}`;
         }
         if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
+          let updatedRankingData: any = markUserInRanking(
+            rankingData,
+            session.userId
+          );
           const imageBuffer = await LeaderboardToHorizontalBarChartConversion(
             `${currentBeijingTime}`,
             `圣龙王榜`,
-            rankingData
+            updatedRankingData
           );
           return h.image(imageBuffer, `image/${config.imageType}`);
         }
@@ -1368,6 +1408,23 @@ export async function apply(ctx: Context, config: Config) {
       const rankingData: RankingData[] = [];
       getUsers.sort((a, b) => b[sortByProperty] - a[sortByProperty]);
       const topUsers = getUsers.slice(0, number);
+      // 检查指定的 userId 是否在 topUsers 中
+      const userExists = topUsers.some(
+        (user) => user.userId === session.userId
+      );
+
+      // 如果用户不在 topUsers 中，则找到该用户并添加到末尾
+      if (!userExists) {
+        // 在原始 getUsers 数组中查找该用户
+        const targetUser = getUsers.find(
+          (user) => user.userId === session.userId
+        );
+
+        // 如果在原始数据中找到该用户，则添加到末尾
+        if (targetUser) {
+          topUsers.push(targetUser);
+        }
+      }
       let i = 1;
       const result = topUsers
         .map((user) => {
@@ -1399,10 +1456,14 @@ export async function apply(ctx: Context, config: Config) {
           : `${currentBeijingTime}\n${rank}`;
       }
       if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
+        let updatedRankingData: any = markUserInRanking(
+          rankingData,
+          session.userId
+        );
         const imageBuffer = await LeaderboardToHorizontalBarChartConversion(
           `${currentBeijingTime}`,
           `排行榜：${countProperty}`,
-          rankingData
+          updatedRankingData
         );
         return h.image(imageBuffer, `image/${config.imageType}`);
       }
@@ -1414,8 +1475,14 @@ export async function apply(ctx: Context, config: Config) {
     });
 
   // hs*
-  function markUserInRanking(rankingData: RankingData[], userId: string): RankingData[] {
-    return rankingData.map(item => {
+  function markUserInRanking(
+    rankingData: RankingData[],
+    userId: string
+  ): RankingData[] {
+    if (userId.includes(`#`)) {
+      userId = "426230045";
+    }
+    return rankingData.map((item) => {
       if (item.userId === userId) {
         return {
           ...item,
@@ -1430,17 +1497,18 @@ export async function apply(ctx: Context, config: Config) {
     channelId: string,
     result: { channelId: string; channelName: string; sum: number }[],
     totalPostCount: number
-  ):
-    Promise<{
-      id: string;
-      name: string;
-      count: number;
-      rank: number;
-      percentage: number;
-      avatar: string;
-      avatarBase64?: string;
-    } |
-      undefined> {
+  ): Promise<
+    | {
+        userId: string;
+        name: string;
+        count: number;
+        rank: number;
+        percentage: number;
+        avatar: string;
+        avatarBase64?: string;
+      }
+    | undefined
+  > {
     const channelResult = result.find((item) => item.channelId === channelId);
 
     if (!channelResult) {
@@ -1451,14 +1519,19 @@ export async function apply(ctx: Context, config: Config) {
     const rank =
       sortedResults.findIndex((item) => item.channelId === channelId) + 1;
 
+    const channelId2 = channelResult.channelId.includes(`#`)
+      ? "426230045"
+      : channelResult.channelId;
     return {
-      id: channelResult.channelId,
+      userId: channelId2,
       name: channelResult.channelName,
       count: channelResult.sum,
       rank: rank,
       percentage: calculatePercentage2(channelResult.sum, totalPostCount),
-      avatar: `https://p.qlogo.cn/gh/${channelResult.channelId}/${channelResult.channelId}/640/`,
-      avatarBase64: await resizeImageToBase64(`https://p.qlogo.cn/gh/${channelResult.channelId}/${channelResult.channelId}/640/`),
+      avatar: `https://p.qlogo.cn/gh/${channelId2}/${channelId2}/640/`,
+      avatarBase64: await resizeImageToBase64(
+        `https://p.qlogo.cn/gh/${channelId2}/${channelId2}/640/`
+      ),
     };
   }
 
@@ -1673,7 +1746,8 @@ export async function apply(ctx: Context, config: Config) {
       | "thisMonthPostCount"
       | "thisYearPostCount"
       | "totalPostCount"
-      | "yesterdayPostCount"
+      | "yesterdayPostCount",
+    targetUserId?: string // Renamed parameter to avoid conflict
   ): Promise<any> {
     const userMap = new Map();
     const usernameMap = new Map();
@@ -1723,9 +1797,53 @@ export async function apply(ctx: Context, config: Config) {
       }
     }
 
-    const sortedUsers = Array.from(userMap)
+    let sortedUsers = Array.from(userMap)
       .sort((a, b) => b[1] - a[1])
       .slice(0, number);
+
+    // Check if targetUserId parameter was provided and if it's not already in the sliced results
+    if (targetUserId && !sortedUsers.some((user) => user[0] === targetUserId)) {
+      // Find user in the original data
+      const userInData = acrossGetUsers.find(
+        (user) => user.userId === targetUserId
+      );
+
+      if (userInData) {
+        // Get the post count for this user based on postCountType
+        let userPostCount = 0;
+        switch (postCountType) {
+          case "todayPostCount":
+            userPostCount = userInData.todayPostCount;
+            break;
+          case "thisWeekPostCount":
+            userPostCount = userInData.thisWeekPostCount;
+            break;
+          case "thisMonthPostCount":
+            userPostCount = userInData.thisMonthPostCount;
+            break;
+          case "thisYearPostCount":
+            userPostCount = userInData.thisYearPostCount;
+            break;
+          case "totalPostCount":
+            userPostCount = userInData.totalPostCount;
+            break;
+          case "yesterdayPostCount":
+            userPostCount = userInData.yesterdayPostCount;
+            break;
+          default:
+            userPostCount = userInData.todayPostCount;
+            break;
+        }
+
+        // Add the user to the end of sortedUsers
+        sortedUsers.push([targetUserId, userPostCount]);
+
+        // Add username to usernameMap if not already there
+        if (!usernameMap.has(targetUserId)) {
+          usernameMap.set(targetUserId, userInData.username);
+        }
+      }
+    }
 
     const rankingData: RankingData[] = [];
 
@@ -1764,10 +1882,14 @@ export async function apply(ctx: Context, config: Config) {
     }
 
     if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
+      let updatedRankingData: any = markUserInRanking(
+        rankingData,
+        targetUserId
+      );
       const imageBuffer = await LeaderboardToHorizontalBarChartConversion(
         rankTimeTitle,
         rankTitle,
-        rankingData
+        updatedRankingData
       );
       return h.image(imageBuffer, `image/${config.imageType}`);
     }
@@ -2421,6 +2543,7 @@ export async function apply(ctx: Context, config: Config) {
         let rankingData = ${JSON.stringify(data)};
         let iconData = ${JSON.stringify(iconData)};
         let barBgImgs = ${JSON.stringify(barBgImgs)};
+        
         const maxCount = rankingData.reduce((max, item) => Math.max(max, item.count), 0);
         const maxCountText = maxCount.toString()
         const userNum = rankingData.length;
