@@ -1080,6 +1080,8 @@ export async function apply(ctx: Context, config: Config) {
       let rank = `${
         isTextToImageConversionEnabled ? `# ` : ``
       }${prefix}${countProperty}\n`;
+
+      result.sort((a, b) => b.sum - a.sum);
       const rankingString = await generateRankingString(
         result,
         totalSum,
@@ -1094,10 +1096,18 @@ export async function apply(ctx: Context, config: Config) {
       }
 
       if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
+        // const thisRankInfo = await getChannelResultWithRank(
+        //   session.channelId,
+        //   result,
+        //   totalSum
+        // );
+        const updatedRankingData = markUserInRanking(rankingData, '426230045');
+
         const imageBuffer = await LeaderboardToHorizontalBarChartConversion(
           rankTimeTitle,
           rankTitle,
-          rankingData
+          updatedRankingData,
+          // thisRankInfo
         );
         return h.image(imageBuffer, `image/${config.imageType}`);
       }
@@ -1404,6 +1414,54 @@ export async function apply(ctx: Context, config: Config) {
     });
 
   // hs*
+  function markUserInRanking(rankingData: RankingData[], userId: string): RankingData[] {
+    return rankingData.map(item => {
+      if (item.userId === userId) {
+        return {
+          ...item,
+          name: `🌟${item.name}`,
+        };
+      }
+      return item;
+    });
+  }
+
+  async function getChannelResultWithRank(
+    channelId: string,
+    result: { channelId: string; channelName: string; sum: number }[],
+    totalPostCount: number
+  ):
+    Promise<{
+      id: string;
+      name: string;
+      count: number;
+      rank: number;
+      percentage: number;
+      avatar: string;
+      avatarBase64?: string;
+    } |
+      undefined> {
+    const channelResult = result.find((item) => item.channelId === channelId);
+
+    if (!channelResult) {
+      return undefined;
+    }
+
+    const sortedResults = [...result].sort((a, b) => b.sum - a.sum);
+    const rank =
+      sortedResults.findIndex((item) => item.channelId === channelId) + 1;
+
+    return {
+      id: channelResult.channelId,
+      name: channelResult.channelName,
+      count: channelResult.sum,
+      rank: rank,
+      percentage: calculatePercentage2(channelResult.sum, totalPostCount),
+      avatar: `https://p.qlogo.cn/gh/${channelResult.channelId}/${channelResult.channelId}/640/`,
+      avatarBase64: await resizeImageToBase64(`https://p.qlogo.cn/gh/${channelResult.channelId}/${channelResult.channelId}/640/`),
+    };
+  }
+
   function getUsernameByChannelId(
     records: MessageCounterRecord[],
     channelId: string
@@ -2020,8 +2078,6 @@ export async function apply(ctx: Context, config: Config) {
     rankingData: RankingData[],
     number
   ): Promise<string> {
-    result.sort((a, b) => b.sum - a.sum);
-
     const topTen = result.slice(0, number);
 
     let rankingString = ``;
@@ -2221,7 +2277,8 @@ export async function apply(ctx: Context, config: Config) {
   async function generateRankingChartStyle3(
     rankTimeTitle,
     rankTitle,
-    data: RankingData[]
+    data: RankingData[],
+    thisRankInfo?
   ) {
     await updateDataWithBase64(data);
     let browser;
@@ -2957,13 +3014,15 @@ ${rankingHtml}
   async function LeaderboardToHorizontalBarChartConversion(
     rankTimeTitle,
     rankTitle,
-    rankingData: RankingData[]
+    rankingData: RankingData[],
+    thisRankInfo?
   ) {
     if (config.horizontalBarChartStyle === "3") {
       return await generateRankingChartStyle3(
         rankTimeTitle,
         rankTitle,
-        rankingData
+        rankingData,
+        thisRankInfo
       );
     } else if (config.horizontalBarChartStyle === "2") {
       return await generateRankingChartStyle2(
