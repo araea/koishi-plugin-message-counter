@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-message-counter",
   "description": "Koishi 的消息数量统计插件。生成各种发言排行榜。",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [

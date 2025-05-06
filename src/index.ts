@@ -2283,7 +2283,7 @@ export async function apply(ctx: Context, config: Config) {
       const userData = await ctx.database.get("message_counter_records", {
         userId: userId,
       });
-      avatar = userData[0]?.userAvatar;
+      avatar = userData[0]?.userAvatar || `https://q1.qlogo.cn/g?b=qq&nk=${userId}&s=640`;
     }
     rankingData.push({
       name: username,
