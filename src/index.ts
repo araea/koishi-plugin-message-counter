@@ -1431,28 +1431,31 @@ export async function apply(ctx: Context, config: Config) {
           topUsers.push(targetUser);
         }
       }
-      let i = 1;
-      const result = topUsers
-        .map(async (user) => {
-          await addToRankingData(
-            rankingData,
-            user.username,
-            user.userId,
-            user[sortByProperty],
-            totalSums[sortByProperty]
-          );
-          return `${isTextToImageConversionEnabled ? "## " : ""}${i++}. ${
-            user.username
-          }：${user[sortByProperty]} 次${
-            isUserMessagePercentageVisible
-              ? ` ${calculatePercentage(
-                  user[sortByProperty],
-                  totalSums[sortByProperty]
-                )}`
-              : ""
-          }`;
-        })
-        .join("\n");
+      const userPromises = topUsers.map(async (user, index) => {
+        await addToRankingData(
+          rankingData,
+          user.username,
+          user.userId,
+          user[sortByProperty],
+          totalSums[sortByProperty]
+        );
+
+        return `${isTextToImageConversionEnabled ? "## " : ""}${index + 1}. ${
+          user.username
+        }：${user[sortByProperty]} 次${
+          isUserMessagePercentageVisible
+            ? ` ${calculatePercentage(
+                user[sortByProperty],
+                totalSums[sortByProperty]
+              )}`
+            : ""
+        }`;
+      });
+
+      const userStrings = await Promise.all(userPromises);
+
+      const result = userStrings.join("\n");
+
       let rank = isTextToImageConversionEnabled
         ? `# 排行榜：${countProperty}\n${result}`
         : `排行榜：${countProperty}\n${result}`;
@@ -1858,10 +1861,11 @@ export async function apply(ctx: Context, config: Config) {
       : `${rankTitle}：\n`;
     const rankTimeTitle = `${currentBeijingTime}`;
 
-    sortedUsers.forEach(async (user, index) => {
+    for (const [index, user] of sortedUsers.entries()) {
       const userId = user[0];
       const postCountAll = user[1];
       const username = usernameMap.get(userId);
+
       await addToRankingData(
         rankingData,
         username,
@@ -1869,6 +1873,7 @@ export async function apply(ctx: Context, config: Config) {
         postCountAll,
         acrossTotalSums[postCountType]
       );
+
       rank += `${isTextToImageConversionEnabled ? "## " : ""}${
         index + 1
       }. ${username}：${postCountAll} 次${
@@ -1879,7 +1884,7 @@ export async function apply(ctx: Context, config: Config) {
             )}`
           : ""
       }\n`;
-    });
+    }
 
     if (isTimeInfoSupplementEnabled) {
       rank = isTextToImageConversionEnabled
@@ -2120,27 +2125,29 @@ export async function apply(ctx: Context, config: Config) {
           usersByGuild.sort((a, b) => b[sortByProperty] - a[sortByProperty]);
           const topUsers = usersByGuild.slice(0, defaultMaxDisplayCount);
           const rankingData: RankingData[] = [];
-          const result = topUsers
-            .map(async (user, index) => {
-              await addToRankingData(
-                rankingData,
-                user.username,
-                user.userId,
-                user[sortByProperty],
-                totalSums[sortByProperty]
-              );
-              return `${isTextToImageConversionEnabled ? "## " : ""}${
-                index + 1
-              }. ${user.username}：${user[sortByProperty]} 次${
-                isUserMessagePercentageVisible
-                  ? ` ${calculatePercentage(
-                      user[sortByProperty],
-                      totalSums[sortByProperty]
-                    )}`
-                  : ""
-              }`;
-            })
-            .join("\n");
+          const userPromises = topUsers.map(async (user, index) => {
+            await addToRankingData(
+              rankingData,
+              user.username,
+              user.userId,
+              user[sortByProperty],
+              totalSums[sortByProperty]
+            );
+            return `${isTextToImageConversionEnabled ? "## " : ""}${
+              index + 1
+            }. ${user.username}：${user[sortByProperty]} 次${
+              isUserMessagePercentageVisible
+                ? ` ${calculatePercentage(
+                    user[sortByProperty],
+                    totalSums[sortByProperty]
+                  )}`
+                : ""
+            }`;
+          });
+          const userStrings = await Promise.all(userPromises);
+
+          const result = userStrings.join("\n");
+
           let rank = isTextToImageConversionEnabled
             ? `# 排行榜：${countProperty}\n${result}`
             : `排行榜：${countProperty}\n${result}`;
@@ -2283,7 +2290,9 @@ export async function apply(ctx: Context, config: Config) {
       const userData = await ctx.database.get("message_counter_records", {
         userId: userId,
       });
-      avatar = userData[0]?.userAvatar || `https://q1.qlogo.cn/g?b=qq&nk=${userId}&s=640`;
+      avatar =
+        userData[0]?.userAvatar ||
+        `https://q1.qlogo.cn/g?b=qq&nk=${userId}&s=640`;
     }
     rankingData.push({
       name: username,
