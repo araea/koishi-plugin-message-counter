@@ -306,6 +306,7 @@ interface MessageCounterRecord {
   channelName: string;
   userId: string;
   username: string;
+  userAvatar: string;
   todayPostCount: number;
   thisWeekPostCount: number;
   thisMonthPostCount: number;
@@ -388,6 +389,7 @@ export async function apply(ctx: Context, config: Config) {
       channelName: "string",
       userId: "string",
       username: "string",
+      userAvatar: "string",
       todayPostCount: "unsigned",
       thisWeekPostCount: "unsigned",
       thisMonthPostCount: "unsigned",
@@ -431,6 +433,7 @@ export async function apply(ctx: Context, config: Config) {
           channelName: channelName ?? event.channel.name ?? channelId,
           userId,
           username,
+          userAvatar: event.user.avatar,
           todayPostCount: 1,
           thisWeekPostCount: 1,
           thisMonthPostCount: 1,
@@ -446,6 +449,7 @@ export async function apply(ctx: Context, config: Config) {
         {
           channelName: channelName ?? event.channel.name ?? channelId,
           username,
+          userAvatar: event.user.avatar,
           todayPostCount: user.todayPostCount + 1,
           thisWeekPostCount: user.thisWeekPostCount + 1,
           thisMonthPostCount: user.thisMonthPostCount + 1,
@@ -483,6 +487,7 @@ export async function apply(ctx: Context, config: Config) {
             channelName: channelName ?? event.channel.name ?? channelId,
             userId: bot.user.id,
             username: bot.user.name,
+            userAvatar: bot.user.avatar,
             todayPostCount: 1,
             thisWeekPostCount: 1,
             thisMonthPostCount: 1,
@@ -497,6 +502,7 @@ export async function apply(ctx: Context, config: Config) {
             {
               channelName: channelName ?? event.channel.name ?? channelId,
               username: bot.user.name,
+              userAvatar: bot.user.avatar,
               todayPostCount: user.todayPostCount + 1,
               thisWeekPostCount: user.thisWeekPostCount + 1,
               thisMonthPostCount: user.thisMonthPostCount + 1,
@@ -1350,7 +1356,7 @@ export async function apply(ctx: Context, config: Config) {
               userId: key,
             });
             const user = getUser[0];
-            addToRankingData(
+            await addToRankingData(
               rankingData,
               user.username,
               key,
@@ -1427,8 +1433,8 @@ export async function apply(ctx: Context, config: Config) {
       }
       let i = 1;
       const result = topUsers
-        .map((user) => {
-          addToRankingData(
+        .map(async (user) => {
+          await addToRankingData(
             rankingData,
             user.username,
             user.userId,
@@ -1852,11 +1858,11 @@ export async function apply(ctx: Context, config: Config) {
       : `${rankTitle}：\n`;
     const rankTimeTitle = `${currentBeijingTime}`;
 
-    sortedUsers.forEach((user, index) => {
+    sortedUsers.forEach(async (user, index) => {
       const userId = user[0];
       const postCountAll = user[1];
       const username = usernameMap.get(userId);
-      addToRankingData(
+      await addToRankingData(
         rankingData,
         username,
         userId,
@@ -2115,8 +2121,8 @@ export async function apply(ctx: Context, config: Config) {
           const topUsers = usersByGuild.slice(0, defaultMaxDisplayCount);
           const rankingData: RankingData[] = [];
           const result = topUsers
-            .map((user, index) => {
-              addToRankingData(
+            .map(async (user, index) => {
+              await addToRankingData(
                 rankingData,
                 user.username,
                 user.userId,
@@ -2205,7 +2211,7 @@ export async function apply(ctx: Context, config: Config) {
     let rankingString = ``;
     for (const entry of topTen) {
       const index = topTen.indexOf(entry);
-      addToRankingData(
+      await addToRankingData(
         rankingData,
         entry.channelName,
         entry.channelId.includes(`#`) ? "426230045" : entry.channelId,
@@ -2259,23 +2265,30 @@ export async function apply(ctx: Context, config: Config) {
     );
   }
 
-  function addToRankingData(
+  async function addToRankingData(
     rankingData: RankingData[],
     username: string,
     userId: string,
     postCountAll: number,
     totalPostCount: number,
     isChannel?: boolean
-  ): void {
+  ): Promise<void> {
     if (!isChannel) {
       isChannel = false;
+    }
+    let avatar;
+    if (isChannel) {
+      avatar = `https://p.qlogo.cn/gh/${userId}/${userId}/640/`;
+    } else {
+      const userData = await ctx.database.get("message_counter_records", {
+        userId: userId,
+      });
+      avatar = userData[0]?.userAvatar;
     }
     rankingData.push({
       name: username,
       userId: userId,
-      avatar: isChannel
-        ? `https://p.qlogo.cn/gh/${userId}/${userId}/640/`
-        : `https://q1.qlogo.cn/g?b=qq&nk=${userId}&s=640`,
+      avatar,
       count: postCountAll,
       percentage: calculatePercentage2(postCountAll, totalPostCount),
     });
