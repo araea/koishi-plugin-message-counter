@@ -2396,8 +2396,9 @@ export async function apply(ctx: Context, config: Config) {
 
       return buffer.toString("base64");
     } catch (error) {
-      // 统一错误处理，可在此替换为默认图像或记录日志
-      throw new Error(`Failed to process image: ${error.message}`);
+      logger.error(`Failed to process image from ${url}: ${error.message}`);
+
+      return "R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=+x3kEEREREdmJ2zqJjvMIEREREXkitrUT3f8AAAAASUVORK5CYII=";
     }
   };
 
@@ -2429,8 +2430,9 @@ export async function apply(ctx: Context, config: Config) {
     ctx.inject(["puppeteer"], async (ctx) => {
       browser = ctx.puppeteer.browser;
     });
-    const context = await browser.createBrowserContext();
-    const page = await context.newPage();
+    // const context = await browser.createBrowserContext();
+    // const page = await context.newPage();
+    const page = await browser.newPage();
 
     // Background customization logic
     let backgroundStyle = "";
@@ -2521,11 +2523,11 @@ export async function apply(ctx: Context, config: Config) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ranking Board</title>
     <style>
-           @font-face {
+            @font-face {
             font-family: 'JMH';
             src: local('JMH'), url('./assets/fonts/JMH.woff2') format('woff2');
         }
-           @font-face {
+            @font-face {
             font-family: 'SJkaishu';
             src: local('SJkaishu'), url('./assets/fonts/SJkaishu.woff2') format('woff2');
         }
@@ -2832,7 +2834,7 @@ export async function apply(ctx: Context, config: Config) {
               return barBgImgsBase64[randomIndex];
           }
 
-         function findIconBase64(userId, iconData) {
+          function findIconBase64(userId, iconData) {
             const foundIcons = iconData.filter((data) => data.userId === userId);
 
             if (foundIcons.length > 0) {
@@ -2959,12 +2961,13 @@ async function getAverageColor(avatarBase64) {
       waitUntil: config.waitUntil,
     });
 
+    await page.bringToFront();
     const buffer = await page.screenshot({
       type: config.imageType,
       fullPage: true,
     });
     await page.close();
-    await context.close();
+    // await context.close();
 
     return buffer;
   }
@@ -3115,20 +3118,19 @@ ${rankingHtml}
     ctx.inject(["puppeteer"], async (ctx) => {
       browser = ctx.puppeteer.browser;
     });
-    const context = await browser.createBrowserContext();
-    const page = await context.newPage();
+    const page = await browser.newPage();
     await page.setViewport({
       width: config.width,
       height: 100,
       deviceScaleFactor: 1,
     });
     await page.setContent(html, { waitUntil: "load" });
+    await page.bringToFront();
     const imageBuffer = await page.screenshot({
       fullPage: true,
       type: config.imageType,
     });
     await page.close();
-    await context.close();
     return imageBuffer;
   }
 
@@ -3293,20 +3295,19 @@ ${rankingHtml}
     ctx.inject(["puppeteer"], async (ctx) => {
       browser = ctx.puppeteer.browser;
     });
-    const context = await browser.createBrowserContext();
-    const page = await context.newPage();
+    const page = await browser.newPage();
     await page.setViewport({
       width: config.width,
       height: 100,
       deviceScaleFactor: 1,
     });
     await page.setContent(html, { waitUntil: "load" });
+    await page.bringToFront();
     const imageBuffer = await page.screenshot({
       fullPage: true,
       type: config.imageType,
     });
     await page.close();
-    await context.close();
     return imageBuffer;
   }
 
