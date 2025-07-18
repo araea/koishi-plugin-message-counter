@@ -89,6 +89,9 @@ export interface Config {
   shouldMoveIconToBarEndLeft: boolean;
   horizontalBarBackgroundOpacity: number;
   horizontalBarBackgroundFullOpacity: number;
+  maxBarBgWidth: number;
+  maxBarBgHeight: number;
+  maxBarBgSize: number; // in MB
   dailyScheduledTimers: string[];
   shouldSendDailyLeaderboardAtMidnight: boolean;
   shouldSendLeaderboardNotificationsToAllChannels: boolean;
@@ -189,6 +192,24 @@ export const Config: Schema<Config> = Schema.intersect([
       .default(0)
       .description(
         "（仅样式 3）自定义水平柱状条背景整条的不透明度，值越小则越透明。"
+      ),
+    maxBarBgWidth: Schema.number()
+      .min(0)
+      .default(2000)
+      .description(
+        "（样式 3）上传的柱状条背景图片的最大宽度（像素），设置为 0 则不限制。"
+      ),
+    maxBarBgHeight: Schema.number()
+      .min(0)
+      .default(200)
+      .description(
+        "（样式 3）上传的柱状条背景图片的最大高度（像素），设置为 0 则不限制。"
+      ),
+    maxBarBgSize: Schema.number()
+      .min(0)
+      .default(5)
+      .description(
+        "（样式 3）上传的柱状条背景图片的最大文件大小（MB），设置为 0 则不限制。"
       ),
     backgroundType: Schema.union(["none", "api", "css"])
       .default("none")
@@ -1483,26 +1504,62 @@ export async function apply(ctx: Context, config: Config) {
     });
 
   // 新增：上传柱状条背景图指令
+  // 上传柱状条背景
   ctx
-    .command("messageCounter.上传柱状条背景", "为样式3上传自定义的水平柱状条背景图")
+    .command(
+      "messageCounter.上传柱状条背景",
+      "为样式3上传自定义的水平柱状条背景图"
+    )
     .action(async ({ session }) => {
       const imageElements = h.select(session.content, "img");
       if (imageElements.length === 0) {
         return "请在发送指令的同时附带一张图片。图片将用于排行榜样式3的柱状条背景。";
       }
 
-      // We'll process the first image found
       const imageUrl = imageElements[0].attrs.src;
       if (!imageUrl) {
         return "未能识别图片，请再试一次。";
       }
 
-      let buffer: ArrayBuffer;
+      let buffer: Buffer;
       try {
-        buffer = await ctx.http.get(imageUrl, { responseType: "arraybuffer" });
+        buffer = Buffer.from(
+          await ctx.http.get(imageUrl, { responseType: "arraybuffer" })
+        );
       } catch (error) {
-        logger.error("Failed to download user-uploaded background image:", error);
+        logger.error(
+          "Failed to download user-uploaded background image:",
+          error
+        );
         return "图片下载失败，请检查图片链接或稍后再试。";
+      }
+
+      // 检查文件大小
+      const imageSizeInMB = buffer.byteLength / 1024 / 1024;
+      if (config.maxBarBgSize > 0 && imageSizeInMB > config.maxBarBgSize) {
+        return `图片文件过大（${imageSizeInMB.toFixed(2)}MB），请上传小于 ${config.maxBarBgSize}MB 的图片。`;
+      }
+
+      // 检查图片尺寸 (需要 canvas 服务)
+      if (!ctx.canvas) {
+        logger.warn(
+          "Canvas service not available, skipping image dimension check for background upload."
+        );
+      } else {
+        try {
+          const image = await ctx.canvas.loadImage(buffer);
+          if (
+            (config.maxBarBgWidth > 0 &&
+              image.naturalWidth > config.maxBarBgWidth) ||
+            (config.maxBarBgHeight > 0 &&
+              image.naturalHeight > config.maxBarBgHeight)
+          ) {
+            return `图片尺寸（${image.naturalWidth}x${image.naturalHeight}）超出限制（最大 ${config.maxBarBgWidth}x${config.maxBarBgHeight}）。\n建议尺寸为 850x50 像素。`;
+          }
+        } catch (error) {
+          logger.error("Failed to read image dimensions:", error);
+          return "无法解析图片尺寸，请尝试使用其他图片格式。";
+        }
       }
 
       const userId = session.userId;
@@ -1516,7 +1573,6 @@ export async function apply(ctx: Context, config: Config) {
         );
         const currentCount = allUserFiles.length;
 
-        // Find existing files for the user to determine the next index
         const userFilesWithIndex = files.filter((file) =>
           file.match(new RegExp(`^${userId}-(\\d+)\\..+`))
         );
@@ -1527,15 +1583,15 @@ export async function apply(ctx: Context, config: Config) {
 
         const nextIndex = indices.length > 0 ? Math.max(...indices) + 1 : 1;
 
-        // We will save as PNG for simplicity
+        // 为便于管理，统一保存为 png 格式
         const newFileName = `${userId}-${nextIndex}.png`;
         const newFilePath = path.join(messageCounterBarBgImgsPath, newFileName);
 
-        await fs.promises.writeFile(newFilePath, Buffer.from(buffer));
+        await fs.promises.writeFile(newFilePath, buffer);
 
-        return `背景图上传成功！这现在是您的第 ${
+        return `背景图上传成功！这是您的第 ${
           currentCount + 1
-        } 张背景图（将会随机使用）。\n建议图片尺寸为 850x50 像素。`;
+        } 张背景图（将随机使用）。\n建议图片尺寸为 850x50 像素。`;
       } catch (error) {
         logger.error("Failed to save user-uploaded background image:", error);
         return "图片保存失败，请联系管理员。";
