@@ -41,22 +41,24 @@ export const usage = `## 注意事项
   - \`-d\`/\`-w\`/\`-m\`/\`-y\`/\`-t\`/\`--yesterday\`: 分别查询昨日/今日/本周/本月/今年/总发言排行榜️。
   - 默认为今日发言榜。
 
+- \`messageCounter.上传柱状条背景\`: 为自己上传一张自定义的水平柱状条背景图片 (用于样式3)。使用此指令时需附带图片。
+
 ## 自定义水平柱状图 3
 
-1. 用户图标:
+1. 用户图标：
 
-- 支持为同一用户添加多个图标，它们会同时显示。
-- 在 \`data/messageCounterIcons\` 文件夹下添加用户图标，文件名为用户 ID (例如 \`1234567890.png\`)。
-- 多个图标的文件名需形如  \`1234567890-1.png\`、 \`1234567890-2.png\` 。
+  - 支持为同一用户添加多个图标，它们会同时显示。
+  - 在 \`data/messageCounterIcons\` 文件夹下添加用户图标，文件名为用户 ID (例如 \`1234567890.png\`)。
+  - 多个图标的文件名需形如  \`1234567890-1.png\`、 \`1234567890-2.png\` 。
 
 2. 柱状条背景：
 
-- 支持为同一用户添加多个背景图片，插件会随机选择一个显示。
-- 在 \`data/messageCounterBarBgImgs\` 文件夹下添加水平柱状条背景图片。
-- 多个图片的文件名需形如 \`1234567890-1.png\`、\`1234567890-2.png\`。
-- 建议图片尺寸为 850x50 像素，文件名为用户 ID (例如\`1234567890.png\`)。
+  - **推荐方式**: 使用 \`messageCounter.上传柱状条背景\` 指令来上传图片。
+  - 支持为同一用户添加多个背景图片，插件会随机选择一个显示。
+  - **手动方式**: 在 \`data/messageCounterBarBgImgs\` 文件夹下添加水平柱状条背景图片。多个图片的文件名需形如 \`1234567890-1.png\`、\`1234567890-2.png\`。
+  - 建议图片尺寸为 850x50 像素，文件名为用户 ID (例如\`1234567890.png\`)。
 
-> 重启插件以使更改生效。
+> 更改会即时生效，无需重启。
 
 ## QQ 群
 
@@ -358,10 +360,7 @@ export async function apply(ctx: Context, config: Config) {
   await ensureDirExists(messageCounterBarBgImgsPath);
   // cl*
   const scheduledJobs = [];
-  const iconData: IconData[] = readIconsFromFolder(messageCounterIconsPath);
-  const barBgImgs: BarBgImgs[] = readBgImgsFromFolder(
-    messageCounterBarBgImgsPath
-  );
+  // 移除: 不再在启动时加载图标和背景图片
   const {
     autoPush,
     defaultMaxDisplayCount,
@@ -1483,6 +1482,66 @@ export async function apply(ctx: Context, config: Config) {
       await session.send(rank);
     });
 
+  // 新增：上传柱状条背景图指令
+  ctx
+    .command("messageCounter.上传柱状条背景", "为样式3上传自定义的水平柱状条背景图")
+    .action(async ({ session }) => {
+      const imageElements = h.select(session.content, "img");
+      if (imageElements.length === 0) {
+        return "请在发送指令的同时附带一张图片。图片将用于排行榜样式3的柱状条背景。";
+      }
+
+      // We'll process the first image found
+      const imageUrl = imageElements[0].attrs.src;
+      if (!imageUrl) {
+        return "未能识别图片，请再试一次。";
+      }
+
+      let buffer: ArrayBuffer;
+      try {
+        buffer = await ctx.http.get(imageUrl, { responseType: "arraybuffer" });
+      } catch (error) {
+        logger.error("Failed to download user-uploaded background image:", error);
+        return "图片下载失败，请检查图片链接或稍后再试。";
+      }
+
+      const userId = session.userId;
+
+      try {
+        await ensureDirExists(messageCounterBarBgImgsPath);
+
+        const files = await fs.promises.readdir(messageCounterBarBgImgsPath);
+        const allUserFiles = files.filter(
+          (file) => path.parse(file).name.split("-")[0] === userId
+        );
+        const currentCount = allUserFiles.length;
+
+        // Find existing files for the user to determine the next index
+        const userFilesWithIndex = files.filter((file) =>
+          file.match(new RegExp(`^${userId}-(\\d+)\\..+`))
+        );
+        const indices = userFilesWithIndex.map((file) => {
+          const match = file.match(new RegExp(`^${userId}-(\\d+)\\..+`));
+          return parseInt(match[1]);
+        });
+
+        const nextIndex = indices.length > 0 ? Math.max(...indices) + 1 : 1;
+
+        // We will save as PNG for simplicity
+        const newFileName = `${userId}-${nextIndex}.png`;
+        const newFilePath = path.join(messageCounterBarBgImgsPath, newFileName);
+
+        await fs.promises.writeFile(newFilePath, Buffer.from(buffer));
+
+        return `背景图上传成功！这现在是您的第 ${
+          currentCount + 1
+        } 张背景图（将会随机使用）。\n建议图片尺寸为 850x50 像素。`;
+      } catch (error) {
+        logger.error("Failed to save user-uploaded background image:", error);
+        return "图片保存失败，请联系管理员。";
+      }
+    });
+
   // hs*
   function markUserInRanking(
     rankingData: RankingData[],
@@ -2397,8 +2456,30 @@ export async function apply(ctx: Context, config: Config) {
       return buffer.toString("base64");
     } catch (error) {
       logger.error(`Failed to process image from ${url}: ${error.message}`);
+      // 头像请求失败，尝试使用默认头像
+      try {
+        const defaultAvatarUrl =
+          "https://c-ssl.dtstatic.com/uploads/item/202005/18/20200518080041_cgwpv.thumb.400_0.png";
+        logger.warn(`Attempting to use default avatar.`);
 
-      return "R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=+x3kEEREREdmJ2zqJjvMIEREREXkitrUT3f8AAAAASUVORK5CYII=";
+        const response = await fetchWithRetry(defaultAvatarUrl);
+        const imageBuffer = Buffer.from(await response.arrayBuffer());
+
+        const canvas = await ctx.canvas.createCanvas(50, 50);
+        const context = canvas.getContext("2d");
+        const image = await ctx.canvas.loadImage(imageBuffer);
+
+        context.drawImage(image, 0, 0, 50, 50);
+        const buffer = await canvas.toBuffer("image/png");
+
+        return buffer.toString("base64");
+      } catch (defaultError) {
+        // 如果默认头像也加载失败，则返回一个硬编码的占位图
+        logger.error(
+          `Failed to process default avatar as well: ${defaultError.message}`
+        );
+        return "R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=+x3kEEREREdmJ2zqJjvMIEREREXkitrUT3f8AAAAASUVORK5CYII=";
+      }
     }
   };
 
@@ -2425,6 +2506,12 @@ export async function apply(ctx: Context, config: Config) {
     data: RankingData[],
     thisRankInfo?
   ) {
+    // 新增：在每次生成图片时重新读取图标和背景图文件
+    const iconData: IconData[] = readIconsFromFolder(messageCounterIconsPath);
+    const barBgImgs: BarBgImgs[] = readBgImgsFromFolder(
+      messageCounterBarBgImgsPath
+    );
+
     await updateDataWithBase64(data);
     let browser;
     ctx.inject(["puppeteer"], async (ctx) => {
