@@ -380,7 +380,10 @@ export async function apply(ctx: Context, config: Config) {
   await ensureDirExists(messageCounterIconsPath);
   await ensureDirExists(messageCounterBarBgImgsPath);
   // cl*
-  const scheduledJobs = [];
+  interface ScheduledJob {
+    cancel(): void;
+  }
+  const scheduledJobs: ScheduledJob[] = [];
   // 移除: 不再在启动时加载图标和背景图片
   const {
     autoPush,
@@ -436,11 +439,14 @@ export async function apply(ctx: Context, config: Config) {
       groupList = { data: [] };
     }
     const groups = groupList.data;
-    const channelName = getNameFromChannelId(groups, channelId);
+    const channelName =
+      getNameFromChannelId(groups, channelId) ??
+      event.channel?.name ??
+      channelId;
     await ctx.database.set(
       "message_counter_records",
       { channelId },
-      { channelName: channelName ?? event.channel.name ?? channelId }
+      { channelName }
     );
     const getUser = await ctx.database.get("message_counter_records", {
       channelId,
@@ -450,7 +456,7 @@ export async function apply(ctx: Context, config: Config) {
       if (userId) {
         await ctx.database.create("message_counter_records", {
           channelId,
-          channelName: channelName ?? event.channel.name ?? channelId,
+          channelName: channelName ?? event.channel?.name ?? channelId,
           userId,
           username,
           userAvatar: event.user.avatar,
@@ -467,7 +473,7 @@ export async function apply(ctx: Context, config: Config) {
         "message_counter_records",
         { channelId, userId },
         {
-          channelName: channelName ?? event.channel.name ?? channelId,
+          channelName: channelName ?? event.channel?.name ?? channelId,
           username,
           userAvatar: event.user.avatar,
           todayPostCount: user.todayPostCount + 1,
@@ -491,12 +497,17 @@ export async function apply(ctx: Context, config: Config) {
           groupList = { data: [] };
         }
         const groups = groupList.data;
-        const channelName = getNameFromChannelId(groups, channelId);
+        const channelName =
+          getNameFromChannelId(groups, channelId ?? "") ?? channelId;
         await ctx.database.set(
           "message_counter_records",
           { channelId },
-          { channelName: channelName ?? event.channel.name ?? channelId }
+          { channelName: channelName ?? event.channel?.name ?? channelId }
         );
+        if (!bot.user) {
+          logger.warn("Bot user is undefined, skipping bot message tracking.");
+          return;
+        }
         const getUser = await ctx.database.get("message_counter_records", {
           channelId,
           userId: bot.user.id,
@@ -504,7 +515,7 @@ export async function apply(ctx: Context, config: Config) {
         if (getUser.length === 0) {
           await ctx.database.create("message_counter_records", {
             channelId,
-            channelName: channelName ?? event.channel.name ?? channelId,
+            channelName: channelName ?? event.channel?.name ?? channelId,
             userId: bot.user.id,
             username: bot.user.name,
             userAvatar: bot.user.avatar,
@@ -520,7 +531,7 @@ export async function apply(ctx: Context, config: Config) {
             "message_counter_records",
             { channelId, userId: bot.user.id },
             {
-              channelName: channelName ?? event.channel.name ?? channelId,
+              channelName: channelName ?? event.channel?.name ?? channelId,
               username: bot.user.name,
               userAvatar: bot.user.avatar,
               todayPostCount: user.todayPostCount + 1,
@@ -538,12 +549,15 @@ export async function apply(ctx: Context, config: Config) {
   ctx
     .command("messageCounter", "查看messageCounter帮助")
     .action(async ({ session }) => {
-      await session.execute(`messageCounter -h`);
+      if (session) {
+        await session.execute(`messageCounter -h`);
+      }
     });
   // csh*
   ctx
     .command("messageCounter.初始化", "初始化", { authority: 3 })
     .action(async ({ session }) => {
+      if (!session) return;
       await session.send("嗯~");
       await ctx.database.remove("message_counter_records", {});
       await session.send("好啦~");
@@ -583,40 +597,40 @@ export async function apply(ctx: Context, config: Config) {
       };
 
       // 检查用户选择的选项，如果存在则将其设置为 true
-      if (options.day) {
+      if (options?.day) {
         selectedOptions.day = true;
       }
-      if (options.week) {
+      if (options?.week) {
         selectedOptions.week = true;
       }
-      if (options.month) {
+      if (options?.month) {
         selectedOptions.month = true;
       }
-      if (options.year) {
+      if (options?.year) {
         selectedOptions.year = true;
       }
-      if (options.total) {
+      if (options?.total) {
         selectedOptions.total = true;
       }
-      if (options.yesterday) {
+      if (options?.yesterday) {
         selectedOptions.yesterday = true;
       }
-      if (options.across) {
+      if (options?.across) {
         selectedOptions.across = true;
       }
-      if (options.dag) {
+      if (options?.dag) {
         selectedOptions.dag = true;
       }
-      if (options.wag) {
+      if (options?.wag) {
         selectedOptions.wag = true;
       }
-      if (options.mag) {
+      if (options?.mag) {
         selectedOptions.mag = true;
       }
-      if (options.yag) {
+      if (options?.yag) {
         selectedOptions.yag = true;
       }
-      if (options.ydag) {
+      if (options?.ydag) {
         selectedOptions.ydag = true;
       }
 
@@ -625,7 +639,9 @@ export async function apply(ctx: Context, config: Config) {
         (value) => value === false
       );
       if (allOptionsSelected) {
-        Object.keys(selectedOptions).forEach((key) => {
+        (
+          Object.keys(selectedOptions) as Array<keyof typeof selectedOptions>
+        ).forEach((key) => {
           selectedOptions[key] = true;
         });
       }
@@ -647,11 +663,15 @@ export async function apply(ctx: Context, config: Config) {
       // selectedOptions 对象包含了用户选择的选项
 
       // 查询： 直接获取 返回提示 跨群总榜
-      let { channelId, userId, username } = session;
+      let channelId = session?.channelId;
+      let userId = session?.userId;
+      let username = session?.user?.name || "";
       let targetUserRecord: MessageCounterRecord[] = [];
       const originalUerId = userId;
       if (targetUser) {
-        targetUser = await replaceAtTags(session, targetUser);
+        if (session) {
+          targetUser = await replaceAtTags(session, targetUser);
+        }
         const userIdRegex = /<at id="([^"]+)"(?: name="([^"]+)")?\/>/;
         const match = targetUser.match(userIdRegex);
         userId = match?.[1] ?? userId;
@@ -704,7 +724,25 @@ export async function apply(ctx: Context, config: Config) {
         yesterdayPostCount: 0,
       };
 
-      const accumulateSums = (sums, user) => {
+      interface Sums {
+        todayPostCount: number;
+        thisWeekPostCount: number;
+        thisMonthPostCount: number;
+        thisYearPostCount: number;
+        totalPostCount: number;
+        yesterdayPostCount: number;
+      }
+
+      interface User {
+        todayPostCount: number;
+        thisWeekPostCount: number;
+        thisMonthPostCount: number;
+        thisYearPostCount: number;
+        totalPostCount: number;
+        yesterdayPostCount: number;
+      }
+
+      const accumulateSums = (sums: Sums, user: User): void => {
         sums.todayPostCount += user.todayPostCount;
         sums.thisWeekPostCount += user.thisWeekPostCount;
         sums.thisMonthPostCount += user.thisMonthPostCount;
@@ -748,6 +786,9 @@ export async function apply(ctx: Context, config: Config) {
       };
 
       // 使用方法获取 userId 对应对象的各种种类的排名数据
+      if (!userId) {
+        return "无法获取用户ID，无法查询排名。";
+      }
       const userRankingData = getUserRanking(userId);
 
       const {
@@ -757,7 +798,7 @@ export async function apply(ctx: Context, config: Config) {
         thisYearRank,
         totalRank,
         yesterdayRank,
-      } = userRankingData;
+      } = userRankingData || {};
 
       function getAcrossUserRank(
         userId: string,
@@ -883,18 +924,20 @@ export async function apply(ctx: Context, config: Config) {
           userId,
           "yesterdayPostCount"
         );
-        const ydagUserRecord = ydagResult.userRecord;
-        const ydagRank = ydagResult.acrossRank;
-        message += `${
-          isTextToImageConversionEnabled ? "## " : ""
-        }跨群昨日发言次数[排名]：${ydagUserRecord.postCountAll} 次${
-          isUserMessagePercentageVisible
-            ? ` ${calculatePercentage(
-                ydagUserRecord.postCountAll,
-                acrossTotalSums.yesterdayPostCount
-              )}`
-            : ""
-        }[${ydagRank}]\n`;
+        if (ydagResult) {
+          const ydagUserRecord = ydagResult.userRecord;
+          const ydagRank = ydagResult.acrossRank;
+          message += `${
+            isTextToImageConversionEnabled ? "## " : ""
+          }跨群昨日发言次数[排名]：${ydagUserRecord.postCountAll} 次${
+            isUserMessagePercentageVisible
+              ? ` ${calculatePercentage(
+                  ydagUserRecord.postCountAll,
+                  acrossTotalSums.yesterdayPostCount
+                )}`
+              : ""
+          }[${ydagRank}]\n`;
+        }
       }
       if (dag) {
         const dagResult = getUserRankAndRecord(
@@ -902,18 +945,20 @@ export async function apply(ctx: Context, config: Config) {
           userId,
           "todayPostCount"
         );
-        const dagUserRecord = dagResult.userRecord;
-        const dagRank = dagResult.acrossRank;
-        message += `${
-          isTextToImageConversionEnabled ? "## " : ""
-        }跨群今日发言次数[排名]：${dagUserRecord.postCountAll} 次${
-          isUserMessagePercentageVisible
-            ? ` ${calculatePercentage(
-                dagUserRecord.postCountAll,
-                acrossTotalSums.todayPostCount
-              )}`
-            : ""
-        }[${dagRank}]\n`;
+        if (dagResult) {
+          const dagUserRecord = dagResult.userRecord;
+          const dagRank = dagResult.acrossRank;
+          message += `${
+            isTextToImageConversionEnabled ? "## " : ""
+          }跨群今日发言次数[排名]：${dagUserRecord.postCountAll} 次${
+            isUserMessagePercentageVisible
+              ? ` ${calculatePercentage(
+                  dagUserRecord.postCountAll,
+                  acrossTotalSums.todayPostCount
+                )}`
+              : ""
+          }[${dagRank}]\n`;
+        }
       }
       if (wag) {
         const wagResult = getUserRankAndRecord(
@@ -921,18 +966,20 @@ export async function apply(ctx: Context, config: Config) {
           userId,
           "thisWeekPostCount"
         );
-        const wagUserRecord = wagResult.userRecord;
-        const wagRank = wagResult.acrossRank;
-        message += `${
-          isTextToImageConversionEnabled ? "## " : ""
-        }跨群本周发言次数[排名]：${wagUserRecord.postCountAll} 次${
-          isUserMessagePercentageVisible
-            ? ` ${calculatePercentage(
-                wagUserRecord.postCountAll,
-                acrossTotalSums.thisWeekPostCount
-              )}`
-            : ""
-        }[${wagRank}]\n`;
+        if (wagResult) {
+          const wagUserRecord = wagResult.userRecord;
+          const wagRank = wagResult.acrossRank;
+          message += `${
+            isTextToImageConversionEnabled ? "## " : ""
+          }跨群本周发言次数[排名]：${wagUserRecord.postCountAll} 次${
+            isUserMessagePercentageVisible
+              ? ` ${calculatePercentage(
+                  wagUserRecord.postCountAll,
+                  acrossTotalSums.thisWeekPostCount
+                )}`
+              : ""
+          }[${wagRank}]\n`;
+        }
       }
       if (mag) {
         const magResult = getUserRankAndRecord(
@@ -940,18 +987,20 @@ export async function apply(ctx: Context, config: Config) {
           userId,
           "thisMonthPostCount"
         );
-        const magUserRecord = magResult.userRecord;
-        const magRank = magResult.acrossRank;
-        message += `${
-          isTextToImageConversionEnabled ? "## " : ""
-        }跨群本月发言次数[排名]：${magUserRecord.postCountAll} 次${
-          isUserMessagePercentageVisible
-            ? ` ${calculatePercentage(
-                magUserRecord.postCountAll,
-                acrossTotalSums.thisMonthPostCount
-              )}`
-            : ""
-        }[${magRank}]\n`;
+        if (magResult) {
+          const magUserRecord = magResult.userRecord;
+          const magRank = magResult.acrossRank;
+          message += `${
+            isTextToImageConversionEnabled ? "## " : ""
+          }跨群本月发言次数[排名]：${magUserRecord.postCountAll} 次${
+            isUserMessagePercentageVisible
+              ? ` ${calculatePercentage(
+                  magUserRecord.postCountAll,
+                  acrossTotalSums.thisMonthPostCount
+                )}`
+              : ""
+          }[${magRank}]\n`;
+        }
       }
       if (yag) {
         const yagResult = getUserRankAndRecord(
@@ -959,18 +1008,20 @@ export async function apply(ctx: Context, config: Config) {
           userId,
           "thisYearPostCount"
         );
-        const yagUserRecord = yagResult.userRecord;
-        const yagRank = yagResult.acrossRank;
-        message += `${
-          isTextToImageConversionEnabled ? "## " : ""
-        }跨群本年发言次数[排名]：${yagUserRecord.postCountAll} 次${
-          isUserMessagePercentageVisible
-            ? ` ${calculatePercentage(
-                yagUserRecord.postCountAll,
-                acrossTotalSums.thisYearPostCount
-              )}`
-            : ""
-        }[${yagRank}]\n`;
+        if (yagResult) {
+          const yagUserRecord = yagResult.userRecord;
+          const yagRank = yagResult.acrossRank;
+          message += `${
+            isTextToImageConversionEnabled ? "## " : ""
+          }跨群本年发言次数[排名]：${yagUserRecord.postCountAll} 次${
+            isUserMessagePercentageVisible
+              ? ` ${calculatePercentage(
+                  yagUserRecord.postCountAll,
+                  acrossTotalSums.thisYearPostCount
+                )}`
+              : ""
+          }[${yagRank}]\n`;
+        }
       }
       if (across) {
         message += `${
@@ -1020,11 +1071,13 @@ export async function apply(ctx: Context, config: Config) {
       }
 
       if (config.hiddenChannelIdsInLeaderboard.length !== 0) {
-        options.blacks += "" + config.hiddenChannelIdsInLeaderboard.join(" ");
+        if (options) {
+          options.blacks += "" + config.hiddenChannelIdsInLeaderboard.join(" ");
+        }
       }
 
       let userId = "";
-      if (options.specificUser) {
+      if (options && options.specificUser) {
         const atElements = h.select(options.specificUser, "at");
         if (atElements.length > 0) {
           userId = atElements[0].attrs.id;
@@ -1043,14 +1096,22 @@ export async function apply(ctx: Context, config: Config) {
         if (userRecords.length === 0) {
           return `指定用户不存在。`;
         }
-        username = getUsernameByChannelId(userRecords, session.channelId);
+        if (session && session.channelId) {
+          username =
+            getUsernameByChannelId(userRecords, session.channelId) ??
+            userRecords[0].username;
+        }
         if (!username) {
           username = userRecords[0].username;
         }
       }
 
-      const whites = splitWhitesOrBlacksString(options.whites);
-      const blacks = splitWhitesOrBlacksString(options.blacks);
+      const whites = splitWhitesOrBlacksString(
+        (options && options.whites) || ""
+      );
+      const blacks = splitWhitesOrBlacksString(
+        (options && options.blacks) || ""
+      );
 
       let messageCounterRecords: MessageCounterRecord[] =
         await ctx.database.get("message_counter_records", {});
@@ -1069,22 +1130,22 @@ export async function apply(ctx: Context, config: Config) {
       let sortByProperty: keyof MessageCounterRecord;
       let countProperty: string;
 
-      if (options.day) {
+      if (options && options.day) {
         sortByProperty = "todayPostCount";
         countProperty = "今日发言次数";
-      } else if (options.week) {
+      } else if (options && options.week) {
         sortByProperty = "thisWeekPostCount";
         countProperty = "本周发言次数";
-      } else if (options.month) {
+      } else if (options && options.month) {
         sortByProperty = "thisMonthPostCount";
         countProperty = "本月发言次数";
-      } else if (options.year) {
+      } else if (options && options.year) {
         sortByProperty = "thisYearPostCount";
         countProperty = "今年发言次数";
-      } else if (options.total) {
+      } else if (options && options.total) {
         sortByProperty = "totalPostCount";
         countProperty = "总发言次数";
-      } else if (options.yesterday) {
+      } else if (options && options.yesterday) {
         sortByProperty = "yesterdayPostCount";
         countProperty = "昨日发言次数";
       } else {
@@ -1122,15 +1183,13 @@ export async function apply(ctx: Context, config: Config) {
       }
 
       if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
+        const channelId = session?.channelId ?? "";
         const thisRankInfo = await getChannelResultWithRank(
-          session.channelId,
+          channelId,
           result,
           totalSum
         );
-        let updatedRankingData: any = markUserInRanking(
-          rankingData,
-          session.channelId
-        );
+        let updatedRankingData: any = markUserInRanking(rankingData, channelId);
         const showUserInExtraRow =
           thisRankInfo &&
           !rankingData.some((item) => item.userId === thisRankInfo.userId);
@@ -1138,10 +1197,7 @@ export async function apply(ctx: Context, config: Config) {
         if (showUserInExtraRow) {
           updatedRankingData = [...updatedRankingData, thisRankInfo];
         }
-        updatedRankingData = markUserInRanking(
-          updatedRankingData,
-          session.channelId
-        );
+        updatedRankingData = markUserInRanking(updatedRankingData, channelId);
         const imageBuffer = await LeaderboardToHorizontalBarChartConversion(
           rankTimeTitle,
           rankTitle,
@@ -1179,7 +1235,7 @@ export async function apply(ctx: Context, config: Config) {
     .option("yag", "--yag 跨群年发言榜")
     .option("dragon", "--dragon 圣龙王榜")
     .action(async ({ session, options }, number) => {
-      const { channelId } = session;
+      const channelId = session?.channelId;
 
       if (!number) {
         number = defaultMaxDisplayCount;
@@ -1190,11 +1246,17 @@ export async function apply(ctx: Context, config: Config) {
       }
 
       if (config.hiddenUserIdsInLeaderboard.length !== 0) {
-        options.blacks += "" + config.hiddenUserIdsInLeaderboard.join(" ");
+        if (options) {
+          options.blacks += "" + config.hiddenUserIdsInLeaderboard.join(" ");
+        }
       }
 
-      const whites = splitWhitesOrBlacksString(options.whites);
-      const blacks = splitWhitesOrBlacksString(options.blacks);
+      const whites = splitWhitesOrBlacksString(
+        (options && options.whites) || ""
+      );
+      const blacks = splitWhitesOrBlacksString(
+        (options && options.blacks) || ""
+      );
 
       let getUsers = await ctx.database.get("message_counter_records", {
         channelId,
@@ -1234,7 +1296,25 @@ export async function apply(ctx: Context, config: Config) {
         yesterdayPostCount: 0,
       };
 
-      const accumulateSums = (sums, user) => {
+      interface Sums {
+        todayPostCount: number;
+        thisWeekPostCount: number;
+        thisMonthPostCount: number;
+        thisYearPostCount: number;
+        totalPostCount: number;
+        yesterdayPostCount: number;
+      }
+
+      interface User {
+        todayPostCount: number;
+        thisWeekPostCount: number;
+        thisMonthPostCount: number;
+        thisYearPostCount: number;
+        totalPostCount: number;
+        yesterdayPostCount: number;
+      }
+
+      const accumulateSums = (sums: Sums, user: User): void => {
         sums.todayPostCount += user.todayPostCount;
         sums.thisWeekPostCount += user.thisWeekPostCount;
         sums.thisMonthPostCount += user.thisMonthPostCount;
@@ -1250,25 +1330,25 @@ export async function apply(ctx: Context, config: Config) {
         return;
       }
 
-      let sortByProperty: string;
+      let sortByProperty: keyof typeof totalSums;
       let countProperty: string;
 
-      if (options.day) {
+      if (options && options.day) {
         sortByProperty = "todayPostCount";
         countProperty = "今日发言次数";
-      } else if (options.week) {
+      } else if (options && options.week) {
         sortByProperty = "thisWeekPostCount";
         countProperty = "本周发言次数";
-      } else if (options.month) {
+      } else if (options && options.month) {
         sortByProperty = "thisMonthPostCount";
         countProperty = "本月发言次数";
-      } else if (options.year) {
+      } else if (options && options.year) {
         sortByProperty = "thisYearPostCount";
         countProperty = "今年发言次数";
-      } else if (options.total) {
+      } else if (options && options.total) {
         sortByProperty = "totalPostCount";
         countProperty = "总发言次数";
-      } else if (options.yesterday) {
+      } else if (options && options.yesterday) {
         sortByProperty = "yesterdayPostCount";
         countProperty = "昨日发言次数";
       } else {
@@ -1279,7 +1359,7 @@ export async function apply(ctx: Context, config: Config) {
       const currentBeijingTime = getCurrentBeijingTime();
 
       // 跨群日榜
-      if (options.dag) {
+      if (options && options.dag) {
         return generateAcrossRanking(
           `排行榜：跨群今日总发言次数`,
           acrossGetUsers,
@@ -1287,12 +1367,12 @@ export async function apply(ctx: Context, config: Config) {
           currentBeijingTime,
           accumulateSums,
           "todayPostCount",
-          session.userId
+          session?.userId ?? ""
         );
       }
 
       // 跨群周榜
-      if (options.wag) {
+      if (options && options.wag) {
         return generateAcrossRanking(
           `排行榜：跨群本周总发言次数`,
           acrossGetUsers,
@@ -1300,12 +1380,12 @@ export async function apply(ctx: Context, config: Config) {
           currentBeijingTime,
           accumulateSums,
           "thisWeekPostCount",
-          session.userId
+          session?.userId ?? ""
         );
       }
 
       // 跨群月榜
-      if (options.mag) {
+      if (options && options.mag) {
         return generateAcrossRanking(
           `排行榜：跨群本月总发言次数`,
           acrossGetUsers,
@@ -1313,12 +1393,12 @@ export async function apply(ctx: Context, config: Config) {
           currentBeijingTime,
           accumulateSums,
           "thisMonthPostCount",
-          session.userId
+          session?.userId ?? ""
         );
       }
 
       // 跨群年榜
-      if (options.yag) {
+      if (options && options.yag) {
         return generateAcrossRanking(
           `排行榜：跨群今年总发言次数`,
           acrossGetUsers,
@@ -1326,12 +1406,12 @@ export async function apply(ctx: Context, config: Config) {
           currentBeijingTime,
           accumulateSums,
           "thisYearPostCount",
-          session.userId
+          session?.userId ?? ""
         );
       }
 
       // 跨群昨日发言榜
-      if (options.ydag) {
+      if (options && options.ydag) {
         return generateAcrossRanking(
           `排行榜：跨群昨日总发言次数`,
           acrossGetUsers,
@@ -1339,12 +1419,12 @@ export async function apply(ctx: Context, config: Config) {
           currentBeijingTime,
           accumulateSums,
           "yesterdayPostCount",
-          session.userId
+          session?.userId ?? ""
         );
       }
 
       // 圣龙王榜
-      if (options.dragon) {
+      if (options && options.dragon) {
         const dragons = getSortedDragons(acrossGetUsers);
 
         // 只保留前 number 个用户
@@ -1352,14 +1432,14 @@ export async function apply(ctx: Context, config: Config) {
 
         // 检查指定的 userId 是否在 topDragons 中
         const userExists = topDragons.some(
-          (dragon) => dragon[0] === session.userId
+          (dragon) => dragon[0] === session?.userId
         );
 
         // 如果用户不在 topDragons 中，则将该用户添加到末尾
         if (!userExists) {
           // 在原始数据中查找该用户
           const userDragon = dragons.find(
-            (dragon) => dragon[0] === session.userId
+            (dragon) => session && dragon[0] === session.userId
           );
 
           // 如果在原始数据中找到该用户，则添加到末尾
@@ -1414,7 +1494,7 @@ export async function apply(ctx: Context, config: Config) {
         if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
           let updatedRankingData: any = markUserInRanking(
             rankingData,
-            session.userId
+            session?.userId ?? ""
           );
           const imageBuffer = await LeaderboardToHorizontalBarChartConversion(
             `${currentBeijingTime}`,
@@ -1427,23 +1507,73 @@ export async function apply(ctx: Context, config: Config) {
           const imageBuffer = await ctx.markdownToImage.convertToImage(rank);
           return h.image(imageBuffer, `image/${config.imageType}`);
         }
-        await session.send(rank);
+        if (session) {
+          if (session) {
+            if (session) {
+              if (session) {
+                if (session) {
+                  if (session) {
+                    if (session) {
+                      if (session) {
+                        if (session) {
+                          if (session) {
+                            if (session) {
+                              if (session) {
+                                if (session) {
+                                  if (session) {
+                                    if (session) {
+                                      if (session) {
+                                        if (session) {
+                                          if (session) {
+                                            if (session) {
+                                              if (session) {
+                                                if (session) {
+                                                  if (session) {
+                                                    if (session) {
+                                                      await session.send(rank);
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
         return;
       }
 
       const rankingData: RankingData[] = [];
-      getUsers.sort((a, b) => b[sortByProperty] - a[sortByProperty]);
+      getUsers.sort(
+        (a, b) =>
+          Number(b[sortByProperty as keyof MessageCounterRecord]) -
+          Number(a[sortByProperty as keyof MessageCounterRecord])
+      );
       const topUsers = getUsers.slice(0, number);
       // 检查指定的 userId 是否在 topUsers 中
       const userExists = topUsers.some(
-        (user) => user.userId === session.userId
+        (user) => session?.userId && user.userId === session.userId
       );
 
       // 如果用户不在 topUsers 中，则找到该用户并添加到末尾
       if (!userExists) {
         // 在原始 getUsers 数组中查找该用户
         const targetUser = getUsers.find(
-          (user) => user.userId === session.userId
+          (user) => user.userId === session?.userId
         );
 
         // 如果在原始数据中找到该用户，则添加到末尾
@@ -1456,17 +1586,17 @@ export async function apply(ctx: Context, config: Config) {
           rankingData,
           user.username,
           user.userId,
-          user[sortByProperty],
-          totalSums[sortByProperty]
+          Number(user[sortByProperty as keyof MessageCounterRecord]),
+          totalSums[sortByProperty as keyof typeof totalSums]
         );
 
         return `${isTextToImageConversionEnabled ? "## " : ""}${index + 1}. ${
           user.username
-        }：${user[sortByProperty]} 次${
+        }：${user[sortByProperty as keyof MessageCounterRecord]} 次${
           isUserMessagePercentageVisible
             ? ` ${calculatePercentage(
-                user[sortByProperty],
-                totalSums[sortByProperty]
+                Number(user[sortByProperty as keyof MessageCounterRecord]),
+                totalSums[sortByProperty as keyof typeof totalSums]
               )}`
             : ""
         }`;
@@ -1487,7 +1617,7 @@ export async function apply(ctx: Context, config: Config) {
       if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
         let updatedRankingData: any = markUserInRanking(
           rankingData,
-          session.userId
+          session?.userId ?? ""
         );
         const imageBuffer = await LeaderboardToHorizontalBarChartConversion(
           `${currentBeijingTime}`,
@@ -1500,7 +1630,54 @@ export async function apply(ctx: Context, config: Config) {
         const imageBuffer = await ctx.markdownToImage.convertToImage(rank);
         return h.image(imageBuffer, `image/${config.imageType}`);
       }
-      await session.send(rank);
+      if (session) {
+        if (session) {
+          if (session) {
+            if (session) {
+              if (session) {
+                if (session) {
+                  if (session) {
+                    if (session) {
+                      if (session) {
+                        if (session) {
+                          if (session) {
+                            if (session) {
+                              if (session) {
+                                if (session) {
+                                  if (session) {
+                                    if (session) {
+                                      if (session) {
+                                        if (session) {
+                                          if (session) {
+                                            if (session) {
+                                              if (session) {
+                                                if (session) {
+                                                  if (session) {
+                                                    await session.send(rank);
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      return;
     });
 
   // 新增：上传柱状条背景图指令
@@ -1511,7 +1688,10 @@ export async function apply(ctx: Context, config: Config) {
       "为样式3上传自定义的水平柱状条背景图"
     )
     .action(async ({ session }) => {
-      const imageElements = h.select(session.content, "img");
+      if (!session || !session.content) {
+        return "请在发送指令的同时附带一张图片。图片将用于排行榜样式3的柱状条背景。";
+      }
+      const imageElements = h.select(session.content ?? "", "img");
       if (imageElements.length === 0) {
         return "请在发送指令的同时附带一张图片。图片将用于排行榜样式3的柱状条背景。";
       }
@@ -1537,7 +1717,9 @@ export async function apply(ctx: Context, config: Config) {
       // 检查文件大小
       const imageSizeInMB = buffer.byteLength / 1024 / 1024;
       if (config.maxBarBgSize > 0 && imageSizeInMB > config.maxBarBgSize) {
-        return `图片文件过大（${imageSizeInMB.toFixed(2)}MB），请上传小于 ${config.maxBarBgSize}MB 的图片。`;
+        return `图片文件过大（${imageSizeInMB.toFixed(2)}MB），请上传小于 ${
+          config.maxBarBgSize
+        }MB 的图片。`;
       }
 
       // 检查图片尺寸 (需要 canvas 服务)
@@ -1562,6 +1744,9 @@ export async function apply(ctx: Context, config: Config) {
         }
       }
 
+      if (!session) {
+        return "无法获取会话信息，请重试。";
+      }
       const userId = session.userId;
 
       try {
@@ -1578,7 +1763,7 @@ export async function apply(ctx: Context, config: Config) {
         );
         const indices = userFilesWithIndex.map((file) => {
           const match = file.match(new RegExp(`^${userId}-(\\d+)\\..+`));
-          return parseInt(match[1]);
+          return match ? parseInt(match[1]) : 0;
         });
 
         const nextIndex = indices.length > 0 ? Math.max(...indices) + 1 : 1;
@@ -1595,6 +1780,99 @@ export async function apply(ctx: Context, config: Config) {
       } catch (error) {
         logger.error("Failed to save user-uploaded background image:", error);
         return "图片保存失败，请联系管理员。";
+      }
+    });
+
+  // 新增：删除柱状条背景图指令
+  ctx
+    .command(
+      "messageCounter.删除柱状条背景 [target:text]",
+      "删除自己上传的柱状条背景图"
+    )
+    .action(async ({ session }, target) => {
+      if (!session) {
+        return "无法获取会话信息，请重试。";
+      }
+      const userId = session.userId;
+
+      // 查找用户的背景图片文件
+      let allFiles;
+      try {
+        allFiles = await fs.promises.readdir(messageCounterBarBgImgsPath);
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          (error as any).code === "ENOENT"
+        ) {
+          // 目录不存在
+          return "您还没有上传过任何背景图片。";
+        }
+        logger.error("读取背景图片目录失败:", error);
+        return "读取背景图片时出错，请联系管理员。";
+      }
+
+      const userFiles = allFiles.filter(
+        (file) => path.parse(file).name.split("-")[0] === userId
+      );
+
+      if (userFiles.length === 0) {
+        return "您没有上传任何背景图片。";
+      }
+
+      // 如果未指定目标，则列出可供删除的图片
+      if (!target) {
+        const fileList = userFiles
+          .map((file) => {
+            const match = file.match(new RegExp(`^${userId}-(\\d+)\\..+`));
+            return match ? `编号 ${match[1]}` : file; // 显示索引号
+          })
+          .join("\n");
+        return `您已上传的背景图：\n${fileList}\n\n请使用“删除柱状条背景 <编号>”来删除指定图片，或使用“删除柱状条背景 all”删除所有图片。`;
+      }
+
+      // 处理 'all' 目标
+      if (target.toLowerCase() === "all") {
+        try {
+          await Promise.all(
+            userFiles.map((file) =>
+              fs.promises.unlink(path.join(messageCounterBarBgImgsPath, file))
+            )
+          );
+          return `已成功删除您的全部 ${userFiles.length} 张背景图片。`;
+        } catch (error) {
+          logger.error(`为用户 ${userId} 删除所有背景图片失败:`, error);
+          return "删除图片时发生错误，请联系管理员。";
+        }
+      }
+
+      // 处理指定索引的目标
+      const indexToDelete = parseInt(target, 10);
+      if (isNaN(indexToDelete)) {
+        return "请输入有效的图片编号或“all”。";
+      }
+
+      const fileToDelete = userFiles.find((file) => {
+        const match = file.match(new RegExp(`^${userId}-(\\d+)\\..+`));
+        return match && parseInt(match[1]) === indexToDelete;
+      });
+
+      if (!fileToDelete) {
+        return `未找到编号为 ${indexToDelete} 的背景图片。`;
+      }
+
+      try {
+        await fs.promises.unlink(
+          path.join(messageCounterBarBgImgsPath, fileToDelete)
+        );
+        return `已成功删除编号为 ${indexToDelete} 的背景图片。`;
+      } catch (error) {
+        logger.error(
+          `为用户 ${userId} 删除背景图片 ${fileToDelete} 失败:`,
+          error
+        );
+        return "删除图片时发生错误，请联系管理员。";
       }
     });
 
@@ -1667,8 +1945,24 @@ export async function apply(ctx: Context, config: Config) {
     return record ? record.username : undefined;
   }
 
-  async function resetCounter(_key, countKey: string, message: string) {
-    const getUsers = await ctx.database.get("message_counter_records", {});
+  interface ResetCounterOptions {
+    _key: string;
+    countKey: string;
+    message: string;
+  }
+
+  interface UserRecordForReset {
+    channelId: string;
+    userId: string;
+    username: string;
+  }
+
+  async function resetCounter(
+    _key: string,
+    countKey: string,
+    message: string
+  ): Promise<void> {
+    const getUsers: UserRecordForReset[] = await ctx.database.get("message_counter_records", {});
     if (getUsers.length === 0) {
       return;
     }
@@ -1681,7 +1975,7 @@ export async function apply(ctx: Context, config: Config) {
     if (enableMostActiveUserMuting && countKey === "todayPostCount") {
       for (const currentBot of ctx.bots) {
         for (const channelId of muteGuildIds) {
-          const usersByGuild = getUsers.filter(
+          const usersByGuild: UserRecordForReset[] = getUsers.filter(
             (user) => user.channelId === channelId
           );
           if (usersByGuild.length !== 0) {
@@ -1716,7 +2010,9 @@ export async function apply(ctx: Context, config: Config) {
       countKey === "todayPostCount" &&
       !config.isYesterdayCommentRankingDisabled
     ) {
-      updateYesterdayCount(getUsers);
+      // 获取完整的 MessageCounterRecord 对象
+      const fullUsers: MessageCounterRecord[] = await ctx.database.get("message_counter_records", {});
+      updateYesterdayCount(fullUsers);
     }
     await ctx.database.set("message_counter_records", {}, { [countKey]: 0 });
 
@@ -1747,38 +2043,39 @@ export async function apply(ctx: Context, config: Config) {
     }
   }
 
-  async function replaceAtTags(session, content: string): Promise<string> {
+  async function replaceAtTags(
+    session: any,
+    content: string
+  ): Promise<string> {
     // 正则表达式用于匹配 at 标签
     const atRegex = /<at id="(\d+)"(?: name="([^"]*)")?\/>/g;
 
     // 匹配所有 at 标签
-    let match;
+    let match: RegExpExecArray | null;
     while ((match = atRegex.exec(content)) !== null) {
-      const userId = match[1];
-      const name = match[2];
+      const userId: string = match[1];
+      const name: string | undefined = match[2];
 
       // 如果 name 不存在，根据 userId 获取相应的 name
       if (!name) {
-        let guildMember;
+        let userName = "未知用户";
         try {
-          if (typeof session.bot?.getGuildMember === "function") {
-            guildMember = await session.bot.getGuildMember(
+          if (typeof session.bot?.getGuildMember === "function" && session.guildId) {
+            const guildMember = await session.bot.getGuildMember(
               session.guildId,
               userId
             );
-          } else {
-            guildMember = {
-              user: {
-                name: "未知用户",
-              },
-            };
+            // guildMember.user 可能为 undefined
+            if (guildMember && guildMember.user && guildMember.user.name) {
+              userName = guildMember.user.name;
+            }
           }
         } catch (error) {
           logger.error(error);
         }
 
         // 替换原始的 at 标签
-        const newAtTag = `<at id="${userId}" name="${guildMember.user.name}"/>`;
+        const newAtTag = `<at id="${userId}" name="${userName}"/>`;
         content = content.replace(match[0], newAtTag);
       }
     }
@@ -1806,8 +2103,7 @@ export async function apply(ctx: Context, config: Config) {
       return;
     }
 
-    const aggregatedUserRecords: { [key: string]: UserRecord } =
-      getDragons.reduce((acc, user) => {
+    const aggregatedUserRecords = getDragons.reduce<{ [key: string]: UserRecord }>((acc, user) => {
         if (!acc[user.userId]) {
           acc[user.userId] = {
             userId: user.userId,
@@ -2010,12 +2306,12 @@ export async function apply(ctx: Context, config: Config) {
     if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
       let updatedRankingData: any = markUserInRanking(
         rankingData,
-        targetUserId
+        targetUserId ?? ""
       );
-      const imageBuffer = await LeaderboardToHorizontalBarChartConversion(
-        rankTimeTitle,
-        rankTitle,
-        updatedRankingData
+      const imageBuffer: Buffer = await LeaderboardToHorizontalBarChartConversion(
+        rankTimeTitle as string,
+        rankTitle as string,
+        updatedRankingData as RankingData[]
       );
       return h.image(imageBuffer, `image/${config.imageType}`);
     }
@@ -2151,7 +2447,7 @@ export async function apply(ctx: Context, config: Config) {
   }
 
   async function generateLeaderboard(
-    getUsers,
+    getUsers: any[],
     countKey: string,
     isScheduled = false
   ) {
@@ -2181,7 +2477,7 @@ export async function apply(ctx: Context, config: Config) {
         );
         if (usersByGuild.length !== 0) {
           const { year, month, day } = getYesterdayDateParts(isScheduled);
-          let sortByProperty: string;
+          let sortByProperty: keyof typeof totalSums;
           let countProperty: string;
           let dateStr: string;
           switch (countKey) {
@@ -2221,7 +2517,25 @@ export async function apply(ctx: Context, config: Config) {
             yesterdayPostCount: 0,
           };
 
-          const accumulateSums = (sums, user) => {
+          interface AccumulateSumsSums {
+            todayPostCount: number;
+            thisWeekPostCount: number;
+            thisMonthPostCount: number;
+            thisYearPostCount: number;
+            totalPostCount: number;
+            yesterdayPostCount: number;
+          }
+
+          interface AccumulateSumsUser {
+            todayPostCount: number;
+            thisWeekPostCount: number;
+            thisMonthPostCount: number;
+            thisYearPostCount: number;
+            totalPostCount: number;
+            yesterdayPostCount: number;
+          }
+
+          const accumulateSums = (sums: AccumulateSumsSums, user: AccumulateSumsUser): void => {
             sums.todayPostCount += user.todayPostCount;
             sums.thisWeekPostCount += user.thisWeekPostCount;
             sums.thisMonthPostCount += user.thisMonthPostCount;
@@ -2245,8 +2559,8 @@ export async function apply(ctx: Context, config: Config) {
               rankingData,
               user.username,
               user.userId,
-              user[sortByProperty],
-              totalSums[sortByProperty]
+              user[sortByProperty] as number,
+              totalSums[sortByProperty as keyof typeof totalSums]
             );
             return `${isTextToImageConversionEnabled ? "## " : ""}${
               index + 1
@@ -2326,7 +2640,7 @@ export async function apply(ctx: Context, config: Config) {
     }[],
     totalSum: number,
     rankingData: RankingData[],
-    number
+    number: number | undefined
   ): Promise<string> {
     const topTen = result.slice(0, number);
 
@@ -2381,7 +2695,7 @@ export async function apply(ctx: Context, config: Config) {
     return Array.from(channelMap.entries()).map(
       ([channelId, { channelName, sum }]) => ({
         channelId,
-        channelName,
+        channelName: channelName ?? "",
         sum,
       })
     );
@@ -2511,7 +2825,13 @@ export async function apply(ctx: Context, config: Config) {
 
       return buffer.toString("base64");
     } catch (error) {
-      logger.error(`Failed to process image from ${url}: ${error.message}`);
+      logger.error(
+        `Failed to process image from ${url}: ${
+          typeof error === "object" && error && "message" in error
+            ? (error as any).message
+            : String(error)
+        }`
+      );
       // 头像请求失败，尝试使用默认头像
       try {
         const defaultAvatarUrl =
@@ -2532,7 +2852,7 @@ export async function apply(ctx: Context, config: Config) {
       } catch (defaultError) {
         // 如果默认头像也加载失败，则返回一个硬编码的占位图
         logger.error(
-          `Failed to process default avatar as well: ${defaultError.message}`
+          `Failed to process default avatar as well: ${(defaultError as any)?.message}`
         );
         return "R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=+x3kEEREREdmJ2zqJjvMIEREREXkitrUT3f8AAAAASUVORK5CYII=";
       }
@@ -2549,7 +2869,12 @@ export async function apply(ctx: Context, config: Config) {
 
   // 加深颜色
   function darkenColor(color: string, amount: number): string {
-    const [r, g, b] = color.match(/\d+/g).map(Number);
+    const rgbMatch = color.match(/\d+/g);
+    if (!rgbMatch || rgbMatch.length < 3) {
+      // fallback to black if color is invalid
+      return "rgb(0, 0, 0)";
+    }
+    const [r, g, b] = rgbMatch.map(Number);
     const newR = Math.max(0, r - Math.floor(r * amount));
     const newG = Math.max(0, g - Math.floor(g * amount));
     const newB = Math.max(0, b - Math.floor(b * amount));
@@ -2557,10 +2882,10 @@ export async function apply(ctx: Context, config: Config) {
   }
 
   async function generateRankingChartStyle3(
-    rankTimeTitle,
-    rankTitle,
+    rankTimeTitle: any,
+    rankTitle: any,
     data: RankingData[],
-    thisRankInfo?
+    thisRankInfo?: any
   ) {
     // 新增：在每次生成图片时重新读取图标和背景图文件
     const iconData: IconData[] = readIconsFromFolder(messageCounterIconsPath);
@@ -2569,12 +2894,24 @@ export async function apply(ctx: Context, config: Config) {
     );
 
     await updateDataWithBase64(data);
-    let browser;
+    let browser: any;
     ctx.inject(["puppeteer"], async (ctx) => {
       browser = ctx.puppeteer.browser;
     });
     // const context = await browser.createBrowserContext();
     // const page = await context.newPage();
+    if (!browser) {
+      logger.error("Puppeteer browser instance is not available.");
+      throw new Error("Puppeteer browser instance is not available.");
+    }
+    if (!browser) {
+      logger.error("Puppeteer browser instance is not available.");
+      throw new Error("Puppeteer browser instance is not available.");
+    }
+    if (!browser) {
+      logger.error("Puppeteer browser instance is not available.");
+      throw new Error("Puppeteer browser instance is not available.");
+    }
     const page = await browser.newPage();
 
     // Background customization logic
@@ -3116,8 +3453,8 @@ async function getAverageColor(avatarBase64) {
   }
 
   async function generateRankingChartStyle2(
-    rankTimeTitle,
-    rankTitle,
+    rankTimeTitle: any,
+    rankTitle: any,
     data: RankingData[]
   ) {
     const maxCount = data.reduce((max, item) => Math.max(max, item.count), 0);
@@ -3257,10 +3594,14 @@ async function getAverageColor(avatarBase64) {
 ${rankingHtml}
 </body>
 </html>`;
-    let browser;
+    let browser: any;
     ctx.inject(["puppeteer"], async (ctx) => {
       browser = ctx.puppeteer.browser;
     });
+    if (!browser) {
+      logger.error("Puppeteer browser instance is not available.");
+      throw new Error("Puppeteer browser instance is not available.");
+    }
     const page = await browser.newPage();
     await page.setViewport({
       width: config.width,
@@ -3277,7 +3618,7 @@ ${rankingHtml}
     return imageBuffer;
   }
 
-  function getBarColor(percentage, count, maxCount): string {
+  function getBarColor(percentage: number, count: number, maxCount: number): string {
     if (config.isFirstProgressFullyVisible) {
       percentage = (count / maxCount) * 100;
       if (percentage >= 80) {
@@ -3302,10 +3643,10 @@ ${rankingHtml}
   }
 
   async function LeaderboardToHorizontalBarChartConversion(
-    rankTimeTitle,
-    rankTitle,
+    rankTimeTitle: string,
+    rankTitle: string,
     rankingData: RankingData[],
-    thisRankInfo?
+    thisRankInfo?: { userId: string; name: string; count: number; rank: number; percentage: number; avatar: string; avatarBase64?: string; } | undefined
   ) {
     if (config.horizontalBarChartStyle === "3") {
       return await generateRankingChartStyle3(
@@ -3434,7 +3775,7 @@ ${rankingHtml}
 ${rankingHtml}
 </body>
 </html>`;
-    let browser;
+    let browser: any;
     ctx.inject(["puppeteer"], async (ctx) => {
       browser = ctx.puppeteer.browser;
     });

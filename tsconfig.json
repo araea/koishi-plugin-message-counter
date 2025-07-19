@@ -16,7 +16,9 @@
     "types": [
       "node",
       "yml-register/types"
-    ]
+    ],
+    "forceConsistentCasingInFileNames": true,
+    "strict": true
   },
   "include": [
     "src"
