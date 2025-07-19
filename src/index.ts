@@ -1889,7 +1889,7 @@ export async function apply(ctx: Context, config: Config) {
       if (item.userId === userId) {
         return {
           ...item,
-          name: `🌟${item.name}`,
+          name: `★${item.name}`,
         };
       }
       return item;
