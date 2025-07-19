@@ -1963,7 +1963,10 @@ export async function apply(ctx: Context, config: Config) {
     countKey: string,
     message: string
   ): Promise<void> {
-    const getUsers: UserRecordForReset[] = await ctx.database.get("message_counter_records", {});
+    const getUsers: UserRecordForReset[] = await ctx.database.get(
+      "message_counter_records",
+      {}
+    );
     if (getUsers.length === 0) {
       return;
     }
@@ -2012,7 +2015,10 @@ export async function apply(ctx: Context, config: Config) {
       !config.isYesterdayCommentRankingDisabled
     ) {
       // 获取完整的 MessageCounterRecord 对象
-      const fullUsers: MessageCounterRecord[] = await ctx.database.get("message_counter_records", {});
+      const fullUsers: MessageCounterRecord[] = await ctx.database.get(
+        "message_counter_records",
+        {}
+      );
       updateYesterdayCount(fullUsers);
     }
     await ctx.database.set("message_counter_records", {}, { [countKey]: 0 });
@@ -2044,10 +2050,7 @@ export async function apply(ctx: Context, config: Config) {
     }
   }
 
-  async function replaceAtTags(
-    session: any,
-    content: string
-  ): Promise<string> {
+  async function replaceAtTags(session: any, content: string): Promise<string> {
     // 正则表达式用于匹配 at 标签
     const atRegex = /<at id="(\d+)"(?: name="([^"]*)")?\/>/g;
 
@@ -2061,7 +2064,10 @@ export async function apply(ctx: Context, config: Config) {
       if (!name) {
         let userName = "未知用户";
         try {
-          if (typeof session.bot?.getGuildMember === "function" && session.guildId) {
+          if (
+            typeof session.bot?.getGuildMember === "function" &&
+            session.guildId
+          ) {
             const guildMember = await session.bot.getGuildMember(
               session.guildId,
               userId
@@ -2104,43 +2110,45 @@ export async function apply(ctx: Context, config: Config) {
       return;
     }
 
-    const aggregatedUserRecords = getDragons.reduce<{ [key: string]: UserRecord }>((acc, user) => {
-        if (!acc[user.userId]) {
-          acc[user.userId] = {
-            userId: user.userId,
-            postCountAll: 0,
-            username: user.username,
-          };
-        }
+    const aggregatedUserRecords = getDragons.reduce<{
+      [key: string]: UserRecord;
+    }>((acc, user) => {
+      if (!acc[user.userId]) {
+        acc[user.userId] = {
+          userId: user.userId,
+          postCountAll: 0,
+          username: user.username,
+        };
+      }
 
-        let postCount = 0;
-        switch (postCountType) {
-          case "todayPostCount":
-            postCount = user.todayPostCount;
-            break;
-          case "thisWeekPostCount":
-            postCount = user.thisWeekPostCount;
-            break;
-          case "thisMonthPostCount":
-            postCount = user.thisMonthPostCount;
-            break;
-          case "thisYearPostCount":
-            postCount = user.thisYearPostCount;
-            break;
-          case "totalPostCount":
-            postCount = user.totalPostCount;
-            break;
-          case "yesterdayPostCount":
-            postCount = user.yesterdayPostCount;
-            break;
-          default:
-            postCount = user.todayPostCount;
-            break;
-        }
+      let postCount = 0;
+      switch (postCountType) {
+        case "todayPostCount":
+          postCount = user.todayPostCount;
+          break;
+        case "thisWeekPostCount":
+          postCount = user.thisWeekPostCount;
+          break;
+        case "thisMonthPostCount":
+          postCount = user.thisMonthPostCount;
+          break;
+        case "thisYearPostCount":
+          postCount = user.thisYearPostCount;
+          break;
+        case "totalPostCount":
+          postCount = user.totalPostCount;
+          break;
+        case "yesterdayPostCount":
+          postCount = user.yesterdayPostCount;
+          break;
+        default:
+          postCount = user.todayPostCount;
+          break;
+      }
 
-        acc[user.userId].postCountAll += postCount;
-        return acc;
-      }, {});
+      acc[user.userId].postCountAll += postCount;
+      return acc;
+    }, {});
 
     const sortedUserRecords = Object.values(aggregatedUserRecords).sort(
       (a, b) => b.postCountAll - a.postCountAll
@@ -2309,11 +2317,12 @@ export async function apply(ctx: Context, config: Config) {
         rankingData,
         targetUserId ?? ""
       );
-      const imageBuffer: Buffer = await LeaderboardToHorizontalBarChartConversion(
-        rankTimeTitle as string,
-        rankTitle as string,
-        updatedRankingData as RankingData[]
-      );
+      const imageBuffer: Buffer =
+        await LeaderboardToHorizontalBarChartConversion(
+          rankTimeTitle as string,
+          rankTitle as string,
+          updatedRankingData as RankingData[]
+        );
       return h.image(imageBuffer, `image/${config.imageType}`);
     }
 
@@ -2536,7 +2545,10 @@ export async function apply(ctx: Context, config: Config) {
             yesterdayPostCount: number;
           }
 
-          const accumulateSums = (sums: AccumulateSumsSums, user: AccumulateSumsUser): void => {
+          const accumulateSums = (
+            sums: AccumulateSumsSums,
+            user: AccumulateSumsUser
+          ): void => {
             sums.todayPostCount += user.todayPostCount;
             sums.thisWeekPostCount += user.thisWeekPostCount;
             sums.thisMonthPostCount += user.thisMonthPostCount;
@@ -2853,7 +2865,9 @@ export async function apply(ctx: Context, config: Config) {
       } catch (defaultError) {
         // 如果默认头像也加载失败，则返回一个硬编码的占位图
         logger.error(
-          `Failed to process default avatar as well: ${(defaultError as any)?.message}`
+          `Failed to process default avatar as well: ${
+            (defaultError as any)?.message
+          }`
         );
         return "R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=+x3kEEREREdmJ2zqJjvMIEREREXkitrUT3f8AAAAASUVORK5CYII=";
       }
@@ -2882,7 +2896,7 @@ export async function apply(ctx: Context, config: Config) {
     return `rgb(${newR}, ${newG}, ${newB})`;
   }
 
-  async function generateRankingChartStyle3(
+async function generateRankingChartStyle3(
     rankTimeTitle: any,
     rankTitle: any,
     data: RankingData[],
@@ -3243,17 +3257,29 @@ export async function apply(ctx: Context, config: Config) {
                 }
 
                 // 绘制用户发言次数
-                context.fillStyle = "rgba(0, 0, 0, 1)" // 黑色，不透明度100%
                 context.font = "30px JMH SJbangkaijianti SJkaishu"
                 context.textAlign = "center"
-
-                const countText = data.count.toString()
-                const textWidth = context.measureText(countText).width
-
-                const textX = countBarX + countBarWidth + 10 + textWidth / 2 // 根据数字宽度调整位置居中
-                const textY = countBarY + userAvatarSize / 2 + 10.5
-
-                context.fillText(countText, textX, textY)
+                
+                let countText = data.count.toString();
+                if (${config.isUserMessagePercentageVisible}) {
+                  countText += \` ( \${data.percentage}%)\`;
+                }
+                
+                const textWidth = context.measureText(countText).width;
+                const textY = countBarY + userAvatarSize / 2 + 10.5;
+                
+                // 默认将文字放在柱状条右侧
+                let textX = countBarX + countBarWidth + 10 + textWidth / 2;
+                
+                // 检查文字是否会超出画布，如果是，则将其移入柱状条内并改变颜色
+                if (textX + textWidth / 2 > canvas.width - 5) {
+                    textX = countBarX + countBarWidth - 10 - textWidth / 2;
+                    context.fillStyle = chooseColorAdjustmentMethod(avgColor); // 使用高对比度颜色
+                } else {
+                    context.fillStyle = "rgba(0, 0, 0, 1)"; // 否则使用默认黑色
+                }
+                
+                context.fillText(countText, textX, textY);
 
                 // 绘制用户名
                 context.fillStyle = chooseColorAdjustmentMethod(avgColor);
@@ -3619,7 +3645,11 @@ ${rankingHtml}
     return imageBuffer;
   }
 
-  function getBarColor(percentage: number, count: number, maxCount: number): string {
+  function getBarColor(
+    percentage: number,
+    count: number,
+    maxCount: number
+  ): string {
     if (config.isFirstProgressFullyVisible) {
       percentage = (count / maxCount) * 100;
       if (percentage >= 80) {
@@ -3647,7 +3677,17 @@ ${rankingHtml}
     rankTimeTitle: string,
     rankTitle: string,
     rankingData: RankingData[],
-    thisRankInfo?: { userId: string; name: string; count: number; rank: number; percentage: number; avatar: string; avatarBase64?: string; } | undefined
+    thisRankInfo?:
+      | {
+          userId: string;
+          name: string;
+          count: number;
+          rank: number;
+          percentage: number;
+          avatar: string;
+          avatarBase64?: string;
+        }
+      | undefined
   ) {
     if (config.horizontalBarChartStyle === "3") {
       return await generateRankingChartStyle3(
