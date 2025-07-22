@@ -1,65 +1,110 @@
-import { Context, h, Logger, Schema, sleep, noop } from "koishi";
-
+import { Context, h, Logger, Schema, sleep, Bot, Dict, $ } from "koishi";
 import schedule from "node-schedule";
 import {} from "koishi-plugin-markdown-to-image-service";
 import {} from "koishi-plugin-puppeteer";
 import path from "path";
 import {} from "@koishijs/canvas";
-import * as fs from "fs";
+import * as fs from "fs/promises";
+import { constants as fsConstants } from "fs";
 
 export const name = "message-counter";
 export const inject = {
   required: ["database"],
   optional: ["markdownToImage", "puppeteer", "canvas"],
 };
+
 export const usage = `## 注意事项
 
 - 仅记录群聊消息。
-- 初始化：需要权限等级 3 级。
+- 初始化需要权限等级 3 级。
+
+---
 
 ## 关键指令
 
-- \`messageCounter.查询 [指定用户]\`: 查询指定用户的发言次数信息（次数[排名]）。
+\`messageCounter.查询 [指定用户]\`
+  查询指定用户的发言次数信息（次数[排名]）。
 
-  - \`--yesterday\`/\`-d\`/\`-w\`/\`-m\`/\`-y\`/\`-t\`: 分别查询昨日/今日/本周/本月/今年/总发言次数[排名] 。
-  - \`--ydag\`/\`--dag\`/\`--wag\`/\`--mag\`/\`--yag\`/\`-a\`: 分别查询跨群昨日/今日/本周/本月/今年/总发言次数[排名]。
+  选项:
 
+- -d, --yesterday : 昨日发言次数[排名]
+- -w              : 本周发言次数[排名]
+- -m              : 本月发言次数[排名]
+- -y              : 今年发言次数[排名]
+- -t              : 总发言次数[排名]
 
-- \`messageCounter.排行榜 [显示的人数]\`: 发言排行榜，使用以下选项指定类型：
+- -a,   --dag     : 跨群今日发言次数[排名]
+- --ydag          : 跨群昨日发言次数[排名]
+- --wag           : 跨群本周发言次数[排名]
+- --mag           : 跨群本月发言次数[排名]
+- --yag           : 跨群今年发言次数[排名]
 
-  - \`--whites\`: 白名单，只显示白名单用户，以空格、中英文逗号和顿号作为分隔符。
-  - \`--blacks\`: 黑名单，不显示黑名单用户，以空格、中英文逗号和顿号作为分隔符。
-  - \`--yesterday\`/\`-d\`/\`-w\`/\`-m\`/\`-y\`/\`-t\`:  分别查询昨日/今日/本周/本月/今年/总发言排行榜。
-  - \`--ydag\`/\`--dag\`/\`--wag\`/\`--mag\`/\`--yag\`/\`--dragon\`: 分别查询跨群昨日/今日/本周/本月/今年/总发言排行榜（圣龙王榜）。
-  - 默认为今日发言榜。
+\`messageCounter.排行榜 [显示的人数]\`
+  发言排行榜。默认为今日发言榜。
 
-- \`messageCounter.群排行榜 [number:number]\`:  各个群聊的发言排行榜，可以指定显示的数量，也可以使用以下选项来指定排行榜的类型：
+  选项:
 
-  - \`-s\`: 指定用户的群发言排行榜，可用 at 或 用户 ID 指定。
-  - \`--whites\`: 白名单，只显示白名单群，以空格、中英文逗号和顿号作为分隔符。
-  - \`--blacks\`: 黑名单，不显示黑名单群，以空格、中英文逗号和顿号作为分隔符。
-  - \`-d\`/\`-w\`/\`-m\`/\`-y\`/\`-t\`/\`--yesterday\`: 分别查询昨日/今日/本周/本月/今年/总发言排行榜️。
-  - 默认为今日发言榜。
+- -d, --yesterday : 昨日发言排行榜
+- -w              : 本周发言排行榜
+- -m              : 本月发言排行榜
+- -y              : 今年发言排行榜
+- -t              : 总发言排行榜
 
-- \`messageCounter.上传柱状条背景\`: 为自己上传一张自定义的水平柱状条背景图片 (用于样式3)。使用此指令时需附带图片。
-- \`messageCounter.删除柱状条背景 [编号|all]\`: 删除自己上传的背景图片。不带参数时会列出所有已上传的图片；使用编号删除指定图片；使用 \`all\` 删除所有图片。
+- --dag           : 跨群今日发言排行榜
+- --ydag          : 跨群昨日发言排行榜
+- --wag           : 跨群本周发言排行榜
+- --mag           : 跨群本月发言排行榜
+- --yag           : 跨群今年发言排行榜
+- --dragon        : 跨群总发言排行榜（圣龙王榜）
 
-## 自定义水平柱状图 3
+- --whites        : 白名单，只显示白名单用户
+- --blacks        : 黑名单，不显示黑名单用户
 
-1. 用户图标：
+\`messageCounter.群排行榜 [number:number]\`
+  各群聊的发言排行榜。默认为今日发言榜。
 
-  - 支持为同一用户添加多个图标，它们会同时显示。
-  - 在 \`data/messageCounterIcons\` 文件夹下添加用户图标，文件名为用户 ID (例如 \`1234567890.png\`)。
-  - 多个图标的文件名需形如  \`1234567890-1.png\`、 \`1234567890-2.png\` 。
+  选项:
 
-2. 柱状条背景：
+- -d, --yesterday : 昨日/今日/本周/本月/今年/总发言排行榜
+- -w, -m, -y, -t
 
-  - **推荐方式**: 使用 \`messageCounter.上传柱状条背景\` 指令来上传图片。
-  - 支持为同一用户添加多个背景图片，插件会随机选择一个显示。
-  - **手动方式**: 在 \`data/messageCounterBarBgImgs\` 文件夹下添加水平柱状条背景图片。多个图片的文件名需形如 \`1234567890-1.png\`、\`1234567890-2.png\`。
-  - 建议图片尺寸为 850x50 像素，文件名为用户 ID (例如\`1234567890.png\`)。
+- -s              : 指定用户的群发言排行榜
+- --whites        : 白名单，只显示白名单群
+- --blacks        : 黑名单，不显示黑名单群
 
-> 更改会即时生效，无需重启。
+\`messageCounter.上传柱状条背景\`
+
+- 为自己上传一张自定义的水平柱状条背景图片 (用于样式3)。
+- 使用此指令时需附带图片。
+
+\`messageCounter.删除柱状条背景 [编号|all]\`
+
+- 删除自己上传的背景图片。
+- 不带参数则列出所有已上传图片。
+- 使用编号删除指定图片；使用 \`all\` 删除所有图片。
+
+\`messageCounter.重载资源\`
+
+- 实时重载用户图标和柱状条背景，使其更改即时生效。（需要权限等级 2）
+
+---
+
+## 自定义水平柱状图样式
+
+1. 用户图标
+
+  - 在 \`data/messageCounterIcons\` 文件夹下添加用户图标。
+  - 文件名格式为 \`用户ID.png\` (例: \`1234567890.png\`)。
+  - 支持多图标，文件名格式为 \`用户ID-1.png\`, \`用户ID-2.png\`。
+
+2. 柱状条背景
+
+  - 推荐方式: 使用 \`messageCounter.上传柱状条背景\` 指令。
+  - 手动方式: 在 \`data/messageCounterBarBgImgs\` 文件夹下添加背景图片。
+  - 支持多背景 (随机选用)，文件名格式为 \`用户ID-1.png\` 等。
+  - 建议尺寸 850x50 像素，文件名 \`用户ID.png\`。
+
+---
 
 ## QQ 群
 
@@ -68,56 +113,107 @@ export const usage = `## 注意事项
 const logger = new Logger("messageCounter");
 
 export interface Config {
-  isTimeInfoSupplementEnabled: boolean;
-  isUserMessagePercentageVisible: boolean;
-  defaultMaxDisplayCount: number;
+  // --- 核心功能 ---
+  /** 是否统计 Bot 自己发送的消息。 */
   isBotMessageTrackingEnabled: boolean;
-  isTextToImageConversionEnabled: boolean;
-  autoPush: boolean;
-  leaderboardGenerationWaitTime: number;
-  pushChannelIds: string[];
-  enableMostActiveUserMuting: boolean;
-  dragonKingDetainmentTime: number;
-  muteGuildIds: string[];
-  detentionDuration: number;
-  imageType: "png" | "jpeg" | "webp";
-  width: number;
-  isLeaderboardToHorizontalBarChartConversionEnabled: boolean;
-  isFirstProgressFullyVisible: boolean;
-  horizontalBarChartStyle: string;
-  maxHorizontalBarLabelLengthBeforeTruncation: number;
-  waitUntil: "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
-  shouldMoveIconToBarEndLeft: boolean;
-  horizontalBarBackgroundOpacity: number;
-  horizontalBarBackgroundFullOpacity: number;
-  maxBarBgWidth: number;
-  maxBarBgHeight: number;
-  maxBarBgSize: number; // in MB
-  dailyScheduledTimers: string[];
-  shouldSendDailyLeaderboardAtMidnight: boolean;
-  shouldSendLeaderboardNotificationsToAllChannels: boolean;
-  excludedLeaderboardChannels: string[];
-  delayBetweenGroupPushesInSeconds: number;
-  isGeneratingRankingListPromptVisible: boolean;
-  groupPushDelayRandomizationSeconds: number;
-  hiddenUserIdsInLeaderboard: string[];
-  hiddenChannelIdsInLeaderboard: string[];
+  /** 是否禁用昨日发言排行榜，以解决潜在的 0 点卡顿问题。 */
   isYesterdayCommentRankingDisabled: boolean;
 
-  backgroundType: string;
-  apiBackgroundConfig: apiBackgroundConfig;
-  backgroundValue: string;
-}
+  // --- 排行榜设置 ---
+  /** 排行榜默认显示的人数。 */
+  defaultMaxDisplayCount: number;
+  /** 是否在显示排行榜时补充时间信息。 */
+  isTimeInfoSupplementEnabled: boolean;
+  /** 是否在排行榜中显示用户消息占比。 */
+  isUserMessagePercentageVisible: boolean;
+  /** 在排行榜中全局隐藏的用户 ID 列表。 */
+  hiddenUserIdsInLeaderboard: string[];
+  /** 在群排行榜中全局隐藏的频道 ID 列表。 */
+  hiddenChannelIdsInLeaderboard: string[];
 
-// pz* pzx*
+  // --- 图片生成 ---
+  /** 是否将文本排行榜转为 Markdown 图片。 */
+  isTextToImageConversionEnabled: boolean;
+  /** 是否将排行榜渲染为水平柱状图。 */
+  isLeaderboardToHorizontalBarChartConversionEnabled: boolean;
+
+  // -- 柱状图专属设置 --
+  /** 生成的柱状图图片类型。 */
+  imageType: "png" | "jpeg" | "webp";
+  /** 页面加载等待事件，影响图片生成速度和稳定性。 */
+  waitUntil: "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
+  /** 是否将自定义图标显示在柱状条的末端。 */
+  shouldMoveIconToBarEndLeft: boolean;
+  /** 自定义背景图在进度条区域的不透明度。 */
+  horizontalBarBackgroundOpacity: number;
+  /** 自定义背景图在整行背景的不透明度。 */
+  horizontalBarBackgroundFullOpacity: number;
+  /** 允许上传的背景图最大宽度（像素）。 */
+  maxBarBgWidth: number;
+  /** 允许上传的背景图最大高度（像素）。 */
+  maxBarBgHeight: number;
+  /** 允许上传的背景图最大体积（MB）。 */
+  maxBarBgSize: number; // in MB
+
+  // -- 柱状图背景设置 --
+  /** 图片整体背景的类型。 */
+  backgroundType: string;
+  /** API 背景配置。 */
+  apiBackgroundConfig: apiBackgroundConfig;
+  /** 自定义背景的 CSS 代码。 */
+  backgroundValue: string;
+
+  // --- 自动推送 ---
+  /** 是否启用定时自动推送排行榜功能。 */
+  autoPush: boolean;
+
+  // -- 自动推送详细选项 --
+  /** 是否在每日 0 点自动发送昨日排行榜。 */
+  shouldSendDailyLeaderboardAtMidnight: boolean;
+  /** 其他定时发送今日排行榜的时间点（24小时制）。 */
+  dailyScheduledTimers: string[];
+  /** 发送排行榜前是否发送提示消息。 */
+  isGeneratingRankingListPromptVisible: boolean;
+  /** 发送提示后等待多少秒再发送图片。 */
+  leaderboardGenerationWaitTime: number;
+  /** 需要接收自动推送的频道 ID 列表。 */
+  pushChannelIds: string[];
+  /** 是否向机器人所在的所有群聊推送。 */
+  shouldSendLeaderboardNotificationsToAllChannels: boolean;
+  /** "向所有群聊推送" 开启时的排除列表。 */
+  excludedLeaderboardChannels: string[];
+  /** 批量推送时，每个群之间的发送延迟（秒）。 */
+  delayBetweenGroupPushesInSeconds: number;
+  /** 延迟时间的随机波动范围（秒）。 */
+  groupPushDelayRandomizationSeconds: number;
+
+  // --- 龙王禁言 ---
+  /** 是否在每日 0 点自动禁言昨日发言最多的人。 */
+  enableMostActiveUserMuting: boolean;
+
+  // -- 龙王禁言详细选项 --
+  /** 0 点后，等待多少秒再执行禁言操作。 */
+  dragonKingDetainmentTime: number;
+  /** 禁言时长（天）。 */
+  detentionDuration: number;
+  /** 在哪些频道中执行“抓龙王”操作。 */
+  muteChannelIds: string[];
+}
+// pz*
 export const Config: Schema<Config> = Schema.intersect([
+  // 核心功能设置
   Schema.object({
+    isBotMessageTrackingEnabled: Schema.boolean()
+      .default(false)
+      .description("是否统计 Bot 自己发送的消息。"),
     isYesterdayCommentRankingDisabled: Schema.boolean()
       .default(false)
       .description(
         "是否禁用昨日发言排行榜。开启后可用于解决群组消息过多导致的每日 0 点卡顿问题。"
       ),
-  }).description("功能设置"),
+  }).description("核心功能"),
+
+  // 排行榜基础设置
   Schema.object({
     defaultMaxDisplayCount: Schema.number()
       .min(0)
@@ -131,185 +227,177 @@ export const Config: Schema<Config> = Schema.intersect([
       .description("是否在排行榜中显示用户消息占比。"),
     hiddenUserIdsInLeaderboard: Schema.array(String)
       .role("table")
-      .description("在排行榜中隐藏的用户列表。"),
+      .description("在排行榜中全局隐藏的用户列表。"),
     hiddenChannelIdsInLeaderboard: Schema.array(String)
       .role("table")
-      .description("在排行榜中隐藏的频道列表。"),
-  }).description("排行榜显示设置"),
-  Schema.object({
-    isBotMessageTrackingEnabled: Schema.boolean()
-      .default(false)
-      .description("是否统计 Bot 自己发送的消息。"),
-  }).description("消息追踪设置"),
-  Schema.object({
-    isTextToImageConversionEnabled: Schema.boolean()
-      .default(false)
-      .description(
-        `（可以同时开启下面的功能）是否开启将文本转为图片的功能（可选），如需启用，需要启用 \`markdownToImage\` 服务。`
-      ),
-    isLeaderboardToHorizontalBarChartConversionEnabled: Schema.boolean()
-      .default(false)
-      .description(
-        "是否开启排行榜转为水平柱状图的功能（可选），如需启用，需要启用 `puppeteer` 服务。"
-      ),
-    imageType: Schema.union(["png", "jpeg", "webp"])
-      .default("png")
-      .description(`发送的水平柱状图片类型。`),
-    width: Schema.number()
-      .default(600)
-      .description("水平柱状图的图片宽度（对样式 3 无效）。"),
-    isFirstProgressFullyVisible: Schema.boolean()
-      .default(true)
-      .description("横向柱状图第一名的进度条是否占满（对样式 3 无效）。"),
-    maxHorizontalBarLabelLengthBeforeTruncation: Schema.number()
-      .min(1)
-      .default(6)
-      .description(
-        "水平柱状图的标签最大长度，超过该长度的标签将被截断（对样式 3 无效）。"
-      ),
-    waitUntil: Schema.union([
-      "load",
-      "domcontentloaded",
-      "networkidle0",
-      "networkidle2",
-    ])
-      .default("networkidle0")
-      .description("（仅样式 3）等待页面加载的事件。"),
-    shouldMoveIconToBarEndLeft: Schema.boolean()
-      .default(true)
-      .description(
-        "（仅样式 3）是否将自定义图标移动到水平柱状条末端的左侧，关闭后将放在用户名的右侧。"
-      ),
-    horizontalBarBackgroundOpacity: Schema.number()
-      .min(0)
-      .max(1)
-      .default(0.6)
-      .description(
-        "（仅样式 3）自定义水平柱状条背景的不透明度，值越小则越透明。"
-      ),
-    horizontalBarBackgroundFullOpacity: Schema.number()
-      .min(0)
-      .max(1)
-      .default(0)
-      .description(
-        "（仅样式 3）自定义水平柱状条背景整条的不透明度，值越小则越透明。"
-      ),
-    maxBarBgWidth: Schema.number()
-      .min(0)
-      .default(2000)
-      .description(
-        "（样式 3）上传的柱状条背景图片的最大宽度（像素），设置为 0 则不限制。"
-      ),
-    maxBarBgHeight: Schema.number()
-      .min(0)
-      .default(200)
-      .description(
-        "（样式 3）上传的柱状条背景图片的最大高度（像素），设置为 0 则不限制。"
-      ),
-    maxBarBgSize: Schema.number()
-      .min(0)
-      .default(5)
-      .description(
-        "（样式 3）上传的柱状条背景图片的最大文件大小（MB），设置为 0 则不限制。"
-      ),
-    backgroundType: Schema.union(["none", "api", "css"])
-      .default("none")
-      .description("（仅样式 3）背景自定义类型。"),
-    apiBackgroundConfig: Schema.object({
-      apiUrl: Schema.string(),
-      apiKey: Schema.string(),
-      responseType: Schema.union(["binary", "url", "base64"]).default("binary"),
-    })
-      .collapse()
-      .description("（仅样式 3）API 背景配置。"),
-    backgroundValue: Schema.string()
-      .role("textarea", { rows: [2, 4] })
-      .default(
-        `body {
-        background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
-      }`
-      )
-      .description("（仅样式 3）背景 css 值。"),
-    horizontalBarChartStyle: Schema.union([
-      Schema.const("1").description("样式 1 (名称与柱状条不同一行)"),
-      Schema.const("2").description("样式 2 (名称与柱状条同一行)"),
-      Schema.const("3").description("样式 3 (默认) 理论上最好看"),
-    ])
-      .role("radio")
-      .default("3")
-      .description("水平柱状图的样式。"),
-  }).description("图片转换功能设置"),
+      .description("在群排行榜中全局隐藏的频道列表。"),
+  }).description("排行榜设置"),
+
+  // 图片生成设置
+  Schema.intersect([
+    Schema.object({
+      isTextToImageConversionEnabled: Schema.boolean()
+        .default(false)
+        .description(
+          "是否将文本排行榜转为图片（基于 `markdownToImage` 服务）。"
+        ),
+      isLeaderboardToHorizontalBarChartConversionEnabled: Schema.boolean()
+        .default(false)
+        .description(
+          "是否将排行榜渲染为更美观的水平柱状图（基于 `puppeteer` 服务）。"
+        ),
+    }).description("图片生成"),
+
+    // 仅在开启柱状图功能时显示以下详细选项
+    Schema.union([
+      Schema.object({
+        isLeaderboardToHorizontalBarChartConversionEnabled:
+          Schema.const(true).required(),
+        imageType: Schema.union(["png", "jpeg", "webp"])
+          .default("png")
+          .description(`生成的柱状图图片类型。`),
+
+        // --- 柱状图专属设置 ---
+        waitUntil: Schema.union([
+          "load",
+          "domcontentloaded",
+          "networkidle0",
+          "networkidle2",
+        ])
+          .default("networkidle0")
+          .description("页面加载等待事件，影响图片生成速度和稳定性。"),
+        shouldMoveIconToBarEndLeft: Schema.boolean()
+          .default(true)
+          .description(
+            "是否将自定义图标显示在柱状条的末端。关闭则显示在用户名旁。"
+          ),
+        horizontalBarBackgroundOpacity: Schema.number()
+          .min(0)
+          .max(1)
+          .default(0.6)
+          .description("自定义背景图在进度条区域的不透明度。"),
+        horizontalBarBackgroundFullOpacity: Schema.number()
+          .min(0)
+          .max(1)
+          .default(0)
+          .description("自定义背景图在整行背景的不透明度。"),
+        maxBarBgWidth: Schema.number()
+          .min(0)
+          .default(2000)
+          .description("允许上传的背景图最大宽度（像素），0为不限制。"),
+        maxBarBgHeight: Schema.number()
+          .min(0)
+          .default(200)
+          .description("允许上传的背景图最大高度（像素），0为不限制。"),
+        maxBarBgSize: Schema.number()
+          .min(0)
+          .default(5)
+          .description("允许上传的背景图最大体积（MB），0为不限制。"),
+
+        // --- 柱状图背景设置 ---
+        backgroundType: Schema.union(["none", "api", "css"])
+          .default("none")
+          .description("图片整体背景的类型。"),
+        apiBackgroundConfig: Schema.object({
+          apiUrl: Schema.string().description("获取背景图的 API 地址。"),
+          apiKey: Schema.string()
+            .role("secret")
+            .description("API 的访问凭证（可选）。"),
+          responseType: Schema.union(["binary", "url", "base64"])
+            .default("binary")
+            .description("API 返回的数据类型。"),
+        })
+          .role("collapse")
+          .description("API 背景配置（仅当类型为 API 时生效）。"),
+        backgroundValue: Schema.string()
+          .role("textarea", { rows: [2, 4] })
+          .default(
+            `body {\n  background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);\n}`
+          )
+          .description("自定义背景的 CSS 代码（仅当类型为 CSS 时生效）。"),
+      }),
+      Schema.object({}),
+    ]),
+  ]),
+
+  // 自动推送设置
   Schema.intersect([
     Schema.object({
       autoPush: Schema.boolean()
         .default(false)
-        .description("是否自动推送排行榜。"),
-    }).description("自动推送设置"),
+        .description("是否启用定时自动推送排行榜功能。"),
+    }).description("自动推送"),
     Schema.union([
       Schema.object({
         autoPush: Schema.const(true).required(),
         shouldSendDailyLeaderboardAtMidnight: Schema.boolean()
           .default(true)
-          .description("是否在每天 0 点发送排行榜。"),
+          .description("是否在每日 0 点自动发送昨日排行榜。"),
         dailyScheduledTimers: Schema.array(String)
           .role("table")
           .description(
-            "每日定时发送用户今日发言排行榜的时间列表（中国北京时间），例如 `08:00`、`18:45`。如果开启上面的选项，则自动包含 0 点。"
+            "除 0 点外，其他定时发送今日排行榜的时间点（24小时制，如 `08:00`）。"
           ),
         isGeneratingRankingListPromptVisible: Schema.boolean()
           .default(true)
-          .description("是否在生成排行榜时发送提示消息。"),
+          .description("在生成并发送排行榜前，是否先发送一条提示消息。"),
         leaderboardGenerationWaitTime: Schema.number()
           .min(0)
           .default(3)
-          .description(`提示消息发送后，自动生成排行榜的等待时间，单位是秒。`),
+          .description("发送提示消息后，等待多少秒再发送排行榜图片。"),
         pushChannelIds: Schema.array(String)
           .role("table")
-          .description("启用自动推送排行榜功能的频道列表。"),
+          .description(
+            "需要接收自动推送的频道列表（留空则不推送到任何特定频道）。"
+          ),
         shouldSendLeaderboardNotificationsToAllChannels: Schema.boolean()
           .default(false)
-          .description("是否向所有频道推送排行榜。"),
+          .description(
+            "是否向机器人所在的所有群聊推送（注意：这可能造成打扰）。"
+          ),
         excludedLeaderboardChannels: Schema.array(String)
           .role("table")
-          .description("不推送排行榜的频道列表。"),
+          .description(
+            "当“向所有群聊推送”开启时，此处指定的频道将不会收到推送。"
+          ),
         delayBetweenGroupPushesInSeconds: Schema.number()
           .min(0)
           .default(5)
-          .description("群组推送之间的延迟时间，单位是秒。"),
+          .description("批量推送时，每个群之间的发送延迟（秒），以防风控。"),
         groupPushDelayRandomizationSeconds: Schema.number()
           .min(0)
           .default(10)
-          .description(
-            "群组推送延迟时间的随机化范围（上下波动范围），单位是秒。"
-          ),
+          .description("延迟时间的随机波动范围（秒），以进一步模拟人工操作。"),
       }),
       Schema.object({}),
     ]),
   ]),
+
+  // 龙王禁言设置
   Schema.intersect([
     Schema.object({
       enableMostActiveUserMuting: Schema.boolean()
         .default(false)
-        .description("是否禁言每天发言最多的人，即龙王。"),
-    }).description("用户禁言设置"),
+        .description("是否在每日 0 点自动禁言昨日发言最多的人（“抓龙王”）。"),
+    }).description("龙王禁言"),
     Schema.union([
       Schema.object({
         enableMostActiveUserMuting: Schema.const(true).required(),
         dragonKingDetainmentTime: Schema.number()
           .min(0)
           .default(5)
-          .description(`关押龙王的等待时间，单位是秒。`),
+          .description("0 点后，等待多少秒再执行禁言操作。"),
         detentionDuration: Schema.number()
           .default(1)
-          .description(`关押时长，单位是天。`),
+          .description("禁言时长，单位为天。"),
         muteChannelIds: Schema.array(String)
           .role("table")
-          .description("生效的频道。"),
+          .description("在哪些频道中执行“抓龙王”操作。"),
       }),
       Schema.object({}),
     ]),
   ]),
-]) as any;
+]) as Schema<Config>;
 
 declare module "koishi" {
   interface Tables {
@@ -317,7 +405,6 @@ declare module "koishi" {
   }
 }
 
-// jk*
 interface apiBackgroundConfig {
   apiUrl: string;
   apiKey: string;
@@ -348,14 +435,9 @@ interface RankingData {
   avatarBase64?: string;
 }
 
-interface IconData {
+interface AssetData {
   userId: string;
-  iconBase64: string;
-}
-
-interface BarBgImgs {
-  userId: string;
-  barBgImgBase64: string;
+  base64: string;
 }
 
 interface UserRecord {
@@ -364,47 +446,88 @@ interface UserRecord {
   username: string;
 }
 
-// zhs*
+type PeriodKey = "today" | "yesterday" | "week" | "month" | "year" | "total";
+
+type CountField =
+  | "todayPostCount"
+  | "yesterdayPostCount"
+  | "thisWeekPostCount"
+  | "thisMonthPostCount"
+  | "thisYearPostCount"
+  | "totalPostCount";
+
+const periodMapping: Record<PeriodKey, { field: CountField; name: string }> = {
+  today: { field: "todayPostCount", name: "今日" },
+  yesterday: { field: "yesterdayPostCount", name: "昨日" },
+  week: { field: "thisWeekPostCount", name: "本周" },
+  month: { field: "thisMonthPostCount", name: "本月" },
+  year: { field: "thisYearPostCount", name: "今年" },
+  total: { field: "totalPostCount", name: "总" },
+};
+
 export async function apply(ctx: Context, config: Config) {
-  // wj*
-  const messageCounterIconsPath = path.join(
-    ctx.baseDir,
-    "data",
-    "messageCounterIcons"
-  );
+  // --- 资源路径和缓存初始化 ---
+  const dataRoot = path.join(ctx.baseDir, "data");
+  const messageCounterIconsPath = path.join(dataRoot, "messageCounterIcons");
   const messageCounterBarBgImgsPath = path.join(
-    ctx.baseDir,
-    "data",
+    dataRoot,
     "messageCounterBarBgImgs"
   );
-  const filePath = path.join(__dirname, "emptyHtml.html").replace(/\\/g, "/");
-  await ensureDirExists(messageCounterIconsPath);
-  await ensureDirExists(messageCounterBarBgImgsPath);
-  // cl*
-  interface ScheduledJob {
-    cancel(): void;
+  const emptyHtmlPath = path
+    .join(__dirname, "emptyHtml.html")
+    .replace(/\\/g, "/");
+
+  // 缓存
+  const avatarCache = new Map<string, string>();
+  let iconCache: AssetData[] = [];
+  let barBgImgCache: AssetData[] = [];
+
+  // 确保目录存在
+  await fs.mkdir(messageCounterIconsPath, { recursive: true });
+  await fs.mkdir(messageCounterBarBgImgsPath, { recursive: true });
+
+  // --- 缓存加载函数 ---
+  async function loadAssetsFromFolder(
+    folderPath: string
+  ): Promise<AssetData[]> {
+    const assetData: AssetData[] = [];
+    try {
+      await fs.access(folderPath, fsConstants.R_OK); // 检查目录是否存在且可读
+      const files = await fs.readdir(folderPath);
+
+      for (const file of files) {
+        const userId = path.parse(file).name.split("-")[0].trim();
+        const filePath = path.join(folderPath, file);
+        try {
+          const fileData = await fs.readFile(filePath);
+          assetData.push({ userId, base64: fileData.toString("base64") });
+        } catch (readError) {
+          logger.warn(`Failed to read asset file ${filePath}:`, readError);
+        }
+      }
+    } catch (err) {
+      logger.warn(`Error accessing asset folder ${folderPath}:`, err);
+    }
+    return assetData;
   }
-  const scheduledJobs: ScheduledJob[] = [];
-  // 移除: 不再在启动时加载图标和背景图片
-  const {
-    autoPush,
-    defaultMaxDisplayCount,
-    isBotMessageTrackingEnabled,
-    isTimeInfoSupplementEnabled,
-    isTextToImageConversionEnabled,
-    enableMostActiveUserMuting,
-    pushChannelIds,
-    muteGuildIds,
-    detentionDuration,
-    dragonKingDetainmentTime,
-    leaderboardGenerationWaitTime,
-    isUserMessagePercentageVisible,
-  } = config;
 
-  // dsq* ds*
-  createScheduledTasks(config.dailyScheduledTimers);
+  const reloadIconCache = async () => {
+    iconCache = await loadAssetsFromFolder(messageCounterIconsPath);
+    logger.info(`Reloaded ${iconCache.length} user icons.`);
+  };
 
-  // tzb*
+  const reloadBarBgImgCache = async () => {
+    barBgImgCache = await loadAssetsFromFolder(messageCounterBarBgImgsPath);
+    logger.info(`Reloaded ${barBgImgCache.length} bar background images.`);
+  };
+
+  // 启动时加载缓存
+  ctx.on("ready", async () => {
+    await reloadIconCache();
+    await reloadBarBgImgCache();
+  });
+
+  // --- 数据库表定义 ---
   ctx.model.extend(
     "message_counter_records",
     {
@@ -425,161 +548,133 @@ export async function apply(ctx: Context, config: Config) {
   );
 
   // 限定在群组中
-  ctx = ctx.guild();
+  const guildCtx = ctx.guild();
 
-  // jt*
-  ctx.on("message", async (session: any) => {
-    const { channelId, event, userId } = session;
-    session.observeUser(["id", "name", "permissions"]);
-    const username = session.user?.name || session.username;
+  // --- 核心消息监听器 ---
+  guildCtx.on("message", async (session) => {
+    // 忽略无效会话或机器人自身消息
+    if (!session.userId || !session.channelId || session.author?.isBot) return;
 
-    let groupList;
-    if (typeof session.bot?.getGuildList === "function") {
-      groupList = await session.bot.getGuildList();
-    } else {
-      groupList = { data: [] };
-    }
-    const groups = groupList.data;
-    const channelName =
-      getNameFromChannelId(groups, channelId) ??
-      event.channel?.name ??
-      channelId;
-    await ctx.database.set(
-      "message_counter_records",
-      { channelId },
-      { channelName }
-    );
-    const getUser = await ctx.database.get("message_counter_records", {
-      channelId,
-      userId,
-    });
-    if (getUser.length === 0) {
-      if (userId) {
-        await ctx.database.create("message_counter_records", {
-          channelId,
-          channelName: channelName ?? event.channel?.name ?? channelId,
-          userId,
-          username,
-          userAvatar: event.user.avatar,
-          todayPostCount: 1,
-          thisWeekPostCount: 1,
-          thisMonthPostCount: 1,
-          thisYearPostCount: 1,
-          totalPostCount: 1,
-        });
-      }
-    } else {
-      const user = getUser[0];
-      await ctx.database.set(
+    const { userId, channelId, author, guildId } = session;
+    let sessionChannelName = session.event.channel.name;
+    const username = author?.name || author?.nick || userId;
+    const userAvatar = author?.avatar;
+
+    try {
+      const channelName =
+        sessionChannelName ||
+        (guildId ? await getGuildName(session.bot, guildId) : channelId);
+
+      await ctx.database.upsert(
         "message_counter_records",
-        { channelId, userId },
-        {
-          channelName: channelName ?? event.channel?.name ?? channelId,
-          username,
-          userAvatar: event.user.avatar,
-          todayPostCount: user.todayPostCount + 1,
-          thisWeekPostCount: user.thisWeekPostCount + 1,
-          thisMonthPostCount: user.thisMonthPostCount + 1,
-          thisYearPostCount: user.thisYearPostCount + 1,
-          totalPostCount: user.totalPostCount + 1,
-        }
+        (row) => [
+          {
+            channelId,
+            userId,
+
+            username,
+            userAvatar: userAvatar || row.userAvatar,
+            channelName: channelName || row.channelName,
+
+            todayPostCount: $.add(row.todayPostCount, 1),
+            thisWeekPostCount: $.add(row.thisWeekPostCount, 1),
+            thisMonthPostCount: $.add(row.thisMonthPostCount, 1),
+            thisYearPostCount: $.add(row.thisYearPostCount, 1),
+            totalPostCount: $.add(row.totalPostCount, 1),
+          },
+        ],
+        ["channelId", "userId"]
+      );
+    } catch (error) {
+      logger.error(
+        "Failed to update message count for user %s in channel %s:",
+        userId,
+        channelId,
+        error
       );
     }
   });
 
-  if (isBotMessageTrackingEnabled) {
+  // 统计机器人自身消息
+  if (config.isBotMessageTrackingEnabled) {
     ctx.before("send", async (session) => {
-      if (isBotMessageTrackingEnabled) {
-        const { channelId, bot, event } = session;
-        let groupList;
-        if (typeof session.bot?.getGuildList === "function") {
-          groupList = await session.bot.getGuildList();
-        } else {
-          groupList = { data: [] };
-        }
-        const groups = groupList.data;
+      if (!session.channelId || !session.guildId) return;
+
+      const { channelId, bot, guildId } = session;
+      let sessionChannelName = session.event.channel.name;
+      const botUser = bot.user;
+      if (!botUser) {
+        logger.warn("Bot user is undefined, skipping bot message tracking.");
+        return;
+      }
+
+      try {
         const channelName =
-          getNameFromChannelId(groups, channelId ?? "") ?? channelId;
-        await ctx.database.set(
+          sessionChannelName || (await getGuildName(bot, guildId)) || channelId;
+
+        await ctx.database.upsert(
           "message_counter_records",
-          { channelId },
-          { channelName: channelName ?? event.channel?.name ?? channelId }
-        );
-        if (!bot.user) {
-          logger.warn("Bot user is undefined, skipping bot message tracking.");
-          return;
-        }
-        const getUser = await ctx.database.get("message_counter_records", {
-          channelId,
-          userId: bot.user.id,
-        });
-        if (getUser.length === 0) {
-          await ctx.database.create("message_counter_records", {
-            channelId,
-            channelName: channelName ?? event.channel?.name ?? channelId,
-            userId: bot.user.id,
-            username: bot.user.name,
-            userAvatar: bot.user.avatar,
-            todayPostCount: 1,
-            thisWeekPostCount: 1,
-            thisMonthPostCount: 1,
-            thisYearPostCount: 1,
-            totalPostCount: 1,
-          });
-        } else {
-          const user = getUser[0];
-          await ctx.database.set(
-            "message_counter_records",
-            { channelId, userId: bot.user.id },
+          (row) => [
             {
-              channelName: channelName ?? event.channel?.name ?? channelId,
-              username: bot.user.name,
-              userAvatar: bot.user.avatar,
-              todayPostCount: user.todayPostCount + 1,
-              thisWeekPostCount: user.thisWeekPostCount + 1,
-              thisMonthPostCount: user.thisMonthPostCount + 1,
-              thisYearPostCount: user.thisYearPostCount + 1,
-              totalPostCount: user.totalPostCount + 1,
-            }
-          );
-        }
+              channelId,
+              userId: botUser.id,
+
+              username: botUser.name,
+              userAvatar: botUser.avatar,
+              channelName: channelName || row.channelName,
+
+              todayPostCount: $.add(row.todayPostCount, 1),
+              thisWeekPostCount: $.add(row.thisWeekPostCount, 1),
+              thisMonthPostCount: $.add(row.thisMonthPostCount, 1),
+              thisYearPostCount: $.add(row.thisYearPostCount, 1),
+              totalPostCount: $.add(row.totalPostCount, 1),
+            },
+          ],
+          ["channelId", "userId"]
+        );
+      } catch (error) {
+        logger.error(
+          "Failed to update bot message count in channel %s:",
+          channelId,
+          error
+        );
       }
     });
   }
-  // mc* h*
+
+  // --- 指令定义 ---
   ctx
     .command("messageCounter", "查看messageCounter帮助")
-    .action(async ({ session }) => {
-      if (session) {
-        await session.execute(`messageCounter -h`);
-      }
-    });
-  // csh*
+    .action(({ session }) => session?.execute(`help ${name}`));
+
   ctx
     .command("messageCounter.初始化", "初始化", { authority: 3 })
     .action(async ({ session }) => {
       if (!session) return;
-      await session.send("嗯~");
+      await session.send("正在清空所有发言记录，请稍候...");
       await ctx.database.remove("message_counter_records", {});
-      await session.send("好啦~");
+      await session.send("所有发言记录已清空！");
     });
 
-  // cx* Query
+  // 查询指令
   ctx
-    .command("messageCounter.查询 [targetUser:text]", "查询")
-    .userFields(["id", "name", "permissions"])
-    .option("yesterday", "--yesterday 昨日发言总次数[排名]")
-    .option("day", "-d 今日发言次数[排名]")
-    .option("week", "-w 本周发言次数[排名]")
-    .option("month", "-m 本月发言次数[排名]")
-    .option("year", "-y 今年发言次数[排名]")
-    .option("total", "-t 总发言次数[排名]")
-    .option("ydag", "--ydag 跨群昨日发言总次数[排名]")
-    .option("dag", "--dag 跨群今日发言总次数[排名]")
-    .option("wag", "--wag 跨群本周发言总次数[排名]")
-    .option("mag", "--mag 跨群本月发言总次数[排名]")
-    .option("yag", "--yag 跨群本年发言总次数[排名]")
-    .option("across", "-a 跨群发言总次数[排名]")
+    .command(
+      "messageCounter.查询 [targetUser:text]",
+      "查询指定用户的发言次数信息"
+    )
+    .userFields(["id", "name"])
+    .option("yesterday", "-yd 昨日发言")
+    .option("day", "-d 今日发言")
+    .option("week", "-w 本周发言")
+    .option("month", "-m 本月发言")
+    .option("year", "-y 今年发言")
+    .option("total", "-t 总发言")
+    .option("ydag", "跨群昨日发言")
+    .option("dag", "跨群今日发言")
+    .option("wag", "跨群本周发言")
+    .option("mag", "跨群本月发言")
+    .option("yag", "跨群本年发言")
+    .option("across", "-a 跨群总发言")
     .action(async ({ session, options }, targetUser) => {
       // 初始化所有选项为 false
       const selectedOptions = {
@@ -838,20 +933,20 @@ export async function apply(ctx: Context, config: Config) {
         yesterdayPostCount,
       } = targetUserRecord[0];
 
-      let message = isTextToImageConversionEnabled
+      let message = config.isTextToImageConversionEnabled
         ? `# 查询对象：${targetUserRecord[0].username}\n\n`
         : `查询对象：${targetUserRecord[0].username}\n\n`;
-      if (isTimeInfoSupplementEnabled) {
+      if (config.isTimeInfoSupplementEnabled) {
         const currentBeijingTime = getCurrentBeijingTime();
-        message = isTextToImageConversionEnabled
+        message = config.isTextToImageConversionEnabled
           ? `# ${currentBeijingTime}\n${message}`
           : `${currentBeijingTime}\n${message}`;
       }
       if (yesterday) {
         message += `${
-          isTextToImageConversionEnabled ? "## " : ""
+          config.isTextToImageConversionEnabled ? "## " : ""
         }本群昨日发言次数[排名]：${yesterdayPostCount} 次${
-          isUserMessagePercentageVisible
+          config.isUserMessagePercentageVisible
             ? ` ${calculatePercentage(
                 yesterdayPostCount,
                 totalSums.yesterdayPostCount
@@ -861,9 +956,9 @@ export async function apply(ctx: Context, config: Config) {
       }
       if (day) {
         message += `${
-          isTextToImageConversionEnabled ? "## " : ""
+          config.isTextToImageConversionEnabled ? "## " : ""
         }本群今日发言次数[排名]：${todayPostCount} 次${
-          isUserMessagePercentageVisible
+          config.isUserMessagePercentageVisible
             ? ` ${calculatePercentage(
                 todayPostCount,
                 totalSums.todayPostCount
@@ -873,9 +968,9 @@ export async function apply(ctx: Context, config: Config) {
       }
       if (week) {
         message += `${
-          isTextToImageConversionEnabled ? "## " : ""
+          config.isTextToImageConversionEnabled ? "## " : ""
         }本群本周发言次数[排名]：${thisWeekPostCount} 次${
-          isUserMessagePercentageVisible
+          config.isUserMessagePercentageVisible
             ? ` ${calculatePercentage(
                 thisWeekPostCount,
                 totalSums.thisWeekPostCount
@@ -885,9 +980,9 @@ export async function apply(ctx: Context, config: Config) {
       }
       if (month) {
         message += `${
-          isTextToImageConversionEnabled ? "## " : ""
+          config.isTextToImageConversionEnabled ? "## " : ""
         }本群本月发言次数[排名]：${thisMonthPostCount} 次${
-          isUserMessagePercentageVisible
+          config.isUserMessagePercentageVisible
             ? ` ${calculatePercentage(
                 thisMonthPostCount,
                 totalSums.thisMonthPostCount
@@ -897,9 +992,9 @@ export async function apply(ctx: Context, config: Config) {
       }
       if (year) {
         message += `${
-          isTextToImageConversionEnabled ? "## " : ""
+          config.isTextToImageConversionEnabled ? "## " : ""
         }本群今年发言次数[排名]：${thisYearPostCount} 次${
-          isUserMessagePercentageVisible
+          config.isUserMessagePercentageVisible
             ? ` ${calculatePercentage(
                 thisYearPostCount,
                 totalSums.thisYearPostCount
@@ -909,9 +1004,9 @@ export async function apply(ctx: Context, config: Config) {
       }
       if (total) {
         message += `${
-          isTextToImageConversionEnabled ? "## " : ""
+          config.isTextToImageConversionEnabled ? "## " : ""
         }本群总发言次数[排名]：${totalPostCount} 次${
-          isUserMessagePercentageVisible
+          config.isUserMessagePercentageVisible
             ? ` ${calculatePercentage(
                 totalPostCount,
                 totalSums.totalPostCount
@@ -929,9 +1024,9 @@ export async function apply(ctx: Context, config: Config) {
           const ydagUserRecord = ydagResult.userRecord;
           const ydagRank = ydagResult.acrossRank;
           message += `${
-            isTextToImageConversionEnabled ? "## " : ""
+            config.isTextToImageConversionEnabled ? "## " : ""
           }跨群昨日发言次数[排名]：${ydagUserRecord.postCountAll} 次${
-            isUserMessagePercentageVisible
+            config.isUserMessagePercentageVisible
               ? ` ${calculatePercentage(
                   ydagUserRecord.postCountAll,
                   acrossTotalSums.yesterdayPostCount
@@ -950,9 +1045,9 @@ export async function apply(ctx: Context, config: Config) {
           const dagUserRecord = dagResult.userRecord;
           const dagRank = dagResult.acrossRank;
           message += `${
-            isTextToImageConversionEnabled ? "## " : ""
+            config.isTextToImageConversionEnabled ? "## " : ""
           }跨群今日发言次数[排名]：${dagUserRecord.postCountAll} 次${
-            isUserMessagePercentageVisible
+            config.isUserMessagePercentageVisible
               ? ` ${calculatePercentage(
                   dagUserRecord.postCountAll,
                   acrossTotalSums.todayPostCount
@@ -971,9 +1066,9 @@ export async function apply(ctx: Context, config: Config) {
           const wagUserRecord = wagResult.userRecord;
           const wagRank = wagResult.acrossRank;
           message += `${
-            isTextToImageConversionEnabled ? "## " : ""
+            config.isTextToImageConversionEnabled ? "## " : ""
           }跨群本周发言次数[排名]：${wagUserRecord.postCountAll} 次${
-            isUserMessagePercentageVisible
+            config.isUserMessagePercentageVisible
               ? ` ${calculatePercentage(
                   wagUserRecord.postCountAll,
                   acrossTotalSums.thisWeekPostCount
@@ -992,9 +1087,9 @@ export async function apply(ctx: Context, config: Config) {
           const magUserRecord = magResult.userRecord;
           const magRank = magResult.acrossRank;
           message += `${
-            isTextToImageConversionEnabled ? "## " : ""
+            config.isTextToImageConversionEnabled ? "## " : ""
           }跨群本月发言次数[排名]：${magUserRecord.postCountAll} 次${
-            isUserMessagePercentageVisible
+            config.isUserMessagePercentageVisible
               ? ` ${calculatePercentage(
                   magUserRecord.postCountAll,
                   acrossTotalSums.thisMonthPostCount
@@ -1013,9 +1108,9 @@ export async function apply(ctx: Context, config: Config) {
           const yagUserRecord = yagResult.userRecord;
           const yagRank = yagResult.acrossRank;
           message += `${
-            isTextToImageConversionEnabled ? "## " : ""
+            config.isTextToImageConversionEnabled ? "## " : ""
           }跨群本年发言次数[排名]：${yagUserRecord.postCountAll} 次${
-            isUserMessagePercentageVisible
+            config.isUserMessagePercentageVisible
               ? ` ${calculatePercentage(
                   yagUserRecord.postCountAll,
                   acrossTotalSums.thisYearPostCount
@@ -1026,9 +1121,9 @@ export async function apply(ctx: Context, config: Config) {
       }
       if (across) {
         message += `${
-          isTextToImageConversionEnabled ? "## " : ""
+          config.isTextToImageConversionEnabled ? "## " : ""
         }跨群总发言次数[排名]：${totalPostCountAcrossGuilds} 次${
-          isUserMessagePercentageVisible
+          config.isUserMessagePercentageVisible
             ? ` ${calculatePercentage(
                 totalPostCountAcrossGuilds,
                 acrossTotalSums.totalPostCount
@@ -1037,7 +1132,7 @@ export async function apply(ctx: Context, config: Config) {
         }[${acrossRank}]\n`;
       }
 
-      if (isTextToImageConversionEnabled) {
+      if (config.isTextToImageConversionEnabled) {
         const imageBuffer = await ctx.markdownToImage.convertToImage(message);
         return h.image(imageBuffer, `image/${config.imageType}`);
       }
@@ -1045,643 +1140,185 @@ export async function apply(ctx: Context, config: Config) {
       return message;
     });
 
-  // gqfyphb* r* qr* qphb*
+  // 排行榜指令
   ctx
-    .command("messageCounter.群排行榜 [number:number]", "群发言排行榜")
-    .userFields(["id", "name", "permissions"])
-    .option("specificUser", "-s <user:text> 特定用户的群发言榜", {
-      fallback: "",
-    })
-    .option("whites", "--whites <whites:text> 白名单（仅显示）", {
-      fallback: "",
-    })
-    .option("blacks", "--blacks <blacks:text> 黑名单（排除）", { fallback: "" })
-    .option("yesterday", "--yesterday 昨日发言榜")
-    .option("day", "-d 今日发言榜")
-    .option("week", "-w 本周发言榜")
-    .option("month", "-m 本月发言榜")
-    .option("year", "-y 今年发言榜")
-    .option("total", "-t 总发言榜")
-    .action(async ({ session, options }, number) => {
-      if (!number) {
-        number = defaultMaxDisplayCount;
-      }
+    .command("messageCounter.排行榜 [limit:number]", "用户发言排行榜")
+    .userFields(["id", "name"])
+    .option("whites", "<users:text> 白名单，用空格、逗号等分隔")
+    .option("blacks", "<users:text> 黑名单，用空格、逗号等分隔")
+    .option("yesterday", "-yd")
+    .option("day", "-d")
+    .option("week", "-w")
+    .option("month", "-m")
+    .option("year", "-y")
+    .option("total", "-t")
+    .option("ydag", "跨群昨日")
+    .option("dag", "跨群今日")
+    .option("wag", "跨群本周")
+    .option("mag", "跨群本月")
+    .option("yag", "跨群本年")
+    .option("dragon", "圣龙王榜 (跨群总榜)")
+    .action(async ({ session, options }, limit) => {
+      if (!session) return;
 
+      const number = limit ?? config.defaultMaxDisplayCount;
       if (typeof number !== "number" || isNaN(number) || number < 0) {
-        return "请输入大于等于 0 的数字作为排行榜的参数。";
+        return "请输入大于等于 0 的数字作为排行榜显示人数。";
       }
 
-      if (config.hiddenChannelIdsInLeaderboard.length !== 0) {
-        if (options) {
-          options.blacks += "" + config.hiddenChannelIdsInLeaderboard.join(" ");
-        }
-      }
+      const whites = parseList(options?.whites);
+      const blacks = [
+        ...parseList(options?.blacks),
+        ...config.hiddenUserIdsInLeaderboard,
+      ];
 
-      let userId = "";
-      if (options && options.specificUser) {
-        const atElements = h.select(options.specificUser, "at");
-        if (atElements.length > 0) {
-          userId = atElements[0].attrs.id;
-        }
-        if (!userId) {
-          userId = options.specificUser;
-        }
-      }
+      const period = getPeriodFromOptions(options, "today");
+      const isAcross = isAcrossGuild(options);
 
-      let username = "";
-      if (userId) {
-        const userRecords: MessageCounterRecord[] = await ctx.database.get(
-          "message_counter_records",
-          { userId }
-        );
-        if (userRecords.length === 0) {
-          return `指定用户不存在。`;
-        }
-        if (session && session.channelId) {
-          username =
-            getUsernameByChannelId(userRecords, session.channelId) ??
-            userRecords[0].username;
-        }
-        if (!username) {
-          username = userRecords[0].username;
-        }
-      }
+      const { field, name: periodName } = periodMapping[period];
+      const scopeName = isAcross ? "跨群" : "本群";
+      const rankTitle = `${scopeName}${periodName}发言排行榜`;
+      const rankTimeTitle = getCurrentBeijingTime();
 
-      const whites = splitWhitesOrBlacksString(
-        (options && options.whites) || ""
-      );
-      const blacks = splitWhitesOrBlacksString(
-        (options && options.blacks) || ""
-      );
-
-      let messageCounterRecords: MessageCounterRecord[] =
-        await ctx.database.get("message_counter_records", {});
-
-      if (messageCounterRecords.length === 0) {
-        return;
-      }
-
-      messageCounterRecords = filterRecordsByWhitesAndBlacks(
-        whites,
-        blacks,
-        messageCounterRecords,
-        "channelId"
-      );
-
-      let sortByProperty: keyof MessageCounterRecord;
-      let countProperty: string;
-
-      if (options && options.day) {
-        sortByProperty = "todayPostCount";
-        countProperty = "今日发言次数";
-      } else if (options && options.week) {
-        sortByProperty = "thisWeekPostCount";
-        countProperty = "本周发言次数";
-      } else if (options && options.month) {
-        sortByProperty = "thisMonthPostCount";
-        countProperty = "本月发言次数";
-      } else if (options && options.year) {
-        sortByProperty = "thisYearPostCount";
-        countProperty = "今年发言次数";
-      } else if (options && options.total) {
-        sortByProperty = "totalPostCount";
-        countProperty = "总发言次数";
-      } else if (options && options.yesterday) {
-        sortByProperty = "yesterdayPostCount";
-        countProperty = "昨日发言次数";
+      let records;
+      if (isAcross) {
+        records = await ctx.database.get("message_counter_records", {});
       } else {
-        sortByProperty = "todayPostCount";
-        countProperty = "今日发言次数";
+        records = await ctx.database.get("message_counter_records", {
+          channelId: session.channelId,
+        });
       }
 
-      const result = sumValuesByKey(
-        messageCounterRecords,
-        sortByProperty,
-        userId
+      const filteredRecords = filterRecordsByWhitesAndBlacks(
+        records,
+        "userId",
+        whites,
+        blacks
       );
-      const totalSum = calculateTotalSum(result);
-      const currentBeijingTime = getCurrentBeijingTime();
-      const rankTimeTitle = `${currentBeijingTime}`;
-      const prefix = `群排行榜：` + (username ? `${username} 的` : ``);
-      const rankTitle = `${prefix}${countProperty}`;
-      const rankingData: RankingData[] = [];
-      let rank = `${
-        isTextToImageConversionEnabled ? `# ` : ``
-      }${prefix}${countProperty}\n`;
 
-      result.sort((a, b) => b.sum - a.sum);
-      const rankingString = await generateRankingString(
-        result,
-        totalSum,
+      if (filteredRecords.length === 0) {
+        return "当前范围内暂无发言记录。";
+      }
+
+      // 聚合数据
+      const userPostCounts: Dict<number> = {};
+      const userInfo: Dict<{ username: string; avatar: string }> = {};
+      let totalCount = 0;
+
+      for (const record of filteredRecords) {
+        const count = record[field] as number;
+        userPostCounts[record.userId] =
+          (userPostCounts[record.userId] || 0) + count;
+        if (!userInfo[record.userId]) {
+          userInfo[record.userId] = {
+            username: record.username,
+            avatar:
+              record.userAvatar ||
+              `https://q1.qlogo.cn/g?b=qq&nk=${record.userId}&s=640`,
+          };
+        }
+        totalCount += count;
+      }
+
+      const sortedUsers = Object.entries(userPostCounts).sort(
+        ([, a], [, b]) => b - a
+      );
+
+      const rankingData: RankingData[] = prepareRankingData(
+        sortedUsers,
+        userInfo,
+        totalCount,
+        number,
+        session.userId
+      );
+
+      return renderLeaderboard({
+        rankTimeTitle,
+        rankTitle,
         rankingData,
-        number
-      );
-
-      if (isTimeInfoSupplementEnabled) {
-        rank = isTextToImageConversionEnabled
-          ? `# ${currentBeijingTime}\n${rank}\n${rankingString}`
-          : `${currentBeijingTime}\n${rank}\n${rankingString}`;
-      }
-
-      if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
-        const channelId = session?.channelId ?? "";
-        const thisRankInfo = await getChannelResultWithRank(
-          channelId,
-          result,
-          totalSum
-        );
-        let updatedRankingData: any = markUserInRanking(rankingData, channelId);
-        const showUserInExtraRow =
-          thisRankInfo &&
-          !rankingData.some((item) => item.userId === thisRankInfo.userId);
-
-        if (showUserInExtraRow) {
-          updatedRankingData = [...updatedRankingData, thisRankInfo];
-        }
-        updatedRankingData = markUserInRanking(updatedRankingData, channelId);
-        const imageBuffer = await LeaderboardToHorizontalBarChartConversion(
-          rankTimeTitle,
-          rankTitle,
-          updatedRankingData,
-          thisRankInfo
-        );
-        return h.image(imageBuffer, `image/${config.imageType}`);
-      }
-
-      if (isTextToImageConversionEnabled) {
-        const imageBuffer = await ctx.markdownToImage.convertToImage(rank);
-        return h.image(imageBuffer, `image/${config.imageType}`);
-      }
-
-      return rank;
+      });
     });
-  // phb* r*
+
   ctx
-    .command("messageCounter.排行榜 [number:number]", "用户发言排行榜")
-    .userFields(["id", "name", "permissions"])
-    .option("whites", "--whites <whites:text> 白名单（仅显示）", {
-      fallback: "",
-    })
-    .option("blacks", "--blacks <blacks:text> 黑名单（排除）", { fallback: "" })
-    .option("yesterday", "--yesterday 昨日发言榜")
-    .option("day", "-d 今日发言榜")
-    .option("week", "-w 本周发言榜")
-    .option("month", "-m 本月发言榜")
-    .option("year", "-y 今年发言榜")
-    .option("total", "-t 总发言榜")
-    .option("ydag", "--ydag 跨群昨日发言榜")
-    .option("dag", "--dag 跨群日发言榜")
-    .option("wag", "--wag 跨群周发言榜")
-    .option("mag", "--mag 跨群月发言榜")
-    .option("yag", "--yag 跨群年发言榜")
-    .option("dragon", "--dragon 圣龙王榜")
-    .action(async ({ session, options }, number) => {
-      const channelId = session?.channelId;
+    .command("messageCounter.群排行榜 [limit:number]", "群发言排行榜")
+    .option("specificUser", "-s <user:text> 特定用户的群发言榜")
+    .option("whites", "<channels:text> 白名单群号")
+    .option("blacks", "<channels:text> 黑名单群号")
+    .option("yesterday", "-yd")
+    .option("day", "-d")
+    .option("week", "-w")
+    .option("month", "-m")
+    .option("year", "-y")
+    .option("total", "-t")
+    .action(async ({ session, options }, limit) => {
+      if (!session) return;
 
-      if (!number) {
-        number = defaultMaxDisplayCount;
-      }
-
+      const number = limit ?? config.defaultMaxDisplayCount;
       if (typeof number !== "number" || isNaN(number) || number < 0) {
-        return "请输入大于等于 0 的数字作为排行榜的参数。";
+        return "请输入大于等于 0 的数字作为排行榜显示人数。";
       }
 
-      if (config.hiddenUserIdsInLeaderboard.length !== 0) {
-        if (options) {
-          options.blacks += "" + config.hiddenUserIdsInLeaderboard.join(" ");
-        }
-      }
+      const whites = parseList(options?.whites);
+      const blacks = [
+        ...parseList(options?.blacks),
+        ...config.hiddenChannelIdsInLeaderboard,
+      ];
+      const period = getPeriodFromOptions(options, "today");
+      const { field, name: periodName } = periodMapping[period];
 
-      const whites = splitWhitesOrBlacksString(
-        (options && options.whites) || ""
-      );
-      const blacks = splitWhitesOrBlacksString(
-        (options && options.blacks) || ""
-      );
+      let records: MessageCounterRecord[];
+      let rankTitle: string;
+      const rankTimeTitle = getCurrentBeijingTime();
 
-      let getUsers = await ctx.database.get("message_counter_records", {
-        channelId,
-      });
-      let acrossGetUsers = await ctx.database.get(
-        "message_counter_records",
-        {}
-      );
-      getUsers = filterRecordsByWhitesAndBlacks(
-        whites,
-        blacks,
-        getUsers,
-        "userId"
-      );
-      acrossGetUsers = filterRecordsByWhitesAndBlacks(
-        whites,
-        blacks,
-        acrossGetUsers,
-        "userId"
-      );
+      if (options?.specificUser) {
+        const at = h.select(options.specificUser, "at");
+        const userId = at.length ? at[0].attrs.id : options.specificUser;
 
-      const totalSums = {
-        todayPostCount: 0,
-        thisWeekPostCount: 0,
-        thisMonthPostCount: 0,
-        thisYearPostCount: 0,
-        totalPostCount: 0,
-        yesterdayPostCount: 0,
-      };
+        const userRecords = await ctx.database.get("user", { id: userId });
+        const username =
+          userRecords.length > 0
+            ? userRecords[0].name || `用户${userId}`
+            : `用户${userId}`;
 
-      const acrossTotalSums = {
-        todayPostCount: 0,
-        thisWeekPostCount: 0,
-        thisMonthPostCount: 0,
-        thisYearPostCount: 0,
-        totalPostCount: 0,
-        yesterdayPostCount: 0,
-      };
-
-      interface Sums {
-        todayPostCount: number;
-        thisWeekPostCount: number;
-        thisMonthPostCount: number;
-        thisYearPostCount: number;
-        totalPostCount: number;
-        yesterdayPostCount: number;
-      }
-
-      interface User {
-        todayPostCount: number;
-        thisWeekPostCount: number;
-        thisMonthPostCount: number;
-        thisYearPostCount: number;
-        totalPostCount: number;
-        yesterdayPostCount: number;
-      }
-
-      const accumulateSums = (sums: Sums, user: User): void => {
-        sums.todayPostCount += user.todayPostCount;
-        sums.thisWeekPostCount += user.thisWeekPostCount;
-        sums.thisMonthPostCount += user.thisMonthPostCount;
-        sums.thisYearPostCount += user.thisYearPostCount;
-        sums.totalPostCount += user.totalPostCount;
-        sums.yesterdayPostCount += user.yesterdayPostCount;
-      };
-
-      getUsers.forEach((user) => accumulateSums(totalSums, user));
-      acrossGetUsers.forEach((user) => accumulateSums(acrossTotalSums, user));
-
-      if (getUsers.length === 0 || acrossGetUsers.length === 0) {
-        return;
-      }
-
-      let sortByProperty: keyof typeof totalSums;
-      let countProperty: string;
-
-      if (options && options.day) {
-        sortByProperty = "todayPostCount";
-        countProperty = "今日发言次数";
-      } else if (options && options.week) {
-        sortByProperty = "thisWeekPostCount";
-        countProperty = "本周发言次数";
-      } else if (options && options.month) {
-        sortByProperty = "thisMonthPostCount";
-        countProperty = "本月发言次数";
-      } else if (options && options.year) {
-        sortByProperty = "thisYearPostCount";
-        countProperty = "今年发言次数";
-      } else if (options && options.total) {
-        sortByProperty = "totalPostCount";
-        countProperty = "总发言次数";
-      } else if (options && options.yesterday) {
-        sortByProperty = "yesterdayPostCount";
-        countProperty = "昨日发言次数";
+        rankTitle = `${username}的${periodName}群发言排行榜`;
+        records = await ctx.database.get("message_counter_records", { userId });
       } else {
-        sortByProperty = "todayPostCount";
-        countProperty = "今日发言次数";
+        rankTitle = `全群${periodName}发言排行榜`;
+        records = await ctx.database.get("message_counter_records", {});
       }
 
-      const currentBeijingTime = getCurrentBeijingTime();
-
-      // 跨群日榜
-      if (options && options.dag) {
-        return generateAcrossRanking(
-          `排行榜：跨群今日总发言次数`,
-          acrossGetUsers,
-          number,
-          currentBeijingTime,
-          accumulateSums,
-          "todayPostCount",
-          session?.userId ?? ""
-        );
-      }
-
-      // 跨群周榜
-      if (options && options.wag) {
-        return generateAcrossRanking(
-          `排行榜：跨群本周总发言次数`,
-          acrossGetUsers,
-          number,
-          currentBeijingTime,
-          accumulateSums,
-          "thisWeekPostCount",
-          session?.userId ?? ""
-        );
-      }
-
-      // 跨群月榜
-      if (options && options.mag) {
-        return generateAcrossRanking(
-          `排行榜：跨群本月总发言次数`,
-          acrossGetUsers,
-          number,
-          currentBeijingTime,
-          accumulateSums,
-          "thisMonthPostCount",
-          session?.userId ?? ""
-        );
-      }
-
-      // 跨群年榜
-      if (options && options.yag) {
-        return generateAcrossRanking(
-          `排行榜：跨群今年总发言次数`,
-          acrossGetUsers,
-          number,
-          currentBeijingTime,
-          accumulateSums,
-          "thisYearPostCount",
-          session?.userId ?? ""
-        );
-      }
-
-      // 跨群昨日发言榜
-      if (options && options.ydag) {
-        return generateAcrossRanking(
-          `排行榜：跨群昨日总发言次数`,
-          acrossGetUsers,
-          number,
-          currentBeijingTime,
-          accumulateSums,
-          "yesterdayPostCount",
-          session?.userId ?? ""
-        );
-      }
-
-      // 圣龙王榜
-      if (options && options.dragon) {
-        const dragons = getSortedDragons(acrossGetUsers);
-
-        // 只保留前 number 个用户
-        const topDragons = dragons.slice(0, number);
-
-        // 检查指定的 userId 是否在 topDragons 中
-        const userExists = topDragons.some(
-          (dragon) => dragon[0] === session?.userId
-        );
-
-        // 如果用户不在 topDragons 中，则将该用户添加到末尾
-        if (!userExists) {
-          // 在原始数据中查找该用户
-          const userDragon = dragons.find(
-            (dragon) => session && dragon[0] === session.userId
-          );
-
-          // 如果在原始数据中找到该用户，则添加到末尾
-          if (userDragon) {
-            topDragons.push(userDragon);
-          }
-        }
-
-        const rankingData: RankingData[] = [];
-        // 获取用户信息并构建结果数组
-        const resultPromises = topDragons.map(
-          async ([key, dragonPostCount], index) => {
-            const getUser = await ctx.database.get("message_counter_records", {
-              userId: key,
-            });
-            const user = getUser[0];
-            await addToRankingData(
-              rankingData,
-              user.username,
-              key,
-              dragonPostCount,
-              acrossTotalSums.totalPostCount
-            );
-            if (user) {
-              return `${isTextToImageConversionEnabled ? "## " : ""}${
-                index + 1
-              }. ${user.username}：${dragonPostCount} 次${
-                isUserMessagePercentageVisible
-                  ? ` ${calculatePercentage(
-                      dragonPostCount,
-                      acrossTotalSums.totalPostCount
-                    )}`
-                  : ""
-              }`;
-            }
-            return null;
-          }
-        );
-
-        const result = (await Promise.all(resultPromises)).filter(
-          (item) => item !== null
-        ) as string[];
-
-        let rank = isTextToImageConversionEnabled
-          ? `# 圣龙王榜: \n${result.join("\n")}`
-          : `圣龙王榜: \n${result.join("\n")}`;
-        if (isTimeInfoSupplementEnabled) {
-          rank = isTextToImageConversionEnabled
-            ? `# ${currentBeijingTime}\n${rank}`
-            : `${currentBeijingTime}\n${rank}`;
-        }
-        if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
-          let updatedRankingData: any = markUserInRanking(
-            rankingData,
-            session?.userId ?? ""
-          );
-          const imageBuffer = await LeaderboardToHorizontalBarChartConversion(
-            `${currentBeijingTime}`,
-            `圣龙王榜`,
-            updatedRankingData
-          );
-          return h.image(imageBuffer, `image/${config.imageType}`);
-        }
-        if (isTextToImageConversionEnabled) {
-          const imageBuffer = await ctx.markdownToImage.convertToImage(rank);
-          return h.image(imageBuffer, `image/${config.imageType}`);
-        }
-        if (session) {
-          if (session) {
-            if (session) {
-              if (session) {
-                if (session) {
-                  if (session) {
-                    if (session) {
-                      if (session) {
-                        if (session) {
-                          if (session) {
-                            if (session) {
-                              if (session) {
-                                if (session) {
-                                  if (session) {
-                                    if (session) {
-                                      if (session) {
-                                        if (session) {
-                                          if (session) {
-                                            if (session) {
-                                              if (session) {
-                                                if (session) {
-                                                  if (session) {
-                                                    if (session) {
-                                                      await session.send(rank);
-                                                    }
-                                                  }
-                                                }
-                                              }
-                                            }
-                                          }
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-        return;
-      }
-
-      const rankingData: RankingData[] = [];
-      getUsers.sort(
-        (a, b) =>
-          Number(b[sortByProperty as keyof MessageCounterRecord]) -
-          Number(a[sortByProperty as keyof MessageCounterRecord])
-      );
-      const topUsers = getUsers.slice(0, number);
-      // 检查指定的 userId 是否在 topUsers 中
-      const userExists = topUsers.some(
-        (user) => session?.userId && user.userId === session.userId
+      const filteredRecords = filterRecordsByWhitesAndBlacks(
+        records,
+        "channelId",
+        whites,
+        blacks
       );
 
-      // 如果用户不在 topUsers 中，则找到该用户并添加到末尾
-      if (!userExists) {
-        // 在原始 getUsers 数组中查找该用户
-        const targetUser = getUsers.find(
-          (user) => user.userId === session?.userId
-        );
-
-        // 如果在原始数据中找到该用户，则添加到末尾
-        if (targetUser) {
-          topUsers.push(targetUser);
-        }
+      if (filteredRecords.length === 0) {
+        return `在当前条件下找不到任何群聊发言记录。`;
       }
-      const userPromises = topUsers.map(async (user, index) => {
-        await addToRankingData(
-          rankingData,
-          user.username,
-          user.userId,
-          Number(user[sortByProperty as keyof MessageCounterRecord]),
-          totalSums[sortByProperty as keyof typeof totalSums]
-        );
 
-        return `${isTextToImageConversionEnabled ? "## " : ""}${index + 1}. ${
-          user.username
-        }：${user[sortByProperty as keyof MessageCounterRecord]} 次${
-          isUserMessagePercentageVisible
-            ? ` ${calculatePercentage(
-                Number(user[sortByProperty as keyof MessageCounterRecord]),
-                totalSums[sortByProperty as keyof typeof totalSums]
-              )}`
-            : ""
-        }`;
+      const { channelPostCounts, channelInfo, totalCount } =
+        aggregateChannelData(filteredRecords, field);
+      const sortedChannels = Object.entries(channelPostCounts).sort(
+        ([, a], [, b]) => b - a
+      );
+
+      const rankingData = prepareChannelRankingData(
+        sortedChannels,
+        channelInfo,
+        totalCount,
+        number,
+        session.channelId
+      );
+
+      return renderLeaderboard({
+        rankTimeTitle,
+        rankTitle,
+        rankingData,
       });
-
-      const userStrings = await Promise.all(userPromises);
-
-      const result = userStrings.join("\n");
-
-      let rank = isTextToImageConversionEnabled
-        ? `# 排行榜：${countProperty}\n${result}`
-        : `排行榜：${countProperty}\n${result}`;
-      if (isTimeInfoSupplementEnabled) {
-        rank = isTextToImageConversionEnabled
-          ? `# ${currentBeijingTime}\n${rank}`
-          : `${currentBeijingTime}\n${rank}`;
-      }
-      if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
-        let updatedRankingData: any = markUserInRanking(
-          rankingData,
-          session?.userId ?? ""
-        );
-        const imageBuffer = await LeaderboardToHorizontalBarChartConversion(
-          `${currentBeijingTime}`,
-          `排行榜：${countProperty}`,
-          updatedRankingData
-        );
-        return h.image(imageBuffer, `image/${config.imageType}`);
-      }
-      if (isTextToImageConversionEnabled) {
-        const imageBuffer = await ctx.markdownToImage.convertToImage(rank);
-        return h.image(imageBuffer, `image/${config.imageType}`);
-      }
-      if (session) {
-        if (session) {
-          if (session) {
-            if (session) {
-              if (session) {
-                if (session) {
-                  if (session) {
-                    if (session) {
-                      if (session) {
-                        if (session) {
-                          if (session) {
-                            if (session) {
-                              if (session) {
-                                if (session) {
-                                  if (session) {
-                                    if (session) {
-                                      if (session) {
-                                        if (session) {
-                                          if (session) {
-                                            if (session) {
-                                              if (session) {
-                                                if (session) {
-                                                  if (session) {
-                                                    await session.send(rank);
-                                                  }
-                                                }
-                                              }
-                                            }
-                                          }
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-      return;
     });
 
-  // 新增：上传柱状条背景图指令
   // 上传柱状条背景
   ctx
     .command(
@@ -1751,9 +1388,7 @@ export async function apply(ctx: Context, config: Config) {
       const userId = session.userId;
 
       try {
-        await ensureDirExists(messageCounterBarBgImgsPath);
-
-        const files = await fs.promises.readdir(messageCounterBarBgImgsPath);
+        const files = await fs.readdir(messageCounterBarBgImgsPath);
         const allUserFiles = files.filter(
           (file) => path.parse(file).name.split("-")[0] === userId
         );
@@ -1773,7 +1408,9 @@ export async function apply(ctx: Context, config: Config) {
         const newFileName = `${userId}-${nextIndex}.png`;
         const newFilePath = path.join(messageCounterBarBgImgsPath, newFileName);
 
-        await fs.promises.writeFile(newFilePath, buffer);
+        await fs.writeFile(newFilePath, buffer);
+
+        await reloadBarBgImgCache();
 
         return `背景图上传成功！这是您的第 ${
           currentCount + 1
@@ -1784,7 +1421,7 @@ export async function apply(ctx: Context, config: Config) {
       }
     });
 
-  // 新增：删除柱状条背景图指令
+  // 删除柱状条背景
   ctx
     .command(
       "messageCounter.删除柱状条背景 [target:text]",
@@ -1799,7 +1436,7 @@ export async function apply(ctx: Context, config: Config) {
       // 查找用户的背景图片文件
       let allFiles;
       try {
-        allFiles = await fs.promises.readdir(messageCounterBarBgImgsPath);
+        allFiles = await fs.readdir(messageCounterBarBgImgsPath);
       } catch (error) {
         if (
           typeof error === "object" &&
@@ -1838,9 +1475,10 @@ export async function apply(ctx: Context, config: Config) {
         try {
           await Promise.all(
             userFiles.map((file) =>
-              fs.promises.unlink(path.join(messageCounterBarBgImgsPath, file))
+              fs.unlink(path.join(messageCounterBarBgImgsPath, file))
             )
           );
+          await reloadBarBgImgCache();
           return `已成功删除您的全部 ${userFiles.length} 张背景图片。`;
         } catch (error) {
           logger.error(`为用户 ${userId} 删除所有背景图片失败:`, error);
@@ -1864,9 +1502,7 @@ export async function apply(ctx: Context, config: Config) {
       }
 
       try {
-        await fs.promises.unlink(
-          path.join(messageCounterBarBgImgsPath, fileToDelete)
-        );
+        await fs.unlink(path.join(messageCounterBarBgImgsPath, fileToDelete));
         return `已成功删除编号为 ${indexToDelete} 的背景图片。`;
       } catch (error) {
         logger.error(
@@ -1877,217 +1513,661 @@ export async function apply(ctx: Context, config: Config) {
       }
     });
 
-  // hs*
-  function markUserInRanking(
-    rankingData: RankingData[],
-    userId: string
-  ): RankingData[] {
-    if (userId.includes(`#`)) {
-      userId = "426230045";
-    }
-    return rankingData.map((item) => {
-      if (item.userId === userId) {
-        return {
-          ...item,
-          name: `★${item.name}`,
-        };
-      }
-      return item;
+  // 重载资源
+  ctx
+    .command("messageCounter.重载资源", "重载图标和背景资源", { authority: 2 })
+    .action(async ({ session }) => {
+      if (!session) return;
+
+      await session.send("正在重新加载用户图标和背景图片缓存...");
+
+      await reloadIconCache();
+      await reloadBarBgImgCache();
+
+      return `资源重载完毕！\n- 已加载 ${iconCache.length} 个用户图标。\n- 已加载 ${barBgImgCache.length} 个柱状条背景图片。`;
     });
-  }
 
-  async function getChannelResultWithRank(
-    channelId: string,
-    result: { channelId: string; channelName: string; sum: number }[],
-    totalPostCount: number
-  ): Promise<
-    | {
-        userId: string;
-        name: string;
-        count: number;
-        rank: number;
-        percentage: number;
-        avatar: string;
-        avatarBase64?: string;
-      }
-    | undefined
-  > {
-    const channelResult = result.find((item) => item.channelId === channelId);
+  // --- 定时任务与重置逻辑 ---
+  const scheduledJobs: schedule.Job[] = [];
 
-    if (!channelResult) {
-      return undefined;
-    }
-
-    const sortedResults = [...result].sort((a, b) => b.sum - a.sum);
-    const rank =
-      sortedResults.findIndex((item) => item.channelId === channelId) + 1;
-
-    const channelId2 = channelResult.channelId.includes(`#`)
-      ? "426230045"
-      : channelResult.channelId;
-    return {
-      userId: channelId2,
-      name: channelResult.channelName,
-      count: channelResult.sum,
-      rank: rank,
-      percentage: calculatePercentage2(channelResult.sum, totalPostCount),
-      avatar: `https://p.qlogo.cn/gh/${channelId2}/${channelId2}/640/`,
-      avatarBase64: await resizeImageToBase64(
-        `https://p.qlogo.cn/gh/${channelId2}/${channelId2}/640/`
-      ),
-    };
-  }
-
-  function getUsernameByChannelId(
-    records: MessageCounterRecord[],
-    channelId: string
-  ): string | undefined {
-    const record = records.find((record) => record.channelId === channelId);
-    return record ? record.username : undefined;
-  }
-
-  interface ResetCounterOptions {
-    _key: string;
-    countKey: string;
-    message: string;
-  }
-
-  interface UserRecordForReset {
-    channelId: string;
-    userId: string;
-    username: string;
-  }
-
-  async function resetCounter(
-    _key: string,
-    countKey: string,
-    message: string
-  ): Promise<void> {
-    const getUsers: UserRecordForReset[] = await ctx.database.get(
-      "message_counter_records",
-      {}
-    );
-    if (getUsers.length === 0) {
-      return;
-    }
-
-    // autoPush
-    if (autoPush && config.shouldSendDailyLeaderboardAtMidnight) {
-      generateLeaderboard(getUsers, countKey);
-    }
-
-    if (enableMostActiveUserMuting && countKey === "todayPostCount") {
-      for (const currentBot of ctx.bots) {
-        for (const channelId of muteGuildIds) {
-          const usersByGuild: UserRecordForReset[] = getUsers.filter(
-            (user) => user.channelId === channelId
-          );
-          if (usersByGuild.length !== 0) {
-            await currentBot.sendMessage(
-              channelId,
-              `正在尝试自动捕捉龙王......`
-            );
-            const dragonUser = usersByGuild[0];
-            try {
-              // 禁言龙王 1 天
-              await sleep(dragonKingDetainmentTime * 1000);
-              await currentBot.muteGuildMember(
-                channelId,
-                dragonUser.userId,
-                detentionDuration * 24 * 60 * 60 * 1000
-              );
-              await currentBot.sendMessage(
-                channelId,
-                `诸位请放心，龙王已被成功捕捉，关押时间为 ${detentionDuration} 天！`
-              );
-            } catch (error) {
-              logger.error(
-                `在【${channelId}】中禁言用户【${dragonUser.username}】（${dragonUser.userId}）失败！${error}`
-              );
-            }
-          }
-        }
-      }
-    }
-
+  async function resetCounter(field: CountField, message: string) {
     if (
-      countKey === "todayPostCount" &&
+      field === "todayPostCount" &&
       !config.isYesterdayCommentRankingDisabled
     ) {
-      // 获取完整的 MessageCounterRecord 对象
-      const fullUsers: MessageCounterRecord[] = await ctx.database.get(
-        "message_counter_records",
-        {}
+      logger.info("Updating yesterday's post count...");
+      // 批量更新昨日发言数
+      const allRecords = await ctx.database.get("message_counter_records", {});
+      const updates = allRecords.map((user) =>
+        ctx.database.set(
+          "message_counter_records",
+          { id: user.id },
+          { yesterdayPostCount: user.todayPostCount }
+        )
       );
-      updateYesterdayCount(fullUsers);
+      await Promise.all(updates);
+      logger.success("Finished updating yesterday's post count.");
     }
-    await ctx.database.set("message_counter_records", {}, { [countKey]: 0 });
 
+    await ctx.database.set("message_counter_records", {}, { [field]: 0 });
     logger.success(message);
   }
 
-  async function updateYesterdayCount(
-    users: MessageCounterRecord[]
-  ): Promise<void> {
-    const batchSize = 100;
-    const totalUsers = users.length;
+  // 创建定时任务
+  const jobs: { cron: string; field: CountField; message: string }[] = [
+    {
+      cron: "0 0 * * *",
+      field: "todayPostCount",
+      message: "今日发言榜已成功置空！",
+    },
+    {
+      cron: "0 0 * * 1",
+      field: "thisWeekPostCount",
+      message: "本周发言榜已成功置空！",
+    },
+    {
+      cron: "0 0 1 * *",
+      field: "thisMonthPostCount",
+      message: "本月发言榜已成功置空！",
+    },
+    {
+      cron: "0 0 1 1 *",
+      field: "thisYearPostCount",
+      message: "今年发言榜已成功置空！",
+    },
+  ];
 
-    for (let i = 0; i < totalUsers; i += batchSize) {
-      const batchUsers = users.slice(i, i + batchSize);
+  jobs.forEach(({ cron, field, message }) => {
+    const job = schedule.scheduleJob(cron, () => resetCounter(field, message));
+    scheduledJobs.push(job);
+  });
 
-      const batchPromises = batchUsers.map((user) => {
-        return ctx.database.set(
-          "message_counter_records",
-          {
-            userId: user.userId,
-            channelId: user.channelId,
-          },
-          { yesterdayPostCount: user.todayPostCount }
-        );
-      });
+  // --- 资源清理 ---
+  ctx.on("dispose", () => {
+    scheduledJobs.forEach((job) => job.cancel());
+    avatarCache.clear();
+    iconCache = [];
+    barBgImgCache = [];
+    logger.info("All scheduled jobs and caches have been cleared.");
+  });
 
-      await Promise.all(batchPromises);
+  // --- 辅助函数 ---
+  // hs*
+
+  /** 聚合群组数据 */
+  function aggregateChannelData(
+    records: MessageCounterRecord[],
+    field: CountField
+  ) {
+    const channelPostCounts: Dict<number> = {};
+    const channelInfo: Dict<{ channelName: string }> = {};
+    let totalCount = 0;
+
+    for (const record of records) {
+      const count = (record[field] as number) || 0;
+      channelPostCounts[record.channelId] =
+        (channelPostCounts[record.channelId] || 0) + count;
+      if (!channelInfo[record.channelId]) {
+        channelInfo[record.channelId] = {
+          channelName: record.channelName || `群聊${record.channelId}`,
+        };
+      }
+      totalCount += count;
     }
+    return { channelPostCounts, channelInfo, totalCount };
   }
 
-  async function replaceAtTags(session: any, content: string): Promise<string> {
-    // 正则表达式用于匹配 at 标签
-    const atRegex = /<at id="(\d+)"(?: name="([^"]*)")?\/>/g;
+  /** 为群组排行榜准备 RankingData，并确保当前群在榜单中 */
+  function prepareChannelRankingData(
+    sortedChannels: [string, number][],
+    channelInfo: Dict<{ channelName: string }>,
+    totalCount: number,
+    limit: number,
+    currentChannelId?: string
+  ): RankingData[] {
+    const topChannels = sortedChannels.slice(0, limit);
+    const isCurrentInTop =
+      currentChannelId &&
+      topChannels.some(([channelId]) => channelId === currentChannelId);
 
-    // 匹配所有 at 标签
-    let match: RegExpExecArray | null;
-    while ((match = atRegex.exec(content)) !== null) {
-      const userId: string = match[1];
-      const name: string | undefined = match[2];
-
-      // 如果 name 不存在，根据 userId 获取相应的 name
-      if (!name) {
-        let userName = "未知用户";
-        try {
-          if (
-            typeof session.bot?.getGuildMember === "function" &&
-            session.guildId
-          ) {
-            const guildMember = await session.bot.getGuildMember(
-              session.guildId,
-              userId
-            );
-            // guildMember.user 可能为 undefined
-            if (guildMember && guildMember.user && guildMember.user.name) {
-              userName = guildMember.user.name;
-            }
-          }
-        } catch (error) {
-          logger.error(error);
-        }
-
-        // 替换原始的 at 标签
-        const newAtTag = `<at id="${userId}" name="${userName}"/>`;
-        content = content.replace(match[0], newAtTag);
+    if (currentChannelId && !isCurrentInTop) {
+      const currentChannelData = sortedChannels.find(
+        ([channelId]) => channelId === currentChannelId
+      );
+      if (currentChannelData) {
+        topChannels.push(currentChannelData);
       }
     }
 
-    return content;
+    return topChannels.map(([channelId, count]) => ({
+      name: channelInfo[channelId]?.channelName || `群聊${channelId}`,
+      // 使用 channelId 作为 RankingData 的 userId 和头像源
+      userId: channelId,
+      avatar: `https://p.qlogo.cn/gh/${
+        channelId === "#" ? "426230045" : channelId
+      }/${channelId === "#" ? "426230045" : channelId}/100`, // QQ群头像URL格式
+      count,
+      percentage: calculatePercentage(count, totalCount),
+    }));
+  }
+
+  async function updateDataWithBase64(data: RankingData[]) {
+    await Promise.all(
+      data.map(async (item) => {
+        item.avatarBase64 = await resizeImageToBase64(ctx, item.avatar);
+      })
+    );
+  }
+
+  // --- 辅助函数：图表生成 ---
+
+  /**
+   * 生成图表的静态 CSS 样式。
+   * @returns 包含 @font-face 和基本元素样式的 CSS 字符串。
+   */
+  function _getChartStyles(): string {
+    return `
+      @font-face {
+        font-family: 'JMH';
+        src: local('JMH'), url('./assets/fonts/JMH.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'SJkaishu';
+        src: local('SJkaishu'), url('./assets/fonts/SJkaishu.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'SJbangkaijianti';
+        src: local('SJbangkaijianti'), url('./assets/fonts/SJbangkaijianti-Regular.woff2') format('woff2');
+      }
+
+      body {
+        font-family: 'JMH', 'SJbangkaijianti', 'SJkaishu';
+        margin: 0;
+        padding: 20px;
+      }
+      
+      .ranking-title {
+        text-align: center;
+        margin-bottom: 20px;
+        color: #333;
+        font-family: 'JMH'; 
+        font-weight: normal; 
+        font-style: normal;
+      }
+
+      /* 预加载字体用，不显示 */
+      .font-preload {
+        display: none;
+      }
+    `;
+  }
+
+    /**
+   * 准备图表的背景样式。
+   * 修复了 responseType 配置项未被使用的问题。
+   * @param config 插件配置对象。
+   * @returns 一个包含 body 背景样式的 CSS 字符串。
+   */
+  async function _prepareBackgroundStyle(config: Config): Promise<string> {
+    if (config.backgroundType === "api" && config.apiBackgroundConfig?.apiUrl) {
+      try {
+        const { apiUrl, apiKey, responseType } = config.apiBackgroundConfig;
+        const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+        let backgroundImage: string;
+
+        switch (responseType) {
+          case "url": {
+            // API 返回一个包含图片 URL 的 JSON 或纯文本
+            const response = await ctx.http.get(apiUrl, { headers });
+            const imageUrl =
+              typeof response === "string" ? response : response?.url;
+            if (!imageUrl || typeof imageUrl !== "string") {
+              throw new Error(
+                'API response for "url" type is not a valid string.'
+              );
+            }
+            backgroundImage = `url('${imageUrl}')`;
+            break;
+          }
+
+          case "base64": {
+            // API 返回一个包含 Base64 数据的 JSON 或纯文本
+            const response = await ctx.http.get(apiUrl, { headers });
+            const base64Data =
+              typeof response === "string" ? response : response?.data;
+            if (!base64Data || typeof base64Data !== "string") {
+              throw new Error(
+                'API response for "base64" type is not a valid string.'
+              );
+            }
+            // 自动检测并添加 data URI scheme
+            const prefix = base64Data.startsWith("data:image")
+              ? ""
+              : "data:image/png;base64,";
+            backgroundImage = `url('${prefix}${base64Data}')`;
+            break;
+          }
+
+          case "binary":
+          default: {
+            // API 返回原始图片数据（二进制）
+            const responseBuffer = await ctx.http.get<ArrayBuffer>(apiUrl, {
+              headers,
+              responseType: "arraybuffer",
+            });
+            const base64 = Buffer.from(responseBuffer).toString("base64");
+            backgroundImage = `url('data:image/png;base64,${base64}')`;
+            break;
+          }
+        }
+
+        return `body {
+          background-image: ${backgroundImage};
+          background-size: cover;
+          background-position: center;
+          background-repeat: no-repeat;
+        }`;
+      } catch (error) {
+        logger.error("获取 API 背景图失败，将使用默认背景:", error);
+      }
+    }
+
+    if (config.backgroundType === "css" && config.backgroundValue) {
+      return config.backgroundValue;
+    }
+
+    // 默认或失败时的回退背景
+    return `body {
+      background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
+    }`;
+  }
+
+  /**
+   * 获取在浏览器端执行的绘图脚本。
+   * @returns 一个 IIFE (立即调用函数表达式) 字符串，用于在浏览器中绘制 Canvas。
+   */
+  function _getClientScript(): string {
+    // 此函数返回一个字符串，该字符串是将在 Puppeteer 浏览器上下文中执行的完整脚本。
+    // 使用 IIFE (async (...) => { ... }) 格式，以便在 HTML 中清晰地传递参数。
+    return `
+      async ({ rankingData, iconData, barBgImgs, config }) => {
+        // --- 主绘制函数 ---
+        async function drawRanking() {
+          const maxCount = rankingData.reduce((max, item) => Math.max(max, item.count), 0) || 1;
+          const userNum = rankingData.length;
+          const userAvatarSize = 50;
+          const tableWidth = 950; // 固定宽度
+          const canvasHeight = 50 * userNum;
+
+          const canvas = document.getElementById('rankingCanvas');
+          let context = canvas.getContext('2d');
+          
+          // 根据最大计数的文本宽度动态调整画布宽度，以防数字溢出
+          context.font = "30px JMH, SJbangkaijianti, SJkaishu";
+          const maxCountTextWidth = context.measureText(maxCount.toString()).width;
+          canvas.width = tableWidth + maxCountTextWidth + 50; // 增加一些边距
+          canvas.height = canvasHeight;
+
+          // 重新获取上下文，因为尺寸变化会重置状态
+          context = canvas.getContext('2d');
+
+          // 按顺序绘制图层
+          await drawRankingBars(context, maxCount, userAvatarSize, tableWidth);
+          await drawAvatars(context, userAvatarSize);
+          drawVerticalLines(context, canvas.height, tableWidth);
+        }
+
+        // --- 核心绘图逻辑 ---
+
+        async function drawRankingBars(context, maxCount, userAvatarSize, tableWidth) {
+          for (const [index, data] of rankingData.entries()) {
+            const countBarWidth = 150 + (700 * data.count) / maxCount;
+            const countBarX = 50;
+            const countBarY = 50 * index;
+
+            let avgColor = await getAverageColor(data.avatarBase64);
+            const colorWithOpacity = addOpacityToColor(avgColor, 0.5);
+
+            // 绘制底色进度条
+            context.fillStyle = avgColor;
+            context.fillRect(countBarX, countBarY, countBarWidth, userAvatarSize);
+
+            // 绘制自定义背景图
+            const userBarBgImgs = findAssets(data.userId, barBgImgs, 'barBgImgBase64');
+            if (userBarBgImgs.length > 0) {
+              const randomBarBgImgBase64 = userBarBgImgs[Math.floor(Math.random() * userBarBgImgs.length)];
+              avgColor = await drawCustomBarBackground(context, randomBarBgImgBase64, countBarX, countBarY, countBarWidth, userAvatarSize, tableWidth);
+            }
+            
+            // 绘制剩余部分灰色背景
+            context.fillStyle = colorWithOpacity;
+            context.fillRect(countBarX + countBarWidth, countBarY, tableWidth - (countBarX + countBarWidth), userAvatarSize);
+            
+            // 绘制文本和图标
+            drawTextAndIcons(context, data, index, avgColor, countBarX, countBarY, countBarWidth, userAvatarSize);
+          }
+        }
+        
+        async function drawCustomBarBackground(context, base64, x, y, barWidth, barHeight, tableWidth) {
+            return new Promise(async (resolve) => {
+                const barBgImg = new Image();
+                barBgImg.src = "data:image/png;base64," + base64;
+                barBgImg.onload = async () => {
+                    context.save();
+                    // 绘制整行背景（如果透明度 > 0）
+                    if (config.horizontalBarBackgroundFullOpacity > 0) {
+                        context.globalAlpha = config.horizontalBarBackgroundFullOpacity;
+                        context.drawImage(barBgImg, x, y, tableWidth - x, barHeight);
+                    }
+                    // 绘制进度条区域背景
+                    context.globalAlpha = config.horizontalBarBackgroundOpacity;
+                    context.drawImage(barBgImg, 0, 0, barWidth, barHeight, x, y, barWidth, barHeight);
+                    context.restore();
+                    const newAvgColor = await getAverageColor(base64);
+                    resolve(newAvgColor);
+                };
+                barBgImg.onerror = async () => {
+                    const originalColor = await getAverageColor(base64);
+                    resolve(originalColor); // 发生错误则返回原始颜色
+                }
+            });
+        }
+
+        function drawTextAndIcons(context, data, index, avgColor, barX, barY, barWidth, barHeight) {
+            context.font = "30px JMH, SJbangkaijianti, SJkaishu";
+            const textY = barY + barHeight / 2 + 10.5;
+
+            // 绘制发言次数和百分比
+            let countText = data.count.toString();
+            if (config.isUserMessagePercentageVisible) {
+                const percentage = data.percentage;
+                let percentageStr = percentage < 0.01 && percentage > 0 ? '<0.01' : percentage.toFixed(percentage < 1 ? 2 : 0);
+                countText += \` ( \${percentageStr}%)\`;
+            }
+            
+            const countTextWidth = context.measureText(countText).width;
+            const countTextX = barX + barWidth + 10;
+            
+            // 检查文字是否会超出画布，如果会，则移入柱状条内并改变颜色
+            if (countTextX + countTextWidth > context.canvas.width - 5) {
+                context.fillStyle = chooseTextColor(avgColor);
+                context.textAlign = "right";
+                context.fillText(countText, barX + barWidth - 10, textY);
+            } else {
+                context.fillStyle = "rgba(0, 0, 0, 1)";
+                context.textAlign = "left";
+                context.fillText(countText, countTextX, textY);
+            }
+
+            // 绘制用户名（带截断）
+            context.fillStyle = chooseTextColor(avgColor);
+            context.font = "30px SJbangkaijianti, JMH, SJkaishu";
+            context.textAlign = "left";
+
+            let nameText = data.name;
+            const maxNameWidth = barWidth - 60; // 留出空间给头像和边距
+            if (context.measureText(nameText).width > maxNameWidth) {
+                const ellipsis = "...";
+                while (context.measureText(nameText + ellipsis).width > maxNameWidth && nameText.length > 0) {
+                    nameText = nameText.slice(0, -1);
+                }
+                nameText += ellipsis;
+            }
+            const nameTextX = barX + 10;
+            context.fillText(nameText, nameTextX, textY);
+
+            // 绘制用户自定义图标
+            const userIcons = findAssets(data.userId, iconData, 'iconBase64');
+            if (userIcons.length > 0) {
+                drawUserIcons(context, userIcons, {
+                    nameText: data.name, // 传递原始nameText用于计算位置
+                    nameTextX: context.measureText(nameText).width + nameTextX, 
+                    barX: barX,
+                    barWidth: barWidth,
+                    textY: textY
+                });
+            }
+        }
+        
+        function drawUserIcons(context, icons, positions) {
+            const { nameText, nameTextX, barX, barWidth, textY } = positions;
+            icons.forEach((iconBase64, i) => {
+                const icon = new Image();
+                icon.src = "data:image/png;base64," + iconBase64;
+                icon.onload = () => {
+                    const iconSize = 40;
+                    const iconY = textY - 30;
+                    let iconX;
+                    if (config.shouldMoveIconToBarEndLeft) {
+                        iconX = barX + barWidth - (iconSize * (i + 1));
+                    } else {
+                        iconX = nameTextX + (iconSize * i) + 5;
+                    }
+                    context.drawImage(icon, iconX, iconY, iconSize, iconSize);
+                };
+            });
+        }
+
+        async function drawAvatars(context, userAvatarSize) {
+          for (const [index, data] of rankingData.entries()) {
+            const image = new Image();
+            image.src = "data:image/png;base64," + data.avatarBase64;
+            // onload不是必需的，因为图片已是base64，但为了健壮性可以保留
+            await new Promise(resolve => {
+                image.onload = () => {
+                    context.drawImage(image, 0, 50 * index, userAvatarSize, userAvatarSize);
+                    resolve();
+                };
+                image.onerror = resolve; // 即使加载失败也继续
+            });
+          }
+        }
+        
+        function drawVerticalLines(context, canvasHeight, tableWidth) {
+            context.fillStyle = "rgba(0, 0, 0, 0.12)";
+            const verticalLineWidth = 3;
+            const firstLineX = 200;
+            for (let i = 0; i < 8; i++) {
+                context.fillRect(firstLineX + 100 * i, 0, verticalLineWidth, canvasHeight);
+            }
+        }
+
+
+        // --- 辅助工具函数 ---
+        
+        function findAssets(userId, assetList, key) {
+          return assetList
+            .filter(data => data.userId === userId)
+            .map(data => data[key]);
+        }
+
+        function addOpacityToColor(color, opacity) {
+          const opacityHex = Math.round(opacity * 255).toString(16).padStart(2, "0");
+          return \`\${color}\${opacityHex}\`;
+        }
+
+        function chooseTextColor(hexcolor) {
+            const { r, g, b } = hexToRgb(hexcolor);
+            const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+            return (yiq >= 128) ? '#000000' : '#FFFFFF';
+        }
+
+        function hexToRgb(hex) {
+            const bigint = parseInt(String(hex).replace("#", ""), 16);
+            return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
+        }
+
+        async function getAverageColor(base64) {
+            const image = new Image();
+            image.src = "data:image/png;base64," + base64;
+            await new Promise(r => image.onload = r);
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext("2d", { willReadFrequently: true });
+            canvas.width = image.width; canvas.height = image.height;
+            ctx.drawImage(image, 0, 0);
+
+            const data = ctx.getImageData(0, 0, image.width, image.height).data;
+            let r = 0, g = 0, b = 0;
+
+            for (let i = 0; i < data.length; i += 4) {
+                r += data[i]; g += data[i+1]; b += data[i+2];
+            }
+            const count = data.length / 4;
+            r = ~~(r / count); g = ~~(g / count); b = ~~(b / count);
+            
+            return \`#\${r.toString(16).padStart(2, "0")}\${g.toString(16).padStart(2, "0")}\${b.toString(16).padStart(2, "0")}\`;
+        }
+
+        // --- 启动绘制 ---
+        await drawRanking();
+      }
+    `;
+  }
+
+  /**
+   * 组装最终的 HTML 页面内容。
+   * @param params 包含所有渲染所需数据的对象。
+   * @returns 完整的 HTML 字符串。
+   */
+  function _getChartHtmlContent(params: {
+    rankTimeTitle: string;
+    rankTitle: string;
+    data: RankingData[];
+    iconCache: AssetData[];
+    barBgImgCache: AssetData[];
+    backgroundStyle: string;
+    chartConfig: any;
+  }): string {
+    const {
+      rankTimeTitle,
+      rankTitle,
+      data,
+      iconCache,
+      barBgImgCache,
+      backgroundStyle,
+      chartConfig,
+    } = params;
+
+    // 准备注入到客户端脚本的数据
+    const clientData = {
+      rankingData: data,
+      iconData: iconCache.map((d) => ({
+        userId: d.userId,
+        iconBase64: d.base64,
+      })),
+      barBgImgs: barBgImgCache.map((d) => ({
+        userId: d.userId,
+        barBgImgBase64: d.base64,
+      })),
+      config: chartConfig,
+    };
+
+    return `
+      <!DOCTYPE html>
+      <html lang="zh-CN">
+      <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>排行榜</title>
+          <style>${_getChartStyles()}</style>
+          <style>${backgroundStyle}</style>
+      </head>
+      <body>
+          <h1 class="ranking-title">${rankTimeTitle}</h1>
+          <h1 class="ranking-title">${rankTitle}</h1>
+          <div class="font-preload">
+            <span style="font-family: 'SJkaishu';">预加载</span>
+            <span style="font-family: 'SJbangkaijianti';">预加载</span>
+          </div>
+          <canvas id="rankingCanvas"></canvas>
+          <script>
+            // 立即执行的异步函数，用于绘制图表
+            (async () => {
+              const drawFunction = ${_getClientScript()};
+              await drawFunction(${JSON.stringify(clientData)});
+            })();
+          </script>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * 生成排行榜图片。
+   * 该函数通过组合多个辅助函数来创建 HTML 页面，并使用 Puppeteer 进行截图。
+   * @param params 包含标题和数据的对象。
+   * @param context 包含图标和背景缓存的对象。
+   * @returns 包含图表图片的 Buffer。
+   */
+  async function generateRankingChart(
+    {
+      rankTimeTitle,
+      rankTitle,
+      data,
+    }: { rankTimeTitle: string; rankTitle: string; data: RankingData[] },
+    {
+      iconCache,
+      barBgImgCache,
+      emptyHtmlPath,
+    }: {
+      iconCache: AssetData[];
+      barBgImgCache: AssetData[];
+      emptyHtmlPath: string;
+    }
+  ): Promise<Buffer> {
+    if (!ctx.puppeteer) {
+      throw new Error("Puppeteer 服务未启用，无法生成图表。");
+    }
+    const browser = ctx.puppeteer.browser;
+    if (!browser) {
+      throw new Error("Puppeteer 浏览器实例不可用。");
+    }
+
+    const page = await browser.newPage();
+    try {
+      const backgroundStyle = await _prepareBackgroundStyle(config);
+
+      const chartConfigForClient = {
+        shouldMoveIconToBarEndLeft: config.shouldMoveIconToBarEndLeft,
+        horizontalBarBackgroundOpacity: config.horizontalBarBackgroundOpacity,
+        horizontalBarBackgroundFullOpacity:
+          config.horizontalBarBackgroundFullOpacity,
+        isUserMessagePercentageVisible: config.isUserMessagePercentageVisible,
+      };
+
+      const htmlContent = _getChartHtmlContent({
+        rankTimeTitle,
+        rankTitle,
+        data,
+        iconCache,
+        barBgImgCache,
+        backgroundStyle,
+        chartConfig: chartConfigForClient,
+      });
+
+      await page.goto(`file://${emptyHtmlPath}`);
+      await page.setViewport({
+        width: 1080,
+        height: 256,
+        deviceScaleFactor: 1,
+      });
+      await page.setContent(h.unescape(htmlContent), {
+        waitUntil: config.waitUntil,
+      });
+
+      const imageBuffer = await page.screenshot({
+        type: config.imageType,
+        fullPage: true,
+      });
+
+      return imageBuffer;
+    } catch (error) {
+      logger.error("生成排行榜图表时发生错误:", error);
+      throw error; // 将错误向上抛出，以便调用者可以处理
+    } finally {
+      await page.close(); // 确保页面总是被关闭
+    }
   }
 
   function getUserRankAndRecord(
@@ -2163,1753 +2243,6 @@ export async function apply(ctx: Context, config: Config) {
     return { acrossRank, userRecord };
   }
 
-  async function generateAcrossRanking(
-    rankTitle: string,
-    acrossGetUsers: MessageCounterRecord[],
-    number: number,
-    currentBeijingTime: string,
-    acrossTotalSums: any,
-    postCountType:
-      | "todayPostCount"
-      | "thisWeekPostCount"
-      | "thisMonthPostCount"
-      | "thisYearPostCount"
-      | "totalPostCount"
-      | "yesterdayPostCount",
-    targetUserId?: string // Renamed parameter to avoid conflict
-  ): Promise<any> {
-    const userMap = new Map();
-    const usernameMap = new Map();
-
-    for (const user of acrossGetUsers) {
-      const {
-        userId,
-        todayPostCount,
-        username,
-        thisWeekPostCount,
-        thisMonthPostCount,
-        thisYearPostCount,
-        totalPostCount,
-        yesterdayPostCount,
-      } = user;
-      let postCount = 0;
-
-      switch (postCountType) {
-        case "todayPostCount":
-          postCount = todayPostCount;
-          break;
-        case "thisWeekPostCount":
-          postCount = thisWeekPostCount;
-          break;
-        case "thisMonthPostCount":
-          postCount = thisMonthPostCount;
-          break;
-        case "thisYearPostCount":
-          postCount = thisYearPostCount;
-          break;
-        case "totalPostCount":
-          postCount = totalPostCount;
-          break;
-        case "yesterdayPostCount":
-          postCount = yesterdayPostCount;
-          break;
-        default:
-          postCount = todayPostCount;
-          break;
-      }
-
-      if (userMap.has(userId)) {
-        userMap.set(userId, userMap.get(userId) + postCount);
-      } else {
-        userMap.set(userId, postCount);
-        usernameMap.set(userId, username);
-      }
-    }
-
-    let sortedUsers = Array.from(userMap)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, number);
-
-    // Check if targetUserId parameter was provided and if it's not already in the sliced results
-    if (targetUserId && !sortedUsers.some((user) => user[0] === targetUserId)) {
-      // Find user in the original data
-      const userInData = acrossGetUsers.find(
-        (user) => user.userId === targetUserId
-      );
-
-      if (userInData) {
-        // Get the post count for this user based on postCountType
-        let userPostCount = 0;
-        switch (postCountType) {
-          case "todayPostCount":
-            userPostCount = userInData.todayPostCount;
-            break;
-          case "thisWeekPostCount":
-            userPostCount = userInData.thisWeekPostCount;
-            break;
-          case "thisMonthPostCount":
-            userPostCount = userInData.thisMonthPostCount;
-            break;
-          case "thisYearPostCount":
-            userPostCount = userInData.thisYearPostCount;
-            break;
-          case "totalPostCount":
-            userPostCount = userInData.totalPostCount;
-            break;
-          case "yesterdayPostCount":
-            userPostCount = userInData.yesterdayPostCount;
-            break;
-          default:
-            userPostCount = userInData.todayPostCount;
-            break;
-        }
-
-        // Add the user to the end of sortedUsers
-        sortedUsers.push([targetUserId, userPostCount]);
-
-        // Add username to usernameMap if not already there
-        if (!usernameMap.has(targetUserId)) {
-          usernameMap.set(targetUserId, userInData.username);
-        }
-      }
-    }
-
-    const rankingData: RankingData[] = [];
-
-    let rank = isTextToImageConversionEnabled
-      ? `# ${rankTitle}：\n`
-      : `${rankTitle}：\n`;
-    const rankTimeTitle = `${currentBeijingTime}`;
-
-    for (const [index, user] of sortedUsers.entries()) {
-      const userId = user[0];
-      const postCountAll = user[1];
-      const username = usernameMap.get(userId);
-
-      await addToRankingData(
-        rankingData,
-        username,
-        userId,
-        postCountAll,
-        acrossTotalSums[postCountType]
-      );
-
-      rank += `${isTextToImageConversionEnabled ? "## " : ""}${
-        index + 1
-      }. ${username}：${postCountAll} 次${
-        isUserMessagePercentageVisible
-          ? ` ${calculatePercentage(
-              postCountAll,
-              acrossTotalSums.totalPostCount
-            )}`
-          : ""
-      }\n`;
-    }
-
-    if (isTimeInfoSupplementEnabled) {
-      rank = isTextToImageConversionEnabled
-        ? `# ${currentBeijingTime}\n${rank}`
-        : `${currentBeijingTime}\n${rank}`;
-    }
-
-    if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
-      let updatedRankingData: any = markUserInRanking(
-        rankingData,
-        targetUserId ?? ""
-      );
-      const imageBuffer: Buffer =
-        await LeaderboardToHorizontalBarChartConversion(
-          rankTimeTitle as string,
-          rankTitle as string,
-          updatedRankingData as RankingData[]
-        );
-      return h.image(imageBuffer, `image/${config.imageType}`);
-    }
-
-    if (isTextToImageConversionEnabled) {
-      const imageBuffer = await ctx.markdownToImage.convertToImage(rank);
-      return h.image(imageBuffer, `image/${config.imageType}`);
-    }
-
-    return rank;
-  }
-
-  function filterRecordsByWhitesAndBlacks(
-    whites: any[],
-    blacks: any[],
-    messageCounterRecords: any[],
-    property: "userId" | "channelId"
-  ) {
-    if (whites.length !== 0) {
-      messageCounterRecords = filterRecordsByProperty(
-        messageCounterRecords,
-        property,
-        whites,
-        true
-      );
-    }
-    if (blacks.length !== 0) {
-      messageCounterRecords = filterRecordsByProperty(
-        messageCounterRecords,
-        property,
-        blacks,
-        false
-      );
-    }
-
-    return messageCounterRecords;
-  }
-
-  function filterRecordsByProperty(
-    messageCounterRecords: MessageCounterRecord[],
-    property: "userId" | "channelId",
-    values: string[],
-    whitelist: boolean
-  ): MessageCounterRecord[] {
-    if (whitelist) {
-      return messageCounterRecords.filter((record) =>
-        values.includes(record[property])
-      );
-    } else {
-      return messageCounterRecords.filter(
-        (record) => !values.includes(record[property])
-      );
-    }
-  }
-
-  function splitWhitesOrBlacksString(whitesOrBlacks: string): string[] {
-    if (!whitesOrBlacks) {
-      return [];
-    }
-
-    const result: string[] = [];
-    let currentWord = "";
-    let inWord = false;
-
-    for (const char of whitesOrBlacks) {
-      if (char === " " || char === "，" || char === "," || char === "、") {
-        if (inWord) {
-          result.push(currentWord);
-          currentWord = "";
-          inWord = false;
-        }
-      } else {
-        currentWord += char;
-        inWord = true;
-      }
-    }
-
-    if (inWord) {
-      result.push(currentWord);
-    }
-
-    return result;
-  }
-
-  function getNameFromChannelId(
-    groups: any[],
-    channelId: string
-  ): string | undefined {
-    if (!Array.isArray(groups)) {
-      groups = [groups];
-      groups = groups.map((group: any) => ({ id: group.guildId }));
-    }
-
-    const group = groups.find((group) => group.id === channelId);
-    return group ? group.name : undefined;
-  }
-
-  function createScheduledTasks(dailyScheduledTimers: string[]) {
-    const uniqueTimers = Array.from(new Set(dailyScheduledTimers));
-
-    uniqueTimers.forEach((time) => {
-      time = time.replace("：", ":");
-
-      const [hour, minute] = time.split(":");
-      const rule = new schedule.RecurrenceRule();
-      rule.hour = parseInt(hour);
-      rule.minute = parseInt(minute);
-
-      const currentTime = new Date();
-      logger.success(
-        `每日 ${time}:00 的定时器创建成功！当前时间为：${currentTime.toLocaleString(
-          "zh-CN",
-          { timeZone: "Asia/Shanghai" }
-        )}`
-      );
-
-      const job = schedule.scheduleJob(rule, async function () {
-        const currentTime = new Date();
-        logger.success(
-          `任务执行中...当前时间为：${currentTime.toLocaleString("zh-CN", {
-            timeZone: "Asia/Shanghai",
-          })}`
-        );
-        const getUsers = await ctx.database.get("message_counter_records", {});
-        if (getUsers.length === 0) {
-          return;
-        }
-        generateLeaderboard(getUsers, "todayPostCount", true);
-      });
-
-      scheduledJobs.push(job);
-    });
-  }
-
-  async function generateLeaderboard(
-    getUsers: any[],
-    countKey: string,
-    isScheduled = false
-  ) {
-    // ts*
-    getUsers = filterRecordsByWhitesAndBlacks(
-      [],
-      config.hiddenUserIdsInLeaderboard,
-      getUsers,
-      "userId"
-    );
-    let channelIds: string[] = pushChannelIds;
-    for (const currentBot of ctx.bots) {
-      if (
-        typeof currentBot.getGuildList === "function" &&
-        config.shouldSendLeaderboardNotificationsToAllChannels
-      ) {
-        const groupList = await currentBot.getGuildList();
-        const groups = groupList.data;
-        channelIds = groups.map((group) => group.id);
-      }
-      for (const channelId of channelIds) {
-        if (config.excludedLeaderboardChannels.includes(channelId)) {
-          continue;
-        }
-        const usersByGuild = getUsers.filter(
-          (user) => user.channelId === channelId
-        );
-        if (usersByGuild.length !== 0) {
-          const { year, month, day } = getYesterdayDateParts(isScheduled);
-          let sortByProperty: keyof typeof totalSums;
-          let countProperty: string;
-          let dateStr: string;
-          switch (countKey) {
-            case "todayPostCount":
-              sortByProperty = "todayPostCount";
-              countProperty = "今日发言次数";
-              dateStr = `${year}年${month}月${day}日`;
-              break;
-            case "thisWeekPostCount":
-              sortByProperty = "thisWeekPostCount";
-              countProperty = "本周发言次数";
-              dateStr = `${year}年${month}月${day}日`;
-              break;
-            case "thisMonthPostCount":
-              sortByProperty = "thisMonthPostCount";
-              countProperty = "本月发言次数";
-              dateStr = `${year}年${month}月`;
-              break;
-            case "thisYearPostCount":
-              sortByProperty = "thisYearPostCount";
-              countProperty = "今年发言次数";
-              dateStr = `${year}年`;
-              break;
-            default:
-              return;
-          }
-
-          const getUsers = await ctx.database.get("message_counter_records", {
-            channelId,
-          });
-          const totalSums = {
-            todayPostCount: 0,
-            thisWeekPostCount: 0,
-            thisMonthPostCount: 0,
-            thisYearPostCount: 0,
-            totalPostCount: 0,
-            yesterdayPostCount: 0,
-          };
-
-          interface AccumulateSumsSums {
-            todayPostCount: number;
-            thisWeekPostCount: number;
-            thisMonthPostCount: number;
-            thisYearPostCount: number;
-            totalPostCount: number;
-            yesterdayPostCount: number;
-          }
-
-          interface AccumulateSumsUser {
-            todayPostCount: number;
-            thisWeekPostCount: number;
-            thisMonthPostCount: number;
-            thisYearPostCount: number;
-            totalPostCount: number;
-            yesterdayPostCount: number;
-          }
-
-          const accumulateSums = (
-            sums: AccumulateSumsSums,
-            user: AccumulateSumsUser
-          ): void => {
-            sums.todayPostCount += user.todayPostCount;
-            sums.thisWeekPostCount += user.thisWeekPostCount;
-            sums.thisMonthPostCount += user.thisMonthPostCount;
-            sums.thisYearPostCount += user.thisYearPostCount;
-            sums.totalPostCount += user.totalPostCount;
-            sums.yesterdayPostCount += user.yesterdayPostCount;
-          };
-
-          getUsers.forEach((user) => accumulateSums(totalSums, user));
-          if (config.isGeneratingRankingListPromptVisible) {
-            await currentBot.sendMessage(
-              channelId,
-              `正在尝试自动生成${countProperty}榜......`
-            );
-          }
-          usersByGuild.sort((a, b) => b[sortByProperty] - a[sortByProperty]);
-          const topUsers = usersByGuild.slice(0, defaultMaxDisplayCount);
-          const rankingData: RankingData[] = [];
-          const userPromises = topUsers.map(async (user, index) => {
-            await addToRankingData(
-              rankingData,
-              user.username,
-              user.userId,
-              user[sortByProperty] as number,
-              totalSums[sortByProperty as keyof typeof totalSums]
-            );
-            return `${isTextToImageConversionEnabled ? "## " : ""}${
-              index + 1
-            }. ${user.username}：${user[sortByProperty]} 次${
-              isUserMessagePercentageVisible
-                ? ` ${calculatePercentage(
-                    user[sortByProperty],
-                    totalSums[sortByProperty]
-                  )}`
-                : ""
-            }`;
-          });
-          const userStrings = await Promise.all(userPromises);
-
-          const result = userStrings.join("\n");
-
-          let rank = isTextToImageConversionEnabled
-            ? `# 排行榜：${countProperty}\n${result}`
-            : `排行榜：${countProperty}\n${result}`;
-          if (isTimeInfoSupplementEnabled) {
-            rank = isTextToImageConversionEnabled
-              ? `# ${dateStr}\n${rank}`
-              : `${dateStr}\n${rank}`;
-          }
-          if (config.isGeneratingRankingListPromptVisible) {
-            await sleep(leaderboardGenerationWaitTime * 1000);
-          }
-          if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
-            const imageBuffer = await LeaderboardToHorizontalBarChartConversion(
-              `${dateStr}`,
-              `排行榜：${countProperty}`,
-              rankingData
-            );
-            await currentBot.sendMessage(
-              channelId,
-              h.image(imageBuffer, `image/${config.imageType}`)
-            );
-          } else if (isTextToImageConversionEnabled) {
-            const imageBuffer = await ctx.markdownToImage.convertToImage(rank);
-            await currentBot.sendMessage(
-              channelId,
-              h.image(imageBuffer, `image/${config.imageType}`)
-            );
-          } else {
-            await currentBot.sendMessage(channelId, rank);
-          }
-        }
-        const randomDelay =
-          (Math.random() * config.groupPushDelayRandomizationSeconds * 2 -
-            config.groupPushDelayRandomizationSeconds) *
-          1000;
-
-        const seconds =
-          config.delayBetweenGroupPushesInSeconds * 1000 + randomDelay;
-        await sleep(seconds);
-      }
-    }
-  }
-
-  function calculateTotalSum(
-    result: { channelId: string; channelName: string; sum: number }[]
-  ): number {
-    let totalSum = 0;
-
-    for (const entry of result) {
-      totalSum += entry.sum;
-    }
-
-    return totalSum;
-  }
-
-  async function generateRankingString(
-    result: {
-      channelId: string;
-      channelName: string;
-      sum: number;
-    }[],
-    totalSum: number,
-    rankingData: RankingData[],
-    number: number | undefined
-  ): Promise<string> {
-    const topTen = result.slice(0, number);
-
-    let rankingString = ``;
-    for (const entry of topTen) {
-      const index = topTen.indexOf(entry);
-      await addToRankingData(
-        rankingData,
-        entry.channelName,
-        entry.channelId.includes(`#`) ? "426230045" : entry.channelId,
-        entry.sum,
-        totalSum,
-        true
-      );
-      rankingString += `${isTextToImageConversionEnabled ? `## ` : ``}${
-        index + 1
-      }. ${entry.channelName}：${entry.sum} 次${
-        isUserMessagePercentageVisible
-          ? ` ${calculatePercentage(entry.sum, totalSum)}`
-          : ""
-      }\n`;
-    }
-
-    return rankingString;
-  }
-
-  function sumValuesByKey(
-    records: MessageCounterRecord[],
-    key: keyof MessageCounterRecord,
-    userId: string = ""
-  ): {
-    channelId: string;
-    channelName: string;
-    sum: number;
-  }[] {
-    const channelMap = new Map<string, { channelName?: string; sum: number }>();
-
-    const filteredRecords = userId
-      ? records.filter((record) => record.userId === userId)
-      : records;
-
-    for (const record of filteredRecords) {
-      const { channelId, channelName } = record;
-      const value = record[key];
-
-      channelMap.set(channelId, {
-        channelName,
-        sum: (channelMap.get(channelId)?.sum || 0) + Number(value),
-      });
-    }
-
-    return Array.from(channelMap.entries()).map(
-      ([channelId, { channelName, sum }]) => ({
-        channelId,
-        channelName: channelName ?? "",
-        sum,
-      })
-    );
-  }
-
-  async function addToRankingData(
-    rankingData: RankingData[],
-    username: string,
-    userId: string,
-    postCountAll: number,
-    totalPostCount: number,
-    isChannel?: boolean
-  ): Promise<void> {
-    if (!isChannel) {
-      isChannel = false;
-    }
-    let avatar;
-    if (isChannel) {
-      avatar = `https://p.qlogo.cn/gh/${userId}/${userId}/640/`;
-    } else {
-      const userData = await ctx.database.get("message_counter_records", {
-        userId: userId,
-      });
-      avatar =
-        userData[0]?.userAvatar ||
-        `https://q1.qlogo.cn/g?b=qq&nk=${userId}&s=640`;
-    }
-    rankingData.push({
-      name: username,
-      userId: userId,
-      avatar,
-      count: postCountAll,
-      percentage: calculatePercentage2(postCountAll, totalPostCount),
-    });
-  }
-
-  function readIconsFromFolder(folderPath: string): IconData[] {
-    const iconData: IconData[] = [];
-
-    try {
-      const files = fs.readdirSync(folderPath);
-
-      files.forEach((file) => {
-        const userId = path.parse(file).name.split("-")[0].trim();
-        const filePath = path.join(folderPath, file);
-        const fileData = fs.readFileSync(filePath);
-        const iconBase64 = fileData.toString("base64");
-
-        iconData.push({ userId, iconBase64 });
-      });
-    } catch (err) {
-      logger.error("读取图标时出错：", err);
-    }
-
-    return iconData;
-  }
-
-  function readBgImgsFromFolder(folderPath: string): BarBgImgs[] {
-    const barBgImgs: BarBgImgs[] = [];
-
-    try {
-      const files = fs.readdirSync(folderPath);
-
-      files.forEach((file) => {
-        const userId = path.parse(file).name.split("-")[0].trim();
-        const filePath = path.join(folderPath, file);
-        const fileData = fs.readFileSync(filePath);
-        const barBgImgBase64 = fileData.toString("base64");
-
-        barBgImgs.push({ userId, barBgImgBase64 });
-      });
-    } catch (err) {
-      logger.error("读取水平柱状图背景图时出错：", err);
-    }
-
-    return barBgImgs;
-  }
-
-  async function ensureDirExists(dirPath: string) {
-    if (!fs.existsSync(dirPath)) {
-      fs.mkdirSync(dirPath, { recursive: true });
-    }
-  }
-
-  const resizeImageToBase64 = async (url: string): Promise<string> => {
-    const MAX_RETRIES = 3;
-    const INITIAL_BACKOFF = 300; // 初始重试等待时间（毫秒）
-
-    // 带重试和超时的 fetch 实现
-    const fetchWithRetry = async (
-      url: string,
-      attempt = 0
-    ): Promise<Response> => {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
-
-        const response = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status} - ${response.statusText}`);
-        }
-        return response;
-      } catch (error) {
-        if (attempt >= MAX_RETRIES - 1) throw error; // 达到最大重试次数
-
-        await new Promise((resolve) =>
-          setTimeout(resolve, INITIAL_BACKOFF * Math.pow(2, attempt))
-        );
-        return fetchWithRetry(url, attempt + 1);
-      }
-    };
-
-    try {
-      // 尝试获取响应（含重试）
-      const response = await fetchWithRetry(url);
-      const imageBuffer = Buffer.from(await response.arrayBuffer());
-
-      // 创建 Canvas 并绘制图像
-      const canvas = await ctx.canvas.createCanvas(50, 50);
-      const context = canvas.getContext("2d");
-      const image = await ctx.canvas.loadImage(imageBuffer);
-
-      context.drawImage(image, 0, 0, 50, 50);
-      const buffer = await canvas.toBuffer("image/png");
-
-      return buffer.toString("base64");
-    } catch (error) {
-      logger.error(
-        `Failed to process image from ${url}: ${
-          typeof error === "object" && error && "message" in error
-            ? (error as any).message
-            : String(error)
-        }`
-      );
-      // 头像请求失败，尝试使用默认头像
-      try {
-        const defaultAvatarUrl =
-          "https://c-ssl.dtstatic.com/uploads/item/202005/18/20200518080041_cgwpv.thumb.400_0.png";
-        logger.warn(`Attempting to use default avatar.`);
-
-        const response = await fetchWithRetry(defaultAvatarUrl);
-        const imageBuffer = Buffer.from(await response.arrayBuffer());
-
-        const canvas = await ctx.canvas.createCanvas(50, 50);
-        const context = canvas.getContext("2d");
-        const image = await ctx.canvas.loadImage(imageBuffer);
-
-        context.drawImage(image, 0, 0, 50, 50);
-        const buffer = await canvas.toBuffer("image/png");
-
-        return buffer.toString("base64");
-      } catch (defaultError) {
-        // 如果默认头像也加载失败，则返回一个硬编码的占位图
-        logger.error(
-          `Failed to process default avatar as well: ${
-            (defaultError as any)?.message
-          }`
-        );
-        return "R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=+x3kEEREREdmJ2zqJjvMIEREREXkitrUT3f8AAAAASUVORK5CYII=";
-      }
-    }
-  };
-
-  async function updateDataWithBase64(data: RankingData[]) {
-    await Promise.all(
-      data.map(async (item) => {
-        item.avatarBase64 = await resizeImageToBase64(item.avatar);
-      })
-    );
-  }
-
-  // 加深颜色
-  function darkenColor(color: string, amount: number): string {
-    const rgbMatch = color.match(/\d+/g);
-    if (!rgbMatch || rgbMatch.length < 3) {
-      // fallback to black if color is invalid
-      return "rgb(0, 0, 0)";
-    }
-    const [r, g, b] = rgbMatch.map(Number);
-    const newR = Math.max(0, r - Math.floor(r * amount));
-    const newG = Math.max(0, g - Math.floor(g * amount));
-    const newB = Math.max(0, b - Math.floor(b * amount));
-    return `rgb(${newR}, ${newG}, ${newB})`;
-  }
-
-async function generateRankingChartStyle3(
-    rankTimeTitle: any,
-    rankTitle: any,
-    data: RankingData[],
-    thisRankInfo?: any
-  ) {
-    // 新增：在每次生成图片时重新读取图标和背景图文件
-    const iconData: IconData[] = readIconsFromFolder(messageCounterIconsPath);
-    const barBgImgs: BarBgImgs[] = readBgImgsFromFolder(
-      messageCounterBarBgImgsPath
-    );
-
-    await updateDataWithBase64(data);
-    let browser: any;
-    ctx.inject(["puppeteer"], async (ctx) => {
-      browser = ctx.puppeteer.browser;
-    });
-    // const context = await browser.createBrowserContext();
-    // const page = await context.newPage();
-    if (!browser) {
-      logger.error("Puppeteer browser instance is not available.");
-      throw new Error("Puppeteer browser instance is not available.");
-    }
-    if (!browser) {
-      logger.error("Puppeteer browser instance is not available.");
-      throw new Error("Puppeteer browser instance is not available.");
-    }
-    if (!browser) {
-      logger.error("Puppeteer browser instance is not available.");
-      throw new Error("Puppeteer browser instance is not available.");
-    }
-    const page = await browser.newPage();
-
-    // Background customization logic
-    let backgroundStyle = "";
-    if (config?.backgroundType === "api") {
-      try {
-        // Fetch random background image from an API
-        const apiUrl =
-          config.apiBackgroundConfig?.apiUrl || "https://t.mwm.moe/fj";
-        const apiKey = config.apiBackgroundConfig?.apiKey || "";
-        const responseType =
-          config.apiBackgroundConfig?.responseType || "binary";
-
-        let backgroundImage;
-
-        if (responseType === "binary") {
-          // 处理二进制图片数据
-          const response = await fetch(apiUrl, {
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-            },
-          });
-          const imageBlob = await response.blob();
-          const arrayBuffer = await imageBlob.arrayBuffer();
-          const base64Image = Buffer.from(arrayBuffer).toString("base64");
-          backgroundImage = `data:image/png;base64,${base64Image}`;
-        } else if (responseType === "url") {
-          // URL 类型的处理保持不变
-          const response = await fetch(apiUrl, {
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-            },
-          });
-          const backgroundData = await response.json();
-          backgroundImage = backgroundData.imageUrl;
-        } else {
-          // Base64 类型的处理
-          const response = await fetch(apiUrl, {
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-            },
-          });
-          const backgroundData = await response.json();
-          backgroundImage = `data:image/png;base64,${
-            backgroundData.imageBase64 || backgroundData
-          }`;
-        }
-
-        backgroundStyle = `
-        body {
-          background-image: url('${backgroundImage}');
-          background-size: cover;
-          background-position: center;
-          background-repeat: no-repeat;
-        }
-      `;
-      } catch (error) {
-        logger.error("Failed to fetch background image:", error);
-        // Fallback to default background if API call fails
-        //   backgroundStyle = `
-        //   body {
-        //     background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
-        //   }
-        // `;
-      }
-    } else if (config?.backgroundType === "css") {
-      // Use custom CSS background provided by the user
-      backgroundStyle =
-        config.backgroundValue ||
-        `
-      body {
-        background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
-      }
-    `;
-    }
-    // else {
-    // Default background if no customization is provided
-    //   backgroundStyle = `
-    //   body {
-    //     background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
-    //   }
-    // `;
-    // }
-
-    const htmlContent = `
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ranking Board</title>
-    <style>
-            @font-face {
-            font-family: 'JMH';
-            src: local('JMH'), url('./assets/fonts/JMH.woff2') format('woff2');
-        }
-            @font-face {
-            font-family: 'SJkaishu';
-            src: local('SJkaishu'), url('./assets/fonts/SJkaishu.woff2') format('woff2');
-        }
-        @font-face {
-            font-family: 'SJbangkaijianti';
-            src: local('SJbangkaijianti'), url('./assets/fonts/SJbangkaijianti-Regular.woff2') format('woff2');
-        }
-
-            .ranking-title {
-            text-align: center;
-            margin-bottom: 20px;
-          color: #333; /* Improved visibility */
-        }
-
-        body {
-            font-family: 'JMH', 'SJbangkaijianti', 'SJkaishu';
-            margin: 0;
-            padding: 20px;
-        }
-            ${backgroundStyle}
-
-    </style>
-</head>
-<body>
-      <h1 class="ranking-title" style="font-family: 'JMH'; font-weight: normal; font-style: normal;">${rankTimeTitle}</h1>
-      <h1 class="ranking-title" style="font-family: 'JMH'; font-weight: normal; font-style: normal;">${rankTitle}</h1>
-      <h1 class="ranking-title" style="display: none;font-family: 'SJkaishu'; font-weight: normal; font-style: normal;">SJkaishu</h1>
-      <h1 class="ranking-title" style="display: none;font-family: 'SJbangkaijianti'; font-weight: normal; font-style: normal;">SJbangkaijianti</h1>
-<canvas id="rankingCanvas"></canvas>
-
-<script>
-    window.onload = async () => {
-        await drawRanking();
-    }
-
-    async function drawRanking() {
-        let rankingData = ${JSON.stringify(data)};
-        let iconData = ${JSON.stringify(iconData)};
-        let barBgImgs = ${JSON.stringify(barBgImgs)};
-        
-        const maxCount = rankingData.reduce((max, item) => Math.max(max, item.count), 0);
-        const maxCountText = maxCount.toString()
-        const userNum = rankingData.length;
-        const userAvatarSize = 50;
-        const firstVerticalLineX = 200;
-        const verticalLineWidth = 3;
-        const tableWidth = 200 + 100 * 7;
-        const canvasWidth = tableWidth + 100;
-        const canvasHeight = 50 * userNum;
-
-        const canvas = document.getElementById('rankingCanvas');
-        canvas.width = canvasWidth;
-        canvas.height = canvasHeight;
-        let context = canvas.getContext('2d');
-        const maxCountTextWidth = context.measureText(maxCountText).width
-        canvas.width = canvasWidth + maxCountTextWidth;
-        canvas.height = canvasHeight;
-        context = canvas.getContext('2d');
-
-
-        // 绘制用户头像
-        await drawAvatars(context, rankingData, userAvatarSize);
-        // 绘制发言次数柱状条、发言次数、用户名
-        await drawRankingBars(rankingData, maxCount, context, userAvatarSize, tableWidth);
-        // 绘制垂直线
-        drawVerticalLines(context, firstVerticalLineX, canvasHeight, verticalLineWidth);
-
-        function chooseColorAdjustmentMethod(hexcolor) {
-            const rgb = hexToRgb(hexcolor)
-
-            const yiqBrightness = calculateYiqBrightness(rgb)
-
-            if (yiqBrightness > 0.2 && yiqBrightness < 0.8) {
-                return adjustColorHsl(hexcolor)
-            } else {
-                return adjustColorYiq(hexcolor)
-            }
-        }
-
-        function calculateYiqBrightness(rgb) {
-            return (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 / 255
-        }
-
-        function adjustColorYiq(hexcolor) {
-            const rgb = hexToRgb(hexcolor)
-            const yiqBrightness = calculateYiqBrightness(rgb)
-            return yiqBrightness >= 0.8 ? "#000000" : "#FFFFFF"
-        }
-
-        function adjustColorHsl(hexcolor) {
-            const rgb = hexToRgb(hexcolor)
-
-            let hsl = rgbToHsl(rgb.r, rgb.g, rgb.b)
-
-            hsl.l = hsl.l < 0.5 ? hsl.l + 0.3 : hsl.l - 0.3
-            hsl.s = hsl.s < 0.5 ? hsl.s + 0.3 : hsl.s - 0.3
-
-            const contrastRgb = hslToRgb(hsl.h, hsl.s, hsl.l)
-            return rgbToHex(contrastRgb.r, contrastRgb.g, contrastRgb.b)
-        }
-
-        function hexToRgb(hex) {
-            const sanitizedHex = String(hex).replace("#", "")
-
-            const bigint = parseInt(sanitizedHex, 16)
-            const r = (bigint >> 16) & 255
-            const g = (bigint >> 8) & 255
-            const b = bigint & 255
-
-            return {r, g, b}
-        }
-
-        function rgbToHsl(r, g, b) {
-            ;(r /= 255), (g /= 255), (b /= 255)
-            const max = Math.max(r, g, b),
-                min = Math.min(r, g, b)
-            let h,
-                s,
-                l = (max + min) / 2
-
-            if (max === min) {
-                h = s = 0
-            } else {
-                const d = max - min
-                s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
-                switch (max) {
-                    case r:
-                        h = (g - b) / d + (g < b ? 6 : 0)
-                        break
-                    case g:
-                        h = (b - r) / d + 2
-                        break
-                    case b:
-                        h = (r - g) / d + 4
-                        break
-                }
-                h /= 6
-            }
-
-            return {h, s, l}
-        }
-
-        function hslToRgb(h, s, l) {
-            let r, g, b
-
-            if (s === 0) {
-                r = g = b = l
-            } else {
-                const hue2rgb = (p, q, t) => {
-                    if (t < 0) t += 1
-                    if (t > 1) t -= 1
-                    if (t < 1 / 6) return p + (q - p) * 6 * t
-                    if (t < 1 / 2) return q
-                    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
-                    return p
-                }
-
-                const q = l < 0.5 ? l * (1 + s) : l + s - l * s
-                const p = 2 * l - q
-                r = hue2rgb(p, q, h + 1 / 3)
-                g = hue2rgb(p, q, h)
-                b = hue2rgb(p, q, h - 1 / 3)
-            }
-
-            return {
-                r: Math.round(r * 255),
-                g: Math.round(g * 255),
-                b: Math.round(b * 255)
-            }
-        }
-
-        function rgbToHex(r, g, b) {
-            const toHex = c => {
-                const hex = c.toString(16)
-                return hex.length === 1 ? "0" + hex : hex
-            }
-
-            return \`#\${toHex(r)}\${toHex(g)}\${toHex(b)}\`
-        }
-
-        async function drawRankingBars(
-            rankingData,
-            maxCount,
-            context,
-            userAvatarSize,
-            tableWidth,
-        ) {
-            for (const data of rankingData) {
-                const index = rankingData.indexOf(data)
-                const countBarWidth = 150 + (700 * data.count) / maxCount
-                const countBarX = 50
-                const countBarY = 50 * index
-
-                // 绘制发言次数柱状条
-                let avgColor = await getAverageColor(data.avatarBase64)
-                // const avgColor = await getAverageColor(data.avatarBase64)
-                const colorWithOpacity = addOpacityToColor(avgColor, 0.5)
-
-                context.fillStyle = \`\${avgColor}\`
-                context.fillRect(countBarX, countBarY, countBarWidth, userAvatarSize)
-
-                const barBgImgsBase64 = findBarBgImgBase64(data.userId, barBgImgs);
-                if (barBgImgs.length > 0 && barBgImgsBase64 !== null) {
-                        const randomBarBgImg = getRandomBarBgImg(barBgImgsBase64);
-                        const barBgImg = new Image();
-                        barBgImg.src = "data:image/png;base64," + randomBarBgImg;
-                        barBgImg.onload = () => {
-
-                          context.globalAlpha = ${
-                            config.horizontalBarBackgroundFullOpacity
-                          };
-                          context.drawImage(barBgImg, countBarX, countBarY, tableWidth - countBarX, userAvatarSize);
-                          context.globalAlpha = 1;
-                          context.globalAlpha = ${
-                            config.horizontalBarBackgroundOpacity
-                          };
-                          context.drawImage(barBgImg, 0, 0, countBarWidth, userAvatarSize, countBarX, countBarY, countBarWidth, userAvatarSize);
-                          context.globalAlpha = 1;
-                        }
-                        avgColor = await getAverageColor(randomBarBgImg)
-                }
-
-                // 绘制剩余部分
-                if (data.count !== maxCount) {
-                    context.fillStyle = \`\${colorWithOpacity}\`
-                    context.fillRect(
-                        countBarX + countBarWidth,
-                        countBarY,
-                        tableWidth - countBarWidth - 50,
-                        userAvatarSize
-                    )
-                }
-
-                // 绘制用户发言次数
-                context.font = "30px JMH SJbangkaijianti SJkaishu"
-                context.textAlign = "center"
-                
-                let countText = data.count.toString();
-                if (${config.isUserMessagePercentageVisible}) {
-                  countText += \` ( \${data.percentage}%)\`;
-                }
-                
-                const textWidth = context.measureText(countText).width;
-                const textY = countBarY + userAvatarSize / 2 + 10.5;
-                
-                // 默认将文字放在柱状条右侧
-                let textX = countBarX + countBarWidth + 10 + textWidth / 2;
-                
-                // 检查文字是否会超出画布，如果是，则将其移入柱状条内并改变颜色
-                if (textX + textWidth / 2 > canvas.width - 5) {
-                    textX = countBarX + countBarWidth - 10 - textWidth / 2;
-                    context.fillStyle = chooseColorAdjustmentMethod(avgColor); // 使用高对比度颜色
-                } else {
-                    context.fillStyle = "rgba(0, 0, 0, 1)"; // 否则使用默认黑色
-                }
-                
-                context.fillText(countText, textX, textY);
-
-                // 绘制用户名
-                context.fillStyle = chooseColorAdjustmentMethod(avgColor);
-                context.font = "30px SJbangkaijianti JMH SJkaishu";
-                context.textAlign = "center";
-
-                let nameText = data.name;
-                let nameTextWidth = context.measureText(nameText).width;
-
-                let nameTextX = countBarX + 10 + nameTextWidth / 2;
-                const nameTextY = countBarY + userAvatarSize / 2 + 10.5;
-
-                const textMaxWidth = countBarX + countBarWidth - 80;
-
-                if (nameTextWidth > textMaxWidth) {
-                    const ellipsis = "...";
-                    const ellipsisWidth = context.measureText(ellipsis).width;
-                    let maxNameWidth = textMaxWidth - ellipsisWidth;
-
-                    while (nameTextWidth > maxNameWidth && nameText.length > 0) {
-                        nameText = nameText.slice(0, -1);
-                        nameTextWidth = context.measureText(nameText).width;
-                    }
-                    nameText += ellipsis;
-
-                    nameTextX = countBarX + 10 + nameTextWidth / 2 + 13
-                    context.fillText(nameText, nameTextX, nameTextY);
-                } else {
-                    context.fillText(nameText, nameTextX, nameTextY);
-                }
-
-                // 绘制图标
-                const userIconBase64 = findIconBase64(data.userId, iconData);
-                if (iconData.length > 0 && userIconBase64 !== null) {
-                // 遍历 userIconBase64 数组，依次绘制图标，图标大小为 40*40，绘制在发言次数柱状条末端左侧/右侧
-
-                for (let i = 0; i < userIconBase64.length; i++) {
-                    const icon = new Image();
-                    icon.src = "data:image/png;base64," + userIconBase64[i];
-                    icon.onload = () => {
-                                    ${
-                                      config.shouldMoveIconToBarEndLeft
-                                        ? `context.drawImage(icon, countBarX + countBarWidth - 40 * i - 40,  nameTextY - 30, 40, 40);`
-                                        : `context.drawImage(icon, nameTextX + nameTextWidth / 2 + 40 * i + 2, nameTextY - 30, 40, 40);`
-                                    }
-                        // context.drawImage(icon, countBarX + countBarWidth - 40 * i - 40,  nameTextY - 30, 40, 40);
-                    } // onload
-                } // for
-            } // if
-
-                // for
-            }
-
-            // function
-        }
-
-          function getRandomBarBgImg(barBgImgsBase64) {
-              const randomIndex = Math.floor(Math.random() * barBgImgsBase64.length);
-              return barBgImgsBase64[randomIndex];
-          }
-
-          function findIconBase64(userId, iconData) {
-            const foundIcons = iconData.filter((data) => data.userId === userId);
-
-            if (foundIcons.length > 0) {
-                return foundIcons.map((icon) => icon.iconBase64);
-            } else {
-                return null;
-            }
-        }
-
-        function findBarBgImgBase64(userId, barBgImgs) {
-            const foundBarBgImgs = barBgImgs.filter((data) => data.userId === userId);
-
-            if (foundBarBgImgs.length > 0) {
-                return foundBarBgImgs.map((barBgImg) => barBgImg.barBgImgBase64);
-            } else {
-                return null;
-            }
-        }
-
-        function addOpacityToColor(color, opacity) {
-            const opacityHex = Math.round(opacity * 255)
-                .toString(16)
-                .padStart(2, "0")
-            return \`\${color}\${opacityHex}\`
-        }
-
-      function createCanvas(width, height) {
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    return canvas;
-}
-
-function removeCanvas(canvas) {
-    canvas.remove();
-}
-
-async function getAverageColor(avatarBase64) {
-    const image = new Image();
-    // image.src = url;
-    image.src = "data:image/png;base64," + avatarBase64;
-
-    await new Promise((resolve, reject) => {
-        image.onload = resolve;
-        image.onerror = reject;
-    });
-
-    const canvas = createCanvas(image.width, image.height);
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(image, 0, 0);
-
-    const imageData = ctx.getImageData(0, 0, image.width, image.height);
-    const data = imageData.data;
-
-    let totalRed = 0;
-    let totalGreen = 0;
-    let totalBlue = 0;
-
-    for (let i = 0; i < data.length; i += 4) {
-        totalRed += data[i];
-        totalGreen += data[i + 1];
-        totalBlue += data[i + 2];
-    }
-
-    const pixelCount = data.length / 4;
-    const avgRed = Math.round(totalRed / pixelCount);
-    const avgGreen = Math.round(totalGreen / pixelCount);
-    const avgBlue = Math.round(totalBlue / pixelCount);
-
-    const hexRed = avgRed.toString(16).padStart(2, "0");
-    const hexGreen = avgGreen.toString(16).padStart(2, "0");
-    const hexBlue = avgBlue.toString(16).padStart(2, "0");
-
-    removeCanvas(canvas);
-
-    return \`#\${hexRed}\${hexGreen}\${hexBlue}\`;
-}
-
-
-
-        function drawVerticalLines(
-            context,
-            firstVerticalLineX,
-            canvasHeight,
-            verticalLineWidth
-        ) {
-            context.fillStyle = "rgba(0, 0, 0, 0.12)" // 设置线条颜色为黑色，不透明度为12%
-            context.fillRect(firstVerticalLineX, 0, verticalLineWidth, canvasHeight) // 绘制第 1 条垂直线
-            // 绘制第 2~8 条垂直线
-            for (let i = 1; i < 8; i++) {
-                const x = firstVerticalLineX + 100 * i
-                context.fillRect(x, 0, verticalLineWidth, canvasHeight)
-            }
-        }
-
-        async function drawAvatars(context, rankingData, userAvatarSize) {
-            let y = 0
-            for (const data of rankingData) {
-            const image = new Image();
-            // image.src = data.avatar;
-            image.src = "data:image/png;base64," + data.avatarBase64;
-
-                image.onload = () => {
-                    context.drawImage(image, 0, y, userAvatarSize, userAvatarSize)
-                    y += userAvatarSize
-                }
-
-            }
-        }
-    }
-
-</script>
-</body>
-</html>
-`;
-
-    // 把 htmlContent 写入文件
-    // const filePath = path.join(__dirname, 'ranking.html');
-    // fs.writeFileSync(filePath, htmlContent);
-    await page.setViewport({ width: 1080, height: 256, deviceScaleFactor: 1 });
-    await page.goto("file://" + filePath);
-
-    await page.setContent(h.unescape(htmlContent), {
-      waitUntil: config.waitUntil,
-    });
-
-    await page.bringToFront();
-    const buffer = await page.screenshot({
-      type: config.imageType,
-      fullPage: true,
-    });
-    await page.close();
-    // await context.close();
-
-    return buffer;
-  }
-
-  async function generateRankingChartStyle2(
-    rankTimeTitle: any,
-    rankTitle: any,
-    data: RankingData[]
-  ) {
-    const maxCount = data.reduce((max, item) => Math.max(max, item.count), 0);
-    const maxHorizontalBarLabelLengthBeforeTruncation =
-      config.maxHorizontalBarLabelLengthBeforeTruncation;
-    const maxNameLength = Math.max(
-      ...data.map((item) =>
-        item.name.length > maxHorizontalBarLabelLengthBeforeTruncation
-          ? maxHorizontalBarLabelLengthBeforeTruncation
-          : item.name.length
-      )
-    ); // 获取最长名称长度
-
-    const chartHtml = [];
-    for (const item of data) {
-      const { name, avatar, count, percentage } = item;
-      const truncatedName =
-        name.length > maxHorizontalBarLabelLengthBeforeTruncation
-          ? name.slice(0, maxHorizontalBarLabelLengthBeforeTruncation) + "..."
-          : name.padEnd(maxNameLength, " "); // 使用 padEnd 补全名称长度
-      const barColor = await getBarColor(percentage, count, maxCount);
-      const progressColor = darkenColor(barColor, 0.2);
-
-      const itemHtml = `
-    <div class="ranking-item">
-      <img src="${avatar}" alt="${name}" class="avatar" />
-      <span class="name">${truncatedName}</span>
-      <div class="bar-container">
-        <div class="bar" style="width: ${
-          config.isFirstProgressFullyVisible
-            ? (count / maxCount) * 100
-            : percentage
-        }%; background-color: ${barColor};">
-          <div class="progress" style="width: 100%; background-color: ${progressColor};"></div>
-        </div>
-      </div>
-      <span class="count">${count}${
-        isUserMessagePercentageVisible ? ` 次 ${percentage}%` : ""
-      }</span>
-    </div>
-  `;
-
-      chartHtml.push(itemHtml);
-    }
-
-    const finalHtml = chartHtml.join("");
-
-    const rankingHtml = `
-    <div class="ranking-chart">
-      ${finalHtml}
-    </div>
-  `;
-    const html = `
-        <html lang="">
-<head>
-    <meta charset="UTF-8">
-    <title>发言排行榜</title>
-    <style>
-            .ranking-title {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        .ranking-chart {
-            font-family: Arial, sans-serif;
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .ranking-item {
-            display: flex;
-            align-items: center;
-            padding: 10px;
-            border-bottom: 1px solid #e0e0e0;
-        }
-
-        .avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            object-fit: cover;
-            margin-right: 10px;
-        }
-
-        .name {
-            font-weight: bold;
-            margin-right: 10px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .bar-container {
-            flex: 1;
-            height: 20px;
-            background-color: #f0f0f0;
-            border-radius: 10px;
-            overflow: hidden;
-            margin-right: 10px;
-            position: relative;
-        }
-
-        .bar {
-            height: 100%;
-            border-radius: 10px;
-        }
-
-        .progress {
-            position: absolute;
-            top: 0;
-            left: 0;
-            height: 100%;
-            border-radius: 10px;
-            transition: width 0.5s ease;
-        }
-
-        .count {
-            font-size: 14px;
-            color: #888;
-        }
-
-        .ranking-item:first-child {
-            border-top: 2px solid #e0e0e0;
-        }
-
-        .ranking-item:not(:last-child) {
-            border-bottom: 1px solid #e0e0e0;
-        }
-
-        .ranking-item:last-child {
-            border-bottom: 2px solid #e0e0e0;
-        }
-    </style>
-</head>
-<body class="">
-      <h2 class="ranking-title">${rankTitle}</h2>
-      <h2 class="ranking-title">${rankTimeTitle}</h2>
-${rankingHtml}
-</body>
-</html>`;
-    let browser: any;
-    ctx.inject(["puppeteer"], async (ctx) => {
-      browser = ctx.puppeteer.browser;
-    });
-    if (!browser) {
-      logger.error("Puppeteer browser instance is not available.");
-      throw new Error("Puppeteer browser instance is not available.");
-    }
-    const page = await browser.newPage();
-    await page.setViewport({
-      width: config.width,
-      height: 100,
-      deviceScaleFactor: 1,
-    });
-    await page.setContent(html, { waitUntil: "load" });
-    await page.bringToFront();
-    const imageBuffer = await page.screenshot({
-      fullPage: true,
-      type: config.imageType,
-    });
-    await page.close();
-    return imageBuffer;
-  }
-
-  function getBarColor(
-    percentage: number,
-    count: number,
-    maxCount: number
-  ): string {
-    if (config.isFirstProgressFullyVisible) {
-      percentage = (count / maxCount) * 100;
-      if (percentage >= 80) {
-        return "#4caf50"; // 绿色
-      } else if (percentage >= 50) {
-        return "#2196f3"; // 蓝色
-      } else if (percentage >= 30) {
-        return "#ff9800"; // 橙色
-      } else {
-        return "#f44336"; // 红色
-      }
-    }
-    if (percentage >= 40) {
-      return "#4caf50"; // 绿色
-    } else if (percentage >= 25) {
-      return "#2196f3"; // 蓝色
-    } else if (percentage >= 15) {
-      return "#ff9800"; // 橙色
-    } else {
-      return "#f44336"; // 红色
-    }
-  }
-
-  async function LeaderboardToHorizontalBarChartConversion(
-    rankTimeTitle: string,
-    rankTitle: string,
-    rankingData: RankingData[],
-    thisRankInfo?:
-      | {
-          userId: string;
-          name: string;
-          count: number;
-          rank: number;
-          percentage: number;
-          avatar: string;
-          avatarBase64?: string;
-        }
-      | undefined
-  ) {
-    if (config.horizontalBarChartStyle === "3") {
-      return await generateRankingChartStyle3(
-        rankTimeTitle,
-        rankTitle,
-        rankingData,
-        thisRankInfo
-      );
-    } else if (config.horizontalBarChartStyle === "2") {
-      return await generateRankingChartStyle2(
-        rankTimeTitle,
-        rankTitle,
-        rankingData
-      );
-    }
-    const maxCount = rankingData.reduce(
-      (max, item) => Math.max(max, item.count),
-      0
-    );
-
-    function generateRankingHtml(data: RankingData[]): string {
-      const html = `
-    <div class="ranking">
-      <h2 class="ranking-title">${rankTitle}</h2>
-      <h2 class="ranking-title">${rankTimeTitle}</h2>
-      ${data
-        .map(
-          (item, index) => `
-        <div class="ranking-item">
-          <div class="ranking-avatar">
-            <img src="${item.avatar}" alt="${item.name}">
-          </div>
-          <div class="ranking-info">
-            <div class="ranking-name">${item.name}</div>
-            <div class="ranking-bar">
-              <div class="ranking-bar-fill" style="width: ${
-                config.isFirstProgressFullyVisible
-                  ? (item.count / maxCount) * 100
-                  : item.percentage
-              }%; background-color: ${getBarColor(
-            item.percentage,
-            item.count,
-            maxCount
-          )};"></div>
-            </div>
-            <div class="ranking-percentage">${item.count} 次 ${
-            item.percentage
-          }%</div>
-          </div>
-        </div>
-      `
-        )
-        .join("")}
-    </div>
-  `;
-
-      return html;
-    }
-
-    const rankingHtml = generateRankingHtml(rankingData);
-    const html = `
-        <html lang="">
-<head>
-    <meta charset="UTF-8">
-    <title>发言排行榜</title>
-    <style>
-        .ranking {
-            font-family: Arial, sans-serif;
-            max-width: 600px;
-            margin: 0 auto;
-        }
-
-        .ranking-title {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        .ranking-item {
-            display: flex;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        .ranking-avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            overflow: hidden;
-            margin-right: 10px;
-        }
-
-        .ranking-avatar img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        .ranking-info {
-            flex: 1;
-        }
-
-        .ranking-name {
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-
-        .ranking-bar {
-            height: 10px;
-            background-color: #f0f0f0;
-            border-radius: 5px;
-            overflow: hidden;
-        }
-
-        .ranking-bar-fill {
-            height: 100%;
-        }
-
-        .ranking-percentage {
-            margin-top: 5px;
-            font-size: 12px;
-            color: #666;
-        }
-    </style>
-</head>
-<body class="">
-${rankingHtml}
-</body>
-</html>`;
-    let browser: any;
-    ctx.inject(["puppeteer"], async (ctx) => {
-      browser = ctx.puppeteer.browser;
-    });
-    const page = await browser.newPage();
-    await page.setViewport({
-      width: config.width,
-      height: 100,
-      deviceScaleFactor: 1,
-    });
-    await page.setContent(html, { waitUntil: "load" });
-    await page.bringToFront();
-    const imageBuffer = await page.screenshot({
-      fullPage: true,
-      type: config.imageType,
-    });
-    await page.close();
-    return imageBuffer;
-  }
-
-  function calculatePercentage(number: number, total: number): string {
-    if (total === 0) {
-      return `0%`;
-    }
-
-    const percentage = Math.round((number / total) * 100);
-    return `${percentage}%`;
-  }
-
-  function calculatePercentage2(number: number, total: number): number {
-    if (total === 0) {
-      return 0;
-    }
-
-    const percentage = Math.round((number / total) * 100);
-    return percentage;
-  }
-
-  function getYesterdayDateParts(isScheduled: boolean): {
-    year: number;
-    month: number;
-    day: number;
-  } {
-    // 获取当前时间
-    const today = new Date();
-    // 获取昨天的日期
-    const yesterday = new Date(today);
-
-    if (isScheduled) {
-      noop();
-    } else {
-      yesterday.setDate(today.getDate() - 1);
-    }
-
-    // 获取年、月、日信息
-    const options: Intl.DateTimeFormatOptions = {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      timeZone: "Asia/Shanghai",
-    };
-    const yesterdayDateString = yesterday.toLocaleString("zh-CN", options);
-    const [year, month, day] = yesterdayDateString.split("/").map(Number);
-
-    return { year, month, day };
-  }
-
-  function getYesterdayDateString(): string {
-    // 获取当前时间
-    const today = new Date();
-    // 获取昨天的日期
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
-    // 设置时区为中国标准时间
-    const options: Intl.DateTimeFormatOptions = {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      timeZone: "Asia/Shanghai",
-    };
-    // 格式化日期为字符串
-    return yesterday.toLocaleString("zh-CN", options);
-  }
-
-  function getCurrentBeijingTime(): string {
-    const beijingTime = new Date().toLocaleString("zh-CN", {
-      timeZone: "Asia/Shanghai",
-    });
-    const date = beijingTime.split(" ")[0];
-    const time = beijingTime.split(" ")[1];
-
-    return `${date} ${time}`;
-  }
-
   function getSortedDragons(
     records: MessageCounterRecord[]
   ): [string, number][] {
@@ -3923,76 +2256,264 @@ ${rankingHtml}
     return Object.entries(dragonsMap).sort((a, b) => b[1] - a[1]);
   }
 
-  async function day() {
-    await resetCounter(
-      "message_counter_records",
-      "todayPostCount",
-      "今日发言榜已成功置空！"
+  async function replaceAtTags(session: any, content: string): Promise<string> {
+    const atRegex = /<at id="(\d+)"(?: name="([^"]*)")?\/>/g;
+
+    let match: RegExpExecArray | null;
+    while ((match = atRegex.exec(content)) !== null) {
+      const userId: string = match[1];
+      const name: string | undefined = match[2];
+
+      if (!name) {
+        let userName = "未知用户";
+        try {
+          if (
+            typeof session.bot?.getGuildMember === "function" &&
+            session.guildId
+          ) {
+            const guildMember = await session.bot.getGuildMember(
+              session.guildId,
+              userId
+            );
+            if (guildMember && guildMember.user && guildMember.user.name) {
+              userName = guildMember.user.name;
+            }
+          }
+        } catch (error) {
+          logger.error(error);
+        }
+
+        const newAtTag = `<at id="${userId}" name="${userName}"/>`;
+        content = content.replace(match[0], newAtTag);
+      }
+    }
+
+    return content;
+  }
+
+  async function getGuildName(
+    bot: Bot,
+    guildId: string
+  ): Promise<string | undefined> {
+    try {
+      const guild = await bot.getGuild(guildId);
+      return guild?.name;
+    } catch (error) {
+      logger.warn(`Failed to get guild name for ${guildId}:`, error);
+      return undefined;
+    }
+  }
+
+  function parseList(str?: string): string[] {
+    if (!str) return [];
+    return str.split(/[\s,，、]+/).filter(Boolean);
+  }
+
+  function getPeriodFromOptions(options: any, fallback: PeriodKey): PeriodKey {
+    if (options?.yesterday || options?.ydag) return "yesterday";
+    if (options?.day || options?.dag) return "today";
+    if (options?.week || options?.wag) return "week";
+    if (options?.month || options?.mag) return "month";
+    if (options?.year || options?.yag) return "year";
+    if (options?.total || options?.across || options?.dragon) return "total";
+    return fallback;
+  }
+
+  function isAcrossGuild(options: any): boolean {
+    return ["ydag", "dag", "wag", "mag", "yag", "across", "dragon"].some(
+      (opt) => options?.[opt]
     );
   }
 
-  // 创建每天的 0 点定时任务
-  const dayJob = schedule.scheduleJob("0 0 * * *", day);
+  function filterRecordsByWhitesAndBlacks(
+    records: MessageCounterRecord[],
+    key: "userId" | "channelId",
+    whites: string[],
+    blacks: string[]
+  ): MessageCounterRecord[] {
+    let result = records;
+    if (whites.length > 0) {
+      result = result.filter((r) => whites.includes(r[key]));
+    }
+    if (blacks.length > 0) {
+      result = result.filter((r) => !blacks.includes(r[key]));
+    }
+    return result;
+  }
 
-  async function week() {
-    await resetCounter(
-      "message_counter_records",
-      "thisWeekPostCount",
-      "本周发言榜已成功置空！"
+  function prepareRankingData(
+    sortedUsers: [string, number][],
+    userInfo: Dict<{ username: string; avatar: string }>,
+    totalCount: number,
+    limit: number,
+    requesterId?: string
+  ): RankingData[] {
+    const topUsers = sortedUsers.slice(0, limit);
+    const isRequesterInTop =
+      requesterId && topUsers.some(([userId]) => userId === requesterId);
+
+    if (requesterId && !isRequesterInTop) {
+      const requesterData = sortedUsers.find(
+        ([userId]) => userId === requesterId
+      );
+      if (requesterData) {
+        topUsers.push(requesterData);
+      }
+    }
+
+    return topUsers.map(([userId, count]) => ({
+      name: userInfo[userId].username,
+      userId: userId,
+      avatar: userInfo[userId].avatar,
+      count,
+      percentage: calculatePercentage(count, totalCount),
+    }));
+  }
+
+  function calculatePercentage(number: number, total: number): number {
+    if (total === 0) return 0;
+    return (number / total) * 100;
+  }
+
+  function getCurrentBeijingTime(): string {
+    return new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
+  }
+
+  async function renderLeaderboard({
+    rankTimeTitle,
+    rankTitle,
+    rankingData,
+  }: {
+    rankTimeTitle: string;
+    rankTitle: string;
+    rankingData: RankingData[];
+  }): Promise<string | h> {
+    // 渲染为水平柱状图
+    if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
+      if (!ctx.puppeteer) {
+        logger.warn("Puppeteer service is not enabled. Falling back to text.");
+      } else {
+        try {
+          // 在生成图表前，填充头像的 base64 缓存
+          await Promise.all(
+            rankingData.map(async (item) => {
+              if (!avatarCache.has(item.avatar)) {
+                const base64 = await resizeImageToBase64(ctx, item.avatar);
+                avatarCache.set(item.avatar, base64);
+              }
+              item.avatarBase64 = avatarCache.get(item.avatar);
+            })
+          );
+          // 调用唯一的柱状图生成函数
+          const imageBuffer = await generateRankingChart(
+            { rankTimeTitle, rankTitle, data: rankingData },
+            { iconCache, barBgImgCache, emptyHtmlPath }
+          );
+          return h.image(imageBuffer, `image/${config.imageType}`);
+        } catch (error) {
+          logger.error("Failed to generate leaderboard chart:", error);
+          // 发生错误时，降级为 Markdown 图片或纯文本
+        }
+      }
+    }
+
+    // 渲染为 Markdown 图片
+    if (config.isTextToImageConversionEnabled) {
+      if (!ctx.markdownToImage) {
+        logger.warn(
+          "markdownToImage service is not enabled. Falling back to text."
+        );
+      } else {
+        const markdown = formatLeaderboardAsMarkdown(
+          rankTimeTitle,
+          rankTitle,
+          rankingData,
+          config.isUserMessagePercentageVisible
+        );
+        const imageBuffer = await ctx.markdownToImage.convertToImage(markdown);
+        return h.image(imageBuffer, `image/${config.imageType}`);
+      }
+    }
+
+    // 默认渲染为纯文本
+    return formatLeaderboardAsText(
+      rankTimeTitle,
+      rankTitle,
+      rankingData,
+      config.isUserMessagePercentageVisible
     );
   }
 
-  // 创建每周一的 0 点定时任务
-  const weekJob = schedule.scheduleJob("0 0 * * 1", week);
-
-  async function month() {
-    await resetCounter(
-      "message_counter_records",
-      "thisMonthPostCount",
-      "本月发言榜已成功置空！"
-    );
-  }
-
-  // 创建每月的 1 号 0 点定时任务
-  const monthJob = schedule.scheduleJob("0 0 1 * *", month);
-
-  async function year() {
-    await resetCounter(
-      "message_counter_records",
-      "thisYearPostCount",
-      "今年发言榜已成功置空！"
-    );
-  }
-
-  // 创建每年的 1 月 1 号 0 点定时任务
-  const yearJob = schedule.scheduleJob("0 0 1 1 *", year);
-
-  function disposeJobs() {
-    dayJob.cancel();
-    weekJob.cancel();
-    monthJob.cancel();
-    yearJob.cancel();
-    scheduledJobs.forEach((job) => {
-      job.cancel();
+  function formatLeaderboardAsMarkdown(
+    title: string,
+    subtitle: string,
+    data: RankingData[],
+    showPercentage: boolean
+  ): string {
+    let result = `# ${title}\n## ${subtitle}\n\n`;
+    data.forEach((item, index) => {
+      const percentageStr = showPercentage
+        ? ` (${Math.round(item.percentage)}%)`
+        : "";
+      result += `${index + 1}. **${item.name}**: ${
+        item.count
+      } 次${percentageStr}\n`;
     });
+    return result;
   }
 
-  const exitListener = () => disposeJobs();
-
-  if (process.listenerCount("exit") === 0) {
-    process.on("exit", exitListener);
+  function formatLeaderboardAsText(
+    title: string,
+    subtitle: string,
+    data: RankingData[],
+    showPercentage: boolean
+  ): string {
+    let result = `${title}\n${subtitle}\n\n`;
+    data.forEach((item, index) => {
+      const percentageStr = showPercentage
+        ? ` (${Math.round(item.percentage)}%)`
+        : "";
+      result += `${index + 1}. ${item.name}：${
+        item.count
+      } 次${percentageStr}\n`;
+    });
+    return result.trim();
   }
 
-  if (process.listenerCount("SIGINT") === 0) {
-    process.on("SIGINT", exitListener);
+  async function resizeImageToBase64(
+    ctx: Context,
+    url: string
+  ): Promise<string> {
+    if (!ctx.canvas) {
+      throw new Error("Canvas service is not available for image processing.");
+    }
+    const MAX_RETRIES = 2;
+    for (let i = 0; i < MAX_RETRIES; i++) {
+      try {
+        const buffer = await ctx.http.get(url, {
+          responseType: "arraybuffer",
+          timeout: 5000,
+        });
+        const image = await ctx.canvas.loadImage(buffer);
+        const canvas = await ctx.canvas.createCanvas(50, 50);
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0, 50, 50);
+        return (await canvas.toBuffer("image/png")).toString("base64");
+      } catch (error) {
+        logger.warn(
+          `Failed to process image from ${url} (attempt ${i + 1}):`,
+          error
+        );
+        if (i === MAX_RETRIES - 1) {
+          // 如果是最后一次尝试，返回一个备用或占位图
+          logger.error(`Giving up on image ${url}. Using fallback.`);
+          // 返回一个 1x1 的透明像素
+          return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+        }
+        await sleep(500);
+      }
+    }
+    // 理论上不会执行到这里
+    return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
   }
-
-  if (process.listenerCount("SIGTERM") === 0) {
-    process.on("SIGTERM", exitListener);
-  }
-
-  ctx.on("dispose", () => {
-    // 在插件停用时取消所有定时任务
-    disposeJobs();
-  });
 }
