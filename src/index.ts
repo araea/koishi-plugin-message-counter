@@ -674,7 +674,7 @@ export async function apply(ctx: Context, config: Config) {
   // --- 指令定义 ---
   ctx
     .command("messageCounter", "查看messageCounter帮助")
-    .action(({ session }) => session?.execute(`help ${name}`));
+    .action(({ session }) => session?.execute(`help messageCounter`));
 
   ctx
     .command("messageCounter.初始化", "初始化", { authority: 3 })
