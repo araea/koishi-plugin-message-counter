@@ -74,14 +74,9 @@ export const usage = `## 注意事项
 
 \`messageCounter.上传柱状条背景\`
 
-- 为自己上传一张自定义的水平柱状条背景图片 (用于样式3)。
+- 为自己上传一张自定义的水平柱状条背景图片。
+- 新图片会覆盖旧的图片。若上传失败，旧图片也会被删除。
 - 使用此指令时需附带图片。
-
-\`messageCounter.删除柱状条背景 [编号|all]\`
-
-- 删除自己上传的背景图片。
-- 不带参数则列出所有已上传图片。
-- 使用编号删除指定图片；使用 \`all\` 删除所有图片。
 
 \`messageCounter.重载资源\`
 
@@ -111,6 +106,22 @@ export const usage = `## 注意事项
 - 956758505`;
 
 const logger = new Logger("messageCounter");
+
+// --- 新增：定义字体选项常量 ---
+const FONT_OPTIONS = [
+  // 插件内置字体
+  "JMH",
+  "SJkaishu",
+  "SJbangkaijianti",
+  // 系统/浏览器通用字体
+  "sans-serif", // 无衬线 (通用)
+  "serif", // 衬线 (通用)
+  "monospace", // 等宽 (通用)
+  "Microsoft YaHei", // 微软雅黑
+  "SimSun", // 宋体
+  "Arial", // 常用无衬线
+  "Verdana", // 常用无衬线
+];
 
 export interface Config {
   // --- 核心功能 ---
@@ -162,6 +173,12 @@ export interface Config {
   apiBackgroundConfig: apiBackgroundConfig;
   /** 自定义背景的 CSS 代码。 */
   backgroundValue: string;
+
+  // --- 新增：字体设置 ---
+  /** 水平柱状图 - 标题的字体。 */
+  chartTitleFont: string;
+  /** 水平柱状图 - 成员昵称和发言次数的字体。 */
+  chartNicknameFont: string;
 
   // --- 自动推送 ---
   /** 是否启用定时自动推送排行榜功能。 */
@@ -315,6 +332,18 @@ export const Config: Schema<Config> = Schema.intersect([
             `body {\n  background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);\n}`
           )
           .description("自定义背景的 CSS 代码（仅当类型为 CSS 时生效）。"),
+
+        // --- 柱状图字体设置 ---
+        chartTitleFont: Schema.union(FONT_OPTIONS)
+          .default("JMH")
+          .description(
+            "标题使用的字体。包含插件内置字体 (如 JMH) 和系统/浏览器字体 (如 sans-serif, Microsoft YaHei 等)。"
+          ),
+        chartNicknameFont: Schema.union(FONT_OPTIONS)
+          .default("Microsoft YaHei")
+          .description(
+            "成员昵称和发言次数使用的字体。包含插件内置字体和系统/浏览器字体。"
+          ),
       }),
       Schema.object({}),
     ]),
@@ -1323,193 +1352,113 @@ export async function apply(ctx: Context, config: Config) {
   ctx
     .command(
       "messageCounter.上传柱状条背景",
-      "为样式3上传自定义的水平柱状条背景图"
+      "上传/更新自定义的水平柱状条背景图"
     )
     .action(async ({ session }) => {
-      if (!session || !session.content) {
-        return "请在发送指令的同时附带一张图片。图片将用于排行榜样式3的柱状条背景。";
+      if (!session || !session.userId) {
+        return "无法获取用户信息，请稍后再试。";
       }
-      const imageElements = h.select(session.content ?? "", "img");
+      if (!session.content) {
+        return "请在发送指令的同时附带一张图片。新图片将会覆盖旧的背景。";
+      }
+
+      const imageElements = h.select(session.content, "img");
       if (imageElements.length === 0) {
-        return "请在发送指令的同时附带一张图片。图片将用于排行榜样式3的柱状条背景。";
+        return "请在发送指令的同时附带一张图片。新图片将会覆盖旧的背景。";
       }
 
-      const imageUrl = imageElements[0].attrs.src;
-      if (!imageUrl) {
-        return "未能识别图片，请再试一次。";
-      }
+      const { userId } = session;
 
-      let buffer: Buffer;
-      try {
-        buffer = Buffer.from(
-          await ctx.http.get(imageUrl, { responseType: "arraybuffer" })
-        );
-      } catch (error) {
-        logger.error(
-          "Failed to download user-uploaded background image:",
-          error
-        );
-        return "图片下载失败，请检查图片链接或稍后再试。";
-      }
-
-      // 检查文件大小
-      const imageSizeInMB = buffer.byteLength / 1024 / 1024;
-      if (config.maxBarBgSize > 0 && imageSizeInMB > config.maxBarBgSize) {
-        return `图片文件过大（${imageSizeInMB.toFixed(2)}MB），请上传小于 ${
-          config.maxBarBgSize
-        }MB 的图片。`;
-      }
-
-      // 检查图片尺寸 (需要 canvas 服务)
-      if (!ctx.canvas) {
-        logger.warn(
-          "Canvas service not available, skipping image dimension check for background upload."
-        );
-      } else {
+      // 辅助函数：清理用户旧的背景图
+      const cleanupOldBackground = async () => {
         try {
-          const image = await ctx.canvas.loadImage(buffer);
-          if (
-            (config.maxBarBgWidth > 0 &&
-              image.naturalWidth > config.maxBarBgWidth) ||
-            (config.maxBarBgHeight > 0 &&
-              image.naturalHeight > config.maxBarBgHeight)
-          ) {
-            return `图片尺寸（${image.naturalWidth}x${image.naturalHeight}）超出限制（最大 ${config.maxBarBgWidth}x${config.maxBarBgHeight}）。\n建议尺寸为 850x50 像素。`;
+          const allFiles = await fs.readdir(messageCounterBarBgImgsPath);
+          // 查找所有以 "用户ID." 开头的文件，以匹配不同后缀名
+          const userFiles = allFiles.filter((file) =>
+            file.startsWith(`${userId}.`)
+          );
+          if (userFiles.length > 0) {
+            await Promise.all(
+              userFiles.map((file) =>
+                fs.unlink(path.join(messageCounterBarBgImgsPath, file))
+              )
+            );
           }
         } catch (error) {
-          logger.error("Failed to read image dimensions:", error);
-          return "无法解析图片尺寸，请尝试使用其他图片格式。";
+          // 如果目录不存在，则无需处理，这是正常情况
+          if (error.code !== "ENOENT") {
+            logger.warn(`清理用户 ${userId} 的旧背景图时出错:`, error);
+          }
         }
-      }
-
-      if (!session) {
-        return "无法获取会话信息，请重试。";
-      }
-      const userId = session.userId;
+      };
 
       try {
-        const files = await fs.readdir(messageCounterBarBgImgsPath);
-        const allUserFiles = files.filter(
-          (file) => path.parse(file).name.split("-")[0] === userId
+        const imageUrl = imageElements[0].attrs.src;
+        if (!imageUrl) {
+          throw new Error("未能从消息中提取图片 URL。");
+        }
+
+        const buffer = Buffer.from(
+          await ctx.http.get(imageUrl, { responseType: "arraybuffer" })
         );
-        const currentCount = allUserFiles.length;
 
-        const userFilesWithIndex = files.filter((file) =>
-          file.match(new RegExp(`^${userId}-(\\d+)\\..+`))
-        );
-        const indices = userFilesWithIndex.map((file) => {
-          const match = file.match(new RegExp(`^${userId}-(\\d+)\\..+`));
-          return match ? parseInt(match[1]) : 0;
-        });
+        // 检查文件大小
+        const imageSizeInMB = buffer.byteLength / 1024 / 1024;
+        if (config.maxBarBgSize > 0 && imageSizeInMB > config.maxBarBgSize) {
+          throw new Error(
+            `图片文件过大（${imageSizeInMB.toFixed(
+              2
+            )}MB），请上传小于 ${config.maxBarBgSize}MB 的图片。`
+          );
+        }
 
-        const nextIndex = indices.length > 0 ? Math.max(...indices) + 1 : 1;
+        // 检查图片尺寸
+        if (ctx.canvas) {
+          try {
+            const image = await ctx.canvas.loadImage(buffer);
+            if (
+              (config.maxBarBgWidth > 0 &&
+                image.naturalWidth > config.maxBarBgWidth) ||
+              (config.maxBarBgHeight > 0 &&
+                image.naturalHeight > config.maxBarBgHeight)
+            ) {
+              throw new Error(
+                `图片尺寸（${image.naturalWidth}x${image.naturalHeight}）超出限制（最大 ${config.maxBarBgWidth}x${config.maxBarBgHeight}）。\n建议尺寸为 850x50 像素。`
+              );
+            }
+          } catch (error) {
+            logger.error("解析图片尺寸失败:", error);
+            throw new Error(
+              "无法解析图片尺寸，请尝试使用其他标准图片格式（如 PNG, JPEG）。"
+            );
+          }
+        } else {
+          logger.warn("Canvas 服务未启用，跳过背景图尺寸检查。");
+        }
 
-        // 为便于管理，统一保存为 png 格式
-        const newFileName = `${userId}-${nextIndex}.png`;
+        // 所有检查通过，先清理旧图，再保存新图
+        await cleanupOldBackground();
+
+        // 统一保存为 png 格式，文件名为 用户ID.png
+        const newFileName = `${userId}.png`;
         const newFilePath = path.join(messageCounterBarBgImgsPath, newFileName);
 
         await fs.writeFile(newFilePath, buffer);
-
         await reloadBarBgImgCache();
 
-        return `背景图上传成功！这是您的第 ${
-          currentCount + 1
-        } 张背景图（将随机使用）。\n建议图片尺寸为 850x50 像素。`;
+        return "您的自定义柱状条背景已成功更新！";
       } catch (error) {
-        logger.error("Failed to save user-uploaded background image:", error);
-        return "图片保存失败，请联系管理员。";
-      }
-    });
+        logger.error(`为用户 ${userId} 上传背景图失败:`, error);
 
-  // 删除柱状条背景
-  ctx
-    .command(
-      "messageCounter.删除柱状条背景 [target:text]",
-      "删除自己上传的柱状条背景图"
-    )
-    .action(async ({ session }, target) => {
-      if (!session) {
-        return "无法获取会话信息，请重试。";
-      }
-      const userId = session.userId;
+        // 上传失败，清理旧的背景图
+        await cleanupOldBackground();
+        await reloadBarBgImgCache(); // 清理后同样需要重载缓存
 
-      // 查找用户的背景图片文件
-      let allFiles;
-      try {
-        allFiles = await fs.readdir(messageCounterBarBgImgsPath);
-      } catch (error) {
-        if (
-          typeof error === "object" &&
-          error !== null &&
-          "code" in error &&
-          (error as any).code === "ENOENT"
-        ) {
-          // 目录不存在
-          return "您还没有上传过任何背景图片。";
-        }
-        logger.error("读取背景图片目录失败:", error);
-        return "读取背景图片时出错，请联系管理员。";
-      }
-
-      const userFiles = allFiles.filter(
-        (file) => path.parse(file).name.split("-")[0] === userId
-      );
-
-      if (userFiles.length === 0) {
-        return "您没有上传任何背景图片。";
-      }
-
-      // 如果未指定目标，则列出可供删除的图片
-      if (!target) {
-        const fileList = userFiles
-          .map((file) => {
-            const match = file.match(new RegExp(`^${userId}-(\\d+)\\..+`));
-            return match ? `编号 ${match[1]}` : file; // 显示索引号
-          })
-          .join("\n");
-        return `您已上传的背景图：\n${fileList}\n\n请使用“删除柱状条背景 <编号>”来删除指定图片，或使用“删除柱状条背景 all”删除所有图片。`;
-      }
-
-      // 处理 'all' 目标
-      if (target.toLowerCase() === "all") {
-        try {
-          await Promise.all(
-            userFiles.map((file) =>
-              fs.unlink(path.join(messageCounterBarBgImgsPath, file))
-            )
-          );
-          await reloadBarBgImgCache();
-          return `已成功删除您的全部 ${userFiles.length} 张背景图片。`;
-        } catch (error) {
-          logger.error(`为用户 ${userId} 删除所有背景图片失败:`, error);
-          return "删除图片时发生错误，请联系管理员。";
-        }
-      }
-
-      // 处理指定索引的目标
-      const indexToDelete = parseInt(target, 10);
-      if (isNaN(indexToDelete)) {
-        return "请输入有效的图片编号或“all”。";
-      }
-
-      const fileToDelete = userFiles.find((file) => {
-        const match = file.match(new RegExp(`^${userId}-(\\d+)\\..+`));
-        return match && parseInt(match[1]) === indexToDelete;
-      });
-
-      if (!fileToDelete) {
-        return `未找到编号为 ${indexToDelete} 的背景图片。`;
-      }
-
-      try {
-        await fs.unlink(path.join(messageCounterBarBgImgsPath, fileToDelete));
-        return `已成功删除编号为 ${indexToDelete} 的背景图片。`;
-      } catch (error) {
-        logger.error(
-          `为用户 ${userId} 删除背景图片 ${fileToDelete} 失败:`,
-          error
-        );
-        return "删除图片时发生错误，请联系管理员。";
+        const userMessage =
+          error instanceof Error
+            ? error.message
+            : "图片保存时发生未知错误，请联系管理员。";
+        return `图片上传失败: ${userMessage}\n您之前的自定义背景（如有）已被移除。`;
       }
     });
 
@@ -1702,7 +1651,7 @@ export async function apply(ctx: Context, config: Config) {
     `;
   }
 
-    /**
+  /**
    * 准备图表的背景样式。
    * 修复了 responseType 配置项未被使用的问题。
    * @param config 插件配置对象。
@@ -1874,8 +1823,10 @@ export async function apply(ctx: Context, config: Config) {
         }
 
         function drawTextAndIcons(context, data, index, avgColor, barX, barY, barWidth, barHeight) {
-            context.font = "30px JMH, SJbangkaijianti, SJkaishu";
+            // 字体栈包含了用户选择的字体、插件内置字体和通用字体，以确保兼容性。
+            context.font = \`30px "\${config.chartNicknameFont}", SJbangkaijianti, JMH, SJkaishu, "Microsoft YaHei", sans-serif\`;
             const textY = barY + barHeight / 2 + 10.5;
+
 
             // 绘制发言次数和百分比
             let countText = data.count.toString();
@@ -1888,9 +1839,8 @@ export async function apply(ctx: Context, config: Config) {
             const countTextWidth = context.measureText(countText).width;
             const countTextX = barX + barWidth + 10;
             
-            // 检查文字是否会超出画布，如果会，则移入柱状条内并改变颜色
             if (countTextX + countTextWidth > context.canvas.width - 5) {
-                context.fillStyle = chooseTextColor(avgColor);
+                context.fillStyle = chooseColorAdjustmentMethod(avgColor);
                 context.textAlign = "right";
                 context.fillText(countText, barX + barWidth - 10, textY);
             } else {
@@ -1900,12 +1850,11 @@ export async function apply(ctx: Context, config: Config) {
             }
 
             // 绘制用户名（带截断）
-            context.fillStyle = chooseTextColor(avgColor);
-            context.font = "30px SJbangkaijianti, JMH, SJkaishu";
-            context.textAlign = "left";
+            context.fillStyle = chooseColorAdjustmentMethod(avgColor);
+            context.textAlign = "left"; // 重置对齐方式，以防被上一部分修改
 
             let nameText = data.name;
-            const maxNameWidth = barWidth - 60; // 留出空间给头像和边距
+            const maxNameWidth = barWidth - 60; 
             if (context.measureText(nameText).width > maxNameWidth) {
                 const ellipsis = "...";
                 while (context.measureText(nameText + ellipsis).width > maxNameWidth && nameText.length > 0) {
@@ -1986,15 +1935,91 @@ export async function apply(ctx: Context, config: Config) {
           return \`\${color}\${opacityHex}\`;
         }
 
-        function chooseTextColor(hexcolor) {
-            const { r, g, b } = hexToRgb(hexcolor);
-            const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
-            return (yiq >= 128) ? '#000000' : '#FFFFFF';
+        function chooseColorAdjustmentMethod(hexcolor) {
+            const rgb = hexToRgb(hexcolor)
+            const yiqBrightness = calculateYiqBrightness(rgb)
+            if (yiqBrightness > 0.2 && yiqBrightness < 0.8) {
+                return adjustColorHsl(hexcolor)
+            } else {
+                return adjustColorYiq(hexcolor)
+            }
+        }
+
+        function calculateYiqBrightness(rgb) {
+            return (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 / 255
+        }
+
+        function adjustColorYiq(hexcolor) {
+            const rgb = hexToRgb(hexcolor)
+            const yiqBrightness = calculateYiqBrightness(rgb)
+            return yiqBrightness >= 0.8 ? "#000000" : "#FFFFFF"
+        }
+
+        function adjustColorHsl(hexcolor) {
+            const rgb = hexToRgb(hexcolor)
+            let hsl = rgbToHsl(rgb.r, rgb.g, rgb.b)
+            hsl.l = hsl.l < 0.5 ? hsl.l + 0.3 : hsl.l - 0.3
+            hsl.s = hsl.s < 0.5 ? hsl.s + 0.3 : hsl.s - 0.3
+            const contrastRgb = hslToRgb(hsl.h, hsl.s, hsl.l)
+            return rgbToHex(contrastRgb.r, contrastRgb.g, contrastRgb.b)
         }
 
         function hexToRgb(hex) {
-            const bigint = parseInt(String(hex).replace("#", ""), 16);
-            return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
+            const sanitizedHex = String(hex).replace("#", "")
+            const bigint = parseInt(sanitizedHex, 16)
+            const r = (bigint >> 16) & 255
+            const g = (bigint >> 8) & 255
+            const b = bigint & 255
+            return {r, g, b}
+        }
+
+        function rgbToHsl(r, g, b) {
+            r /= 255, g /= 255, b /= 255
+            const max = Math.max(r, g, b), min = Math.min(r, g, b)
+            let h, s, l = (max + min) / 2
+            if (max === min) {
+                h = s = 0
+            } else {
+                const d = max - min
+                s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+                switch (max) {
+                    case r: h = (g - b) / d + (g < b ? 6 : 0); break
+                    case g: h = (b - r) / d + 2; break
+                    case b: h = (r - g) / d + 4; break
+                }
+                h /= 6
+            }
+            return {h, s, l}
+        }
+
+        function hslToRgb(h, s, l) {
+            let r, g, b
+            if (s === 0) {
+                r = g = b = l
+            } else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1
+                    if (t > 1) t -= 1
+                    if (t < 1 / 6) return p + (q - p) * 6 * t
+                    if (t < 1 / 2) return q
+                    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+                    return p
+                }
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+                const p = 2 * l - q
+                r = hue2rgb(p, q, h + 1 / 3)
+                g = hue2rgb(p, q, h)
+                b = hue2rgb(p, q, h - 1 / 3)
+            }
+            return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) }
+        }
+
+        function rgbToHex(r, g, b) {
+            const toHex = c => {
+                const hex = c.toString(16)
+                return hex.length === 1 ? "0" + hex : hex
+            }
+            return \`#\${toHex(r)}\${toHex(g)}\${toHex(b)}\`
         }
 
         async function getAverageColor(base64) {
@@ -2072,6 +2097,10 @@ export async function apply(ctx: Context, config: Config) {
           <title>排行榜</title>
           <style>${_getChartStyles()}</style>
           <style>${backgroundStyle}</style>
+          <!-- 修改：增强标题字体栈 -->
+          <style>
+            .ranking-title { font-family: "${chartConfig.chartTitleFont}", 'JMH', 'SJbangkaijianti', 'SJkaishu', "Microsoft YaHei", sans-serif; }
+          </style>
       </head>
       <body>
           <h1 class="ranking-title">${rankTimeTitle}</h1>
@@ -2134,6 +2163,8 @@ export async function apply(ctx: Context, config: Config) {
         horizontalBarBackgroundFullOpacity:
           config.horizontalBarBackgroundFullOpacity,
         isUserMessagePercentageVisible: config.isUserMessagePercentageVisible,
+        chartTitleFont: config.chartTitleFont,
+        chartNicknameFont: config.chartNicknameFont,
       };
 
       const htmlContent = _getChartHtmlContent({
