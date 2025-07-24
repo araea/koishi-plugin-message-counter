@@ -110,7 +110,7 @@ export const usage = `## 📝 注意事项
 
 const logger = new Logger("messageCounter");
 
-// --- 新增：定义字体选项常量 ---
+// --- 定义字体选项常量 ---
 const FONT_OPTIONS = [
   // 插件内置字体
   "JMH",
@@ -175,7 +175,7 @@ export interface Config {
   /** 自定义背景的 CSS 代码。 */
   backgroundValue: string;
 
-  // --- 新增：字体设置 ---
+  // --- 字体设置 ---
   /** 水平柱状图 - 标题的字体。 */
   chartTitleFont: string;
   /** 水平柱状图 - 成员昵称和发言次数的字体。 */
@@ -1733,66 +1733,140 @@ export async function apply(ctx: Context, config: Config) {
   type PeriodIdentifier = "daily" | "weekly" | "monthly" | "yearly";
 
   /**
-   * 检查并执行错过的重置任务
+   * 初始化重置状态，防止首次启动时发生破坏性数据清除。
+   * 此函数会在插件启动时运行，为每个周期检查并创建基准重置时间记录。
+   */
+  async function initializeResetStates() {
+    logger.info("正在初始化并验证发言计数器的重置状态...");
+    const now = new Date();
+    const state = await ctx.database.get("message_counter_state", {});
+    const stateMap = new Map(state.map((s) => [s.key, s.value]));
+
+    const periods: PeriodIdentifier[] = [
+      "daily",
+      "weekly",
+      "monthly",
+      "yearly",
+    ];
+
+    for (const period of periods) {
+      const key = `last_${period}_reset`;
+      if (!stateMap.has(key)) {
+        // 如果状态不存在，说明是首次运行或数据被清除。
+        // 我们不执行重置，而是创建一个安全的基准时间点。
+        let baselineDate: Date;
+        switch (period) {
+          case "daily":
+            baselineDate = new Date();
+            baselineDate.setHours(0, 0, 0, 0);
+            break;
+          case "weekly":
+            baselineDate = new Date(now);
+            baselineDate.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+            baselineDate.setHours(0, 0, 0, 0);
+            break;
+          case "monthly":
+            baselineDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            baselineDate.setHours(0, 0, 0, 0);
+            break;
+          case "yearly":
+            baselineDate = new Date(now.getFullYear(), 0, 1);
+            baselineDate.setHours(0, 0, 0, 0);
+            break;
+        }
+
+        await ctx.database.upsert("message_counter_state", [
+          { key, value: baselineDate },
+        ]);
+        logger.info(
+          `已为 '${period}' 周期初始化重置状态，基准时间：${baselineDate.toISOString()}`
+        );
+      }
+    }
+    logger.info("所有周期的重置状态已验证完毕。");
+  }
+
+  /**
+   * 检查指定周期的重置任务是否应该执行。
+   * 通过查询数据库中的最后重置时间，并与当前周期的起始时间对比，来防止重复执行。
+   * @param period 要检查的周期 ('daily', 'weekly', 'monthly', 'yearly')。
+   * @returns 如果需要重置，则返回 true；否则返回 false。
+   */
+  async function isResetDue(period: PeriodIdentifier): Promise<boolean> {
+    const now = new Date();
+    const state = await ctx.database.get("message_counter_state", {
+      key: `last_${period}_reset`,
+    });
+    // 如果数据库中没有记录，则认为它从未重置过，使用一个很早的时间点。
+    const lastReset = state.length ? new Date(state[0].value) : new Date(0);
+
+    let periodStart: Date;
+
+    switch (period) {
+      case "daily":
+        periodStart = new Date();
+        periodStart.setHours(0, 0, 0, 0);
+        break;
+      case "weekly":
+        // 将日期设置为本周的周一。 (day + 6) % 7 是从周一算起的天数。
+        periodStart = new Date(now);
+        periodStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+        periodStart.setHours(0, 0, 0, 0);
+        break;
+      case "monthly":
+        periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        periodStart.setHours(0, 0, 0, 0);
+        break;
+      case "yearly":
+        periodStart = new Date(now.getFullYear(), 0, 1);
+        periodStart.setHours(0, 0, 0, 0);
+        break;
+    }
+
+    // 核心判断：如果上次重置时间早于当前周期的起始时间，那么就需要执行重置。
+    return lastReset < periodStart;
+  }
+
+  /**
+   * (修改) 检查并执行错过的重置任务
+   * 现在将使用 isResetDue() 来判断是否需要补上任务。
    */
   async function checkForMissedResets() {
     logger.info("正在检查错过的计数器重置任务...");
-    const now = new Date();
 
-    const state = await ctx.database.get("message_counter_state", {});
-    const stateMap = new Map(state.map((s) => [s.key, new Date(s.value)]));
+    // 定义任务，以便循环处理
+    const jobDefinitions: {
+      period: PeriodIdentifier;
+      field: CountField;
+      message: string;
+    }[] = [
+      {
+        period: "daily",
+        field: "todayPostCount",
+        message: "已补上错过的每日发言榜重置！",
+      },
+      {
+        period: "weekly",
+        field: "thisWeekPostCount",
+        message: "已补上错过的每周发言榜重置！",
+      },
+      {
+        period: "monthly",
+        field: "thisMonthPostCount",
+        message: "已补上错过的每月发言榜重置！",
+      },
+      {
+        period: "yearly",
+        field: "thisYearPostCount",
+        message: "已补上错过的每年发言榜重置！",
+      },
+    ];
 
-    // 每日检查
-    const lastDailyReset = stateMap.get("last_daily_reset") || new Date(0);
-    const lastMidnight = new Date();
-    lastMidnight.setHours(0, 0, 0, 0);
-    if (lastDailyReset < lastMidnight) {
-      logger.info("检测到错过的每日重置任务，正在执行...");
-      await resetCounter(
-        "todayPostCount",
-        "已补上错过的每日发言榜重置！",
-        "daily"
-      );
-    }
-
-    // 每周检查 (周一为一周开始)
-    const lastWeeklyReset = stateMap.get("last_weekly_reset") || new Date(0);
-    const lastMonday = new Date(now);
-    lastMonday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-    lastMonday.setHours(0, 0, 0, 0);
-    if (lastWeeklyReset < lastMonday) {
-      logger.info("检测到错过的每周重置任务，正在执行...");
-      await resetCounter(
-        "thisWeekPostCount",
-        "已补上错过的每周发言榜重置！",
-        "weekly"
-      );
-    }
-
-    // 每月检查
-    const lastMonthlyReset = stateMap.get("last_monthly_reset") || new Date(0);
-    const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    firstOfMonth.setHours(0, 0, 0, 0);
-    if (lastMonthlyReset < firstOfMonth) {
-      logger.info("检测到错过的每月重置任务，正在执行...");
-      await resetCounter(
-        "thisMonthPostCount",
-        "已补上错过的每月发言榜重置！",
-        "monthly"
-      );
-    }
-
-    // 每年检查
-    const lastYearlyReset = stateMap.get("last_yearly_reset") || new Date(0);
-    const firstOfYear = new Date(now.getFullYear(), 0, 1);
-    firstOfYear.setHours(0, 0, 0, 0);
-    if (lastYearlyReset < firstOfYear) {
-      logger.info("检测到错过的每年重置任务，正在执行...");
-      await resetCounter(
-        "thisYearPostCount",
-        "已补上错过的每年发言榜重置！",
-        "yearly"
-      );
+    for (const job of jobDefinitions) {
+      if (await isResetDue(job.period)) {
+        logger.info(`检测到错过的 ${job.period} 重置任务，正在执行...`);
+        await resetCounter(job.field, job.message, job.period);
+      }
     }
 
     logger.info("错过的计数器重置任务检查完毕。");
@@ -1838,7 +1912,10 @@ export async function apply(ctx: Context, config: Config) {
     await reloadIconCache();
     await reloadBarBgImgCache();
 
-    // 启动时检查并弥补错过的重置任务
+    // **核心修复**：首先执行非破坏性的状态初始化
+    await initializeResetStates();
+
+    // 然后，安全地检查并弥补真正错过的重置任务
     await checkForMissedResets();
 
     // --- 设置所有定时任务 ---
@@ -1911,7 +1988,12 @@ export async function apply(ctx: Context, config: Config) {
     ];
 
     jobs.forEach(({ cron, field, message, period }) => {
-      const task = ctx.cron(cron, () => resetCounter(field, message, period));
+      const task = ctx.cron(cron, async () => {
+        if (await isResetDue(period)) {
+          logger.info(`Cron 任务 '${period}' 已触发，开始执行重置。`);
+          await resetCounter(field, message, period);
+        }
+      });
       scheduledTasks.push(task);
     });
   });
