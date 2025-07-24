@@ -1407,9 +1407,9 @@ export async function apply(ctx: Context, config: Config) {
         const imageSizeInMB = buffer.byteLength / 1024 / 1024;
         if (config.maxBarBgSize > 0 && imageSizeInMB > config.maxBarBgSize) {
           throw new Error(
-            `图片文件过大（${imageSizeInMB.toFixed(
-              2
-            )}MB），请上传小于 ${config.maxBarBgSize}MB 的图片。`
+            `图片文件过大（${imageSizeInMB.toFixed(2)}MB），请上传小于 ${
+              config.maxBarBgSize
+            }MB 的图片。`
           );
         }
 
@@ -1477,8 +1477,242 @@ export async function apply(ctx: Context, config: Config) {
       return `资源重载完毕！\n- 已加载 ${iconCache.length} 个用户图标。\n- 已加载 ${barBgImgCache.length} 个柱状条背景图片。`;
     });
 
+  /**
+   * 为自动推送功能生成并发送排行榜。
+   * @param period - 排行榜的周期 ('today' 或 'yesterday')。
+   */
+  async function generateAndPushLeaderboard(period: "today" | "yesterday") {
+    logger.info(
+      `[自动推送] 开始执行 ${
+        period === "yesterday" ? "昨日" : "今日"
+      } 发言排行榜推送任务。`
+    );
+
+    const { field, name: periodName } = periodMapping[period];
+    const scopeName = "本群"; // 自动推送总是基于单个群聊的视角
+    const rankTimeTitle = getCurrentBeijingTime();
+
+    // 1. 确定需要推送的频道列表
+    let targetChannels = new Set<string>(config.pushChannelIds || []);
+    if (config.shouldSendLeaderboardNotificationsToAllChannels) {
+      try {
+        const guildPageResults = await Promise.all(ctx.bots.map(bot => bot.getGuildList()));
+        const allGuilds = guildPageResults.map(result => result.data).flat();
+        const allChannelIds = allGuilds.map(g => g.id);
+        const excluded = new Set(config.excludedLeaderboardChannels || []);
+        for (const id of allChannelIds) {
+          if (!excluded.has(id)) {
+            targetChannels.add(id);
+          }
+        }
+      } catch (error) {
+        logger.error("[自动推送] 获取所有群聊列表时出错:", error);
+      }
+    }
+
+    if (targetChannels.size === 0) {
+      logger.info("[自动推送] 没有配置任何需要推送的频道，任务结束。");
+      return;
+    }
+
+    logger.info(`[自动推送] 将向 ${targetChannels.size} 个频道进行推送。`);
+
+    // 2. 遍历频道并推送
+    for (const channelId of targetChannels) {
+      try {
+        // 2.1 获取该频道的发言记录
+        const records = await ctx.database.get("message_counter_records", {
+          channelId,
+        });
+
+        if (records.length === 0) {
+          logger.info(`[自动推送] 频道 ${channelId} 无发言记录，跳过。`);
+          continue;
+        }
+
+        // 2.2 聚合数据，生成排行榜
+        const userPostCounts: Dict<number> = {};
+        const userInfo: Dict<{ username: string; avatar: string }> = {};
+        let totalCount = 0;
+
+        for (const record of records) {
+          const count = (record[field] as number) || 0;
+          userPostCounts[record.userId] =
+            (userPostCounts[record.userId] || 0) + count;
+          if (!userInfo[record.userId]) {
+            userInfo[record.userId] = {
+              username: record.username,
+              avatar:
+                record.userAvatar ||
+                `https://q1.qlogo.cn/g?b=qq&nk=${record.userId}&s=640`,
+            };
+          }
+          totalCount += count;
+        }
+
+        const sortedUsers = Object.entries(userPostCounts).sort(
+          ([, a], [, b]) => b - a
+        );
+
+        if (sortedUsers.length === 0) {
+          logger.info(
+            `[自动推送] 频道 ${channelId} 在 ${periodName} 榜单上无有效数据，跳过。`
+          );
+          continue;
+        }
+
+        const rankingData = prepareRankingData(
+          sortedUsers,
+          userInfo,
+          totalCount,
+          config.defaultMaxDisplayCount
+        );
+
+        // 2.3 发送提示信息 (如果启用)
+        if (config.isGeneratingRankingListPromptVisible) {
+          await ctx.broadcast(
+            [channelId],
+            `正在为本群生成${periodName}发言排行榜...`
+          );
+          await sleep(config.leaderboardGenerationWaitTime * 1000);
+        }
+
+        // 2.4 渲染并发送排行榜
+        const rankTitle = `${scopeName}${periodName}发言排行榜`;
+        const renderedMessage = await renderLeaderboard({
+          rankTimeTitle,
+          rankTitle,
+          rankingData,
+        });
+        await ctx.broadcast([channelId], renderedMessage);
+
+        logger.success(
+          `[自动推送] 已成功向频道 ${channelId} 推送${periodName}排行榜。`
+        );
+
+        // 2.5 随机延迟，防止风控
+        const randomDelay =
+          Math.random() * config.groupPushDelayRandomizationSeconds;
+        const delay =
+          (config.delayBetweenGroupPushesInSeconds + randomDelay) * 1000;
+        if (delay > 0) {
+          await sleep(delay);
+        }
+      } catch (error) {
+        logger.error(`[自动推送] 向频道 ${channelId} 推送时发生错误:`, error);
+      }
+    }
+    logger.info(`[自动推送] 所有推送任务执行完毕。`);
+  }
+
+  /**
+   * 执行“抓龙王”禁言操作
+   */
+  async function performDragonKingMuting() {
+    if (
+      !config.enableMostActiveUserMuting ||
+      !config.muteChannelIds ||
+      config.muteChannelIds.length === 0
+    ) {
+      return;
+    }
+    logger.info("[抓龙王] 开始执行禁言任务。");
+
+    // 等待设定的延迟时间
+    await sleep(config.dragonKingDetainmentTime * 1000);
+
+    for (const channelId of config.muteChannelIds) {
+      try {
+        const records = await ctx.database.get("message_counter_records", {
+          channelId,
+          yesterdayPostCount: { $gt: 0 }, // 只查找昨日有发言的
+        });
+
+        if (records.length === 0) {
+          logger.info(`[抓龙王] 频道 ${channelId} 昨日无人发言，跳过。`);
+          continue;
+        }
+
+        // 找出昨日发言最多的人
+        const topUser = records.sort(
+          (a, b) => b.yesterdayPostCount - a.yesterdayPostCount
+        )[0];
+
+        if (!topUser) continue;
+
+        const durationInSeconds = config.detentionDuration * 24 * 60 * 60;
+
+        // 执行禁言
+        // 注意：需要机器人有对应权限。`ctx.broadcast` 会自动寻找合适的 bot 实例。
+        await ctx.broadcast(
+          [channelId],
+          h("mute", {
+            userId: topUser.userId,
+            duration: durationInSeconds * 1000,
+          })
+        );
+
+        logger.success(
+          `[抓龙王] 已在频道 ${channelId} 将昨日龙王 ${topUser.username} (${topUser.userId}) 禁言 ${config.detentionDuration} 天。`
+        );
+
+        // 发送通知
+        await ctx.broadcast(
+          [channelId],
+          `根据统计，昨日发言最多的是 ${h("at", {
+            id: topUser.userId,
+            name: topUser.username,
+          })}，现执行禁言 ${config.detentionDuration} 天。`
+        );
+      } catch (error) {
+        logger.error(`[抓龙王] 在频道 ${channelId} 执行禁言时出错:`, error);
+      }
+    }
+  }
+
   // --- 定时任务与重置逻辑 ---
   const scheduledJobs: schedule.Job[] = [];
+
+  // 在插件启动完成后设置定时任务
+  ctx.on("ready", () => {
+    // 1. 自动推送排行榜的定时任务
+    if (config.autoPush) {
+      // 每日 0 点推送昨日榜
+      if (config.shouldSendDailyLeaderboardAtMidnight) {
+        const job = schedule.scheduleJob("1 0 * * *", () =>
+          generateAndPushLeaderboard("yesterday")
+        ); // 在0点1分执行，确保数据已重置
+        scheduledJobs.push(job);
+        logger.info("[自动推送] 已设置每日 00:01 推送昨日排行榜的任务。");
+      }
+      // 其他时间点推送今日榜
+      (config.dailyScheduledTimers || []).forEach((time) => {
+        const match = /^([0-1]?[0-9]|2[0-3]):([0-5]?[0-9])$/.exec(time);
+        if (match) {
+          const [_, hour, minute] = match;
+          const cron = `${minute} ${hour} * * *`;
+          const job = schedule.scheduleJob(cron, () =>
+            generateAndPushLeaderboard("today")
+          );
+          scheduledJobs.push(job);
+          logger.info(`[自动推送] 已设置每日 ${time} 推送今日排行榜的任务。`);
+        } else {
+          logger.warn(
+            `[自动推送] 无效的时间格式: "${time}"，已跳过。请使用 "HH:mm" 格式。`
+          );
+        }
+      });
+    }
+
+    // 2. 抓龙王（禁言）的定时任务
+    if (config.enableMostActiveUserMuting) {
+      const job = schedule.scheduleJob("1 0 * * *", () =>
+        performDragonKingMuting()
+      ); // 同样在0点后稍作延迟执行
+      scheduledJobs.push(job);
+      logger.info("[抓龙王] 已设置每日 00:01 执行的禁言任务。");
+    }
+  });
 
   async function resetCounter(field: CountField, message: string) {
     if (
@@ -1580,7 +1814,7 @@ export async function apply(ctx: Context, config: Config) {
       currentChannelId &&
       topChannels.some(([channelId]) => channelId === currentChannelId);
 
-   // 如果当前群聊不在榜单上，则找到它的数据并直接追加到末尾
+    // 如果当前群聊不在榜单上，则找到它的数据并直接追加到末尾
     if (currentChannelId && !isCurrentInTop) {
       const currentChannelData = sortedChannels.find(
         ([channelId]) => channelId === currentChannelId
@@ -2104,7 +2338,9 @@ export async function apply(ctx: Context, config: Config) {
           <style>${backgroundStyle}</style>
           <!-- 修改：增强标题字体栈 -->
           <style>
-            .ranking-title { font-family: "${chartConfig.chartTitleFont}", 'JMH', 'SJbangkaijianti', 'SJkaishu', "Microsoft YaHei", sans-serif; }
+            .ranking-title { font-family: "${
+              chartConfig.chartTitleFont
+            }", 'JMH', 'SJbangkaijianti', 'SJkaishu', "Microsoft YaHei", sans-serif; }
           </style>
       </head>
       <body>
