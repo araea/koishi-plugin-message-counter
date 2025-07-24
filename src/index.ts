@@ -1828,7 +1828,7 @@ export async function apply(ctx: Context, config: Config) {
   }
 
   /**
-   * (修改) 检查并执行错过的重置任务
+   * 检查并执行错过的重置任务
    * 现在将使用 isResetDue() 来判断是否需要补上任务。
    */
   async function checkForMissedResets() {
@@ -1955,47 +1955,48 @@ export async function apply(ctx: Context, config: Config) {
     }
 
     // 3. 数据库重置的定时任务
-    const jobs: {
-      cron: string;
-      field: CountField;
-      message: string;
-      period: PeriodIdentifier;
-    }[] = [
-      {
-        cron: "0 0 * * *",
-        field: "todayPostCount",
-        message: "今日发言榜已成功置空！",
-        period: "daily",
-      },
-      {
-        cron: "0 0 * * 1",
-        field: "thisWeekPostCount",
-        message: "本周发言榜已成功置空！",
-        period: "weekly",
-      },
-      {
-        cron: "0 0 1 * *",
-        field: "thisMonthPostCount",
-        message: "本月发言榜已成功置空！",
-        period: "monthly",
-      },
-      {
-        cron: "0 0 1 1 *",
-        field: "thisYearPostCount",
-        message: "今年发言榜已成功置空！",
-        period: "yearly",
-      },
-    ];
+    const resetTask = ctx.cron("0 0 * * *", async () => {
+      const now = new Date();
+      const dayOfMonth = now.getDate();
+      const month = now.getMonth(); // 0-11
+      const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday
 
-    jobs.forEach(({ cron, field, message, period }) => {
-      const task = ctx.cron(cron, async () => {
-        if (await isResetDue(period)) {
-          logger.info(`Cron 任务 '${period}' 已触发，开始执行重置。`);
-          await resetCounter(field, message, period);
-        }
-      });
-      scheduledTasks.push(task);
+      // 每日重置 (总是执行)
+      // resetCounter 内部会自动备份昨日数据
+      await resetCounter("todayPostCount", "今日发言榜已成功置空！", "daily");
+
+      // 每周重置 (在周一 00:00 执行)
+      // 注意：getDay() 中 0 代表周日，1 代表周一。根据 cron "0 0 * * 1" 的含义，应在周一时重置。
+      if (dayOfWeek === 1) {
+        await resetCounter(
+          "thisWeekPostCount",
+          "本周发言榜已成功置空！",
+          "weekly"
+        );
+      }
+
+      // 每月重置 (在每月1号 00:00 执行)
+      if (dayOfMonth === 1) {
+        await resetCounter(
+          "thisMonthPostCount",
+          "本月发言榜已成功置空！",
+          "monthly"
+        );
+      }
+
+      // 每年重置 (在1月1号 00:00 执行)
+      if (dayOfMonth === 1 && month === 0) {
+        await resetCounter(
+          "thisYearPostCount",
+          "今年发言榜已成功置空！",
+          "yearly"
+        );
+      }
     });
+
+    // 将这一个统一的任务添加到待清理列表
+    scheduledTasks.push(resetTask);
+    logger.info("已设置统一的每日、周、月、年数据重置任务。");
   });
 
   // --- 资源清理 ---
