@@ -1481,6 +1481,10 @@ export async function apply(ctx: Context, config: Config) {
    * 为自动推送功能生成并发送排行榜。
    * @param period - 排行榜的周期 ('today' 或 'yesterday')。
    */
+  /**
+   * 为自动推送功能生成并发送排行榜。
+   * @param period - 排行榜的周期 ('today' 或 'yesterday')。
+   */
   async function generateAndPushLeaderboard(period: "today" | "yesterday") {
     logger.info(
       `[自动推送] 开始执行 ${
@@ -1492,17 +1496,44 @@ export async function apply(ctx: Context, config: Config) {
     const scopeName = "本群"; // 自动推送总是基于单个群聊的视角
     const rankTimeTitle = getCurrentBeijingTime();
 
-    // 1. 确定需要推送的频道列表
-    let targetChannels = new Set<string>(config.pushChannelIds || []);
+    // 1. 确定需要推送的频道列表（使用 Set 自动去重）
+    // targetChannels 将存储带平台前缀的ID，例如 "onebot:12345678"
+    const targetChannels = new Set<string>(config.pushChannelIds || []);
     if (config.shouldSendLeaderboardNotificationsToAllChannels) {
       try {
-        const guildPageResults = await Promise.all(ctx.bots.map(bot => bot.getGuildList()));
-        const allGuilds = guildPageResults.map(result => result.data).flat();
-        const allChannelIds = allGuilds.map(g => g.id);
+        // 遍历所有机器人实例，获取它们各自的群列表
+        const guildListPromises = ctx.bots.map(async (bot) => {
+          // 确保机器人实例在线且支持获取群列表
+          if (!bot.online || !bot.getGuildList) return [];
+          const prefixedIds: string[] = [];
+          let next: string | undefined;
+          // 处理分页，确保获取所有群
+          do {
+            const result = await bot.getGuildList(next);
+            result.data.forEach((guild) => {
+              // 为每个群号添加平台前缀
+              prefixedIds.push(`${bot.platform}:${guild.id}`);
+            });
+            next = result.next;
+          } while (next);
+          return prefixedIds;
+        });
+
+        const allPrefixedIdsNested = await Promise.all(guildListPromises);
+        const allPrefixedIds = allPrefixedIdsNested.flat();
+
+        // 将所有获取到的带前缀的群号添加到目标集合中
+        allPrefixedIds.forEach((id) => targetChannels.add(id));
+
+        // 应用排除列表
         const excluded = new Set(config.excludedLeaderboardChannels || []);
-        for (const id of allChannelIds) {
-          if (!excluded.has(id)) {
-            targetChannels.add(id);
+        if (excluded.size > 0) {
+          for (const id of Array.from(targetChannels)) {
+            // 兼容带前缀和不带前缀的排除项
+            const unprefixedId = id.slice(id.indexOf(":") + 1);
+            if (excluded.has(id) || excluded.has(unprefixedId)) {
+              targetChannels.delete(id);
+            }
           }
         }
       } catch (error) {
@@ -1518,15 +1549,24 @@ export async function apply(ctx: Context, config: Config) {
     logger.info(`[自动推送] 将向 ${targetChannels.size} 个频道进行推送。`);
 
     // 2. 遍历频道并推送
-    for (const channelId of targetChannels) {
+    for (const prefixedChannelId of targetChannels) {
       try {
-        // 2.1 获取该频道的发言记录
+        // 从带前缀的ID中提取不带前缀的ID，用于数据库查询
+        const platformSeparatorIndex = prefixedChannelId.indexOf(":");
+        const channelId =
+          platformSeparatorIndex === -1
+            ? prefixedChannelId
+            : prefixedChannelId.substring(platformSeparatorIndex + 1);
+
+        // 2.1 获取该频道的发言记录 (使用不带前缀的ID)
         const records = await ctx.database.get("message_counter_records", {
           channelId,
         });
 
         if (records.length === 0) {
-          logger.info(`[自动推送] 频道 ${channelId} 无发言记录，跳过。`);
+          logger.info(
+            `[自动推送] 频道 ${prefixedChannelId} 无发言记录，跳过。`
+          );
           continue;
         }
 
@@ -1550,13 +1590,13 @@ export async function apply(ctx: Context, config: Config) {
           totalCount += count;
         }
 
-        const sortedUsers = Object.entries(userPostCounts).sort(
-          ([, a], [, b]) => b - a
-        );
+        const sortedUsers = Object.entries(userPostCounts)
+          .filter(([, count]) => count > 0) // 仅推送有发言的榜单
+          .sort(([, a], [, b]) => b - a);
 
         if (sortedUsers.length === 0) {
           logger.info(
-            `[自动推送] 频道 ${channelId} 在 ${periodName} 榜单上无有效数据，跳过。`
+            `[自动推送] 频道 ${prefixedChannelId} 在 ${periodName} 榜单上无有效数据，跳过。`
           );
           continue;
         }
@@ -1568,26 +1608,26 @@ export async function apply(ctx: Context, config: Config) {
           config.defaultMaxDisplayCount
         );
 
-        // 2.3 发送提示信息 (如果启用)
+        // 2.3 发送提示信息 (如果启用，使用带前缀的ID进行广播)
         if (config.isGeneratingRankingListPromptVisible) {
           await ctx.broadcast(
-            [channelId],
+            [prefixedChannelId],
             `正在为本群生成${periodName}发言排行榜...`
           );
           await sleep(config.leaderboardGenerationWaitTime * 1000);
         }
 
-        // 2.4 渲染并发送排行榜
+        // 2.4 渲染并发送排行榜 (使用带前缀的ID进行广播)
         const rankTitle = `${scopeName}${periodName}发言排行榜`;
         const renderedMessage = await renderLeaderboard({
           rankTimeTitle,
           rankTitle,
           rankingData,
         });
-        await ctx.broadcast([channelId], renderedMessage);
+        await ctx.broadcast([prefixedChannelId], renderedMessage);
 
         logger.success(
-          `[自动推送] 已成功向频道 ${channelId} 推送${periodName}排行榜。`
+          `[自动推送] 已成功向频道 ${prefixedChannelId} 推送${periodName}排行榜。`
         );
 
         // 2.5 随机延迟，防止风控
@@ -1599,7 +1639,10 @@ export async function apply(ctx: Context, config: Config) {
           await sleep(delay);
         }
       } catch (error) {
-        logger.error(`[自动推送] 向频道 ${channelId} 推送时发生错误:`, error);
+        logger.error(
+          `[自动推送] 向频道 ${prefixedChannelId} 推送时发生错误:`,
+          error
+        );
       }
     }
     logger.info(`[自动推送] 所有推送任务执行完毕。`);
