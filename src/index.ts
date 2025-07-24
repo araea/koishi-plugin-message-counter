@@ -188,6 +188,12 @@ export interface Config {
   // -- 自动推送详细选项 --
   /** 是否在每日 0 点自动发送昨日排行榜。 */
   shouldSendDailyLeaderboardAtMidnight: boolean;
+  /** 是否在每周一 0 点自动发送上周排行榜。 */
+  shouldSendWeeklyLeaderboard: boolean;
+  /** 是否在每月第一天 0 点自动发送上月排行榜。 */
+  shouldSendMonthlyLeaderboard: boolean;
+  /** 是否在每年第一天 0 点自动发送去年排行榜。 */
+  shouldSendYearlyLeaderboard: boolean;
   /** 其他定时发送今日排行榜的时间点（24小时制）。 */
   dailyScheduledTimers: string[];
   /** 发送排行榜前是否发送提示消息。 */
@@ -358,6 +364,18 @@ export const Config: Schema<Config> = Schema.intersect([
         shouldSendDailyLeaderboardAtMidnight: Schema.boolean()
           .default(true)
           .description("是否在每日 0 点自动发送昨日排行榜。"),
+        /** 每周排行榜推送配置 */
+        shouldSendWeeklyLeaderboard: Schema.boolean()
+          .default(false)
+          .description("是否在每周一 0 点自动发送上周排行榜。"),
+        /** 每月排行榜推送配置 */
+        shouldSendMonthlyLeaderboard: Schema.boolean()
+          .default(false)
+          .description("是否在每月第一天 0 点自动发送上月排行榜。"),
+        /** 每年排行榜推送配置 */
+        shouldSendYearlyLeaderboard: Schema.boolean()
+          .default(false)
+          .description("是否在每年第一天 0 点自动发送去年排行榜。"),
         dailyScheduledTimers: Schema.array(String)
           .role("table")
           .description(
@@ -710,70 +728,35 @@ export async function apply(ctx: Context, config: Config) {
     .option("yag", "跨群本年发言")
     .option("across", "-a 跨群总发言")
     .action(async ({ session, options }, targetUser) => {
-      // 初始化所有选项为 false
-      const selectedOptions = {
-        day: false,
-        week: false,
-        month: false,
-        year: false,
-        total: false,
-        yesterday: false,
-        across: false,
-        dag: false,
-        wag: false,
-        mag: false,
-        yag: false,
-        ydag: false,
-      };
+      const optionKeys = [
+        "day",
+        "week",
+        "month",
+        "year",
+        "total",
+        "yesterday",
+        "across",
+        "dag",
+        "wag",
+        "mag",
+        "yag",
+        "ydag",
+      ];
+      const selectedOptions: Dict<boolean> = {};
+      let noOptionSelected = true;
 
-      // 检查用户选择的选项，如果存在则将其设置为 true
-      if (options?.day) {
-        selectedOptions.day = true;
-      }
-      if (options?.week) {
-        selectedOptions.week = true;
-      }
-      if (options?.month) {
-        selectedOptions.month = true;
-      }
-      if (options?.year) {
-        selectedOptions.year = true;
-      }
-      if (options?.total) {
-        selectedOptions.total = true;
-      }
-      if (options?.yesterday) {
-        selectedOptions.yesterday = true;
-      }
-      if (options?.across) {
-        selectedOptions.across = true;
-      }
-      if (options?.dag) {
-        selectedOptions.dag = true;
-      }
-      if (options?.wag) {
-        selectedOptions.wag = true;
-      }
-      if (options?.mag) {
-        selectedOptions.mag = true;
-      }
-      if (options?.yag) {
-        selectedOptions.yag = true;
-      }
-      if (options?.ydag) {
-        selectedOptions.ydag = true;
-      }
-
-      // 如果没有选项被选择，则将所有选项设置为 true
-      const allOptionsSelected = Object.values(selectedOptions).every(
-        (value) => value === false
-      );
-      if (allOptionsSelected) {
-        (
-          Object.keys(selectedOptions) as Array<keyof typeof selectedOptions>
-        ).forEach((key) => {
+      for (const key of optionKeys) {
+        if (options[key]) {
           selectedOptions[key] = true;
-        });
+          noOptionSelected = false;
+        }
+      }
+
+      // 如果没有任何选项被选择，则默认全选
+      if (noOptionSelected) {
+        for (const key of optionKeys) {
+          selectedOptions[key] = true;
+        }
       }
 
       const {
@@ -789,8 +772,7 @@ export async function apply(ctx: Context, config: Config) {
         yag,
         mag,
         ydag,
-      } = selectedOptions;
-      // selectedOptions 对象包含了用户选择的选项
+      } = selectedOptions; // selectedOptions 对象包含了用户选择的选项
 
       // 查询： 直接获取 返回提示 跨群总榜
       let channelId = session?.channelId;
@@ -1481,22 +1463,25 @@ export async function apply(ctx: Context, config: Config) {
       return `资源重载完毕！\n- 已加载 ${iconCache.length} 个用户图标。\n- 已加载 ${barBgImgCache.length} 个柱状条背景图片。`;
     });
 
-  /**
-   * 为自动推送功能生成并发送排行榜。
-   * @param period - 排行榜的周期 ('today' 或 'yesterday')。
-   */
-  /**
-   * 为自动推送功能生成并发送排行榜。
-   * @param period - 排行榜的周期 ('today' 或 'yesterday')。
-   */
-  async function generateAndPushLeaderboard(period: "today" | "yesterday") {
-    logger.info(
-      `[自动推送] 开始执行 ${
-        period === "yesterday" ? "昨日" : "今日"
-      } 发言排行榜推送任务。`
-    );
+  type PushPeriod = "today" | "yesterday" | "week" | "month" | "year";
 
-    const { field, name: periodName } = periodMapping[period];
+  /**
+   * 为自动推送功能生成并发送排行榜。
+   * @param period - 排行榜的周期 ('today' 或 'yesterday')。
+   */
+  async function generateAndPushLeaderboard(period: PushPeriod) {
+    const pushPeriodConfig = {
+      today: { field: "todayPostCount", name: "今日" },
+      yesterday: { field: "yesterdayPostCount", name: "昨日" },
+      week: { field: "thisWeekPostCount", name: "上周" },
+      month: { field: "thisMonthPostCount", name: "上月" },
+      year: { field: "thisYearPostCount", name: "去年" },
+    } as const; // 使用 as const 保证类型安全
+
+    const { field, name: periodName } = pushPeriodConfig[period];
+
+    logger.info(`[自动推送] 开始执行 ${periodName} 发言排行榜推送任务。`);
+
     const scopeName = "本群"; // 自动推送总是基于单个群聊的视角
     const rankTimeTitle = getCurrentBeijingTime();
 
@@ -1564,17 +1549,15 @@ export async function apply(ctx: Context, config: Config) {
 
     logger.info(`[自动推送] 将向 ${targetChannels.size} 个频道进行推送。`);
 
-    // 3. 遍历频道并推送 (此部分逻辑无需修改)
+    // 3. 遍历频道并推送 (修改点在于 field 和 periodName 已被通用化)
     for (const prefixedChannelId of targetChannels) {
       try {
-        // 从带前缀的ID中提取不带前缀的ID，用于数据库查询
         const platformSeparatorIndex = prefixedChannelId.indexOf(":");
         const channelId =
           platformSeparatorIndex === -1
             ? prefixedChannelId
             : prefixedChannelId.substring(platformSeparatorIndex + 1);
 
-        // 3.1 获取该频道的发言记录
         const records = await ctx.database.get("message_counter_records", {
           channelId,
         });
@@ -1586,13 +1569,13 @@ export async function apply(ctx: Context, config: Config) {
           continue;
         }
 
-        // 3.2 聚合数据，生成排行榜
+        // 聚合数据时，使用我们动态选择的 `field`
         const userPostCounts: Dict<number> = {};
         const userInfo: Dict<{ username: string; avatar: string }> = {};
         let totalCount = 0;
 
         for (const record of records) {
-          const count = (record[field] as number) || 0;
+          const count = (record[field] as number) || 0; // 读取正确的周期数据
           userPostCounts[record.userId] =
             (userPostCounts[record.userId] || 0) + count;
           if (!userInfo[record.userId]) {
@@ -1607,7 +1590,7 @@ export async function apply(ctx: Context, config: Config) {
         }
 
         const sortedUsers = Object.entries(userPostCounts)
-          .filter(([, count]) => count > 0) // 仅推送有发言的榜单
+          .filter(([, count]) => count > 0)
           .sort(([, a], [, b]) => b - a);
 
         if (sortedUsers.length === 0) {
@@ -1624,7 +1607,6 @@ export async function apply(ctx: Context, config: Config) {
           config.defaultMaxDisplayCount
         );
 
-        // 3.3 发送提示信息
         if (config.isGeneratingRankingListPromptVisible) {
           await ctx.broadcast(
             [prefixedChannelId],
@@ -1633,7 +1615,7 @@ export async function apply(ctx: Context, config: Config) {
           await sleep(config.leaderboardGenerationWaitTime * 1000);
         }
 
-        // 3.4 渲染并发送排行榜
+        // 渲染时，使用我们动态选择的 `periodName`
         const rankTitle = `${scopeName}${periodName}发言排行榜`;
         const renderedMessage = await renderLeaderboard({
           rankTimeTitle,
@@ -1646,7 +1628,6 @@ export async function apply(ctx: Context, config: Config) {
           `[自动推送] 已成功向频道 ${prefixedChannelId} 推送${periodName}排行榜。`
         );
 
-        // 3.5 随机延迟，防止风控
         const randomDelay =
           Math.random() * config.groupPushDelayRandomizationSeconds;
         const delay =
@@ -1912,10 +1893,10 @@ export async function apply(ctx: Context, config: Config) {
     await reloadIconCache();
     await reloadBarBgImgCache();
 
-    // **核心修复**：首先执行非破坏性的状态初始化
+    // 执行非破坏性的状态初始化
     await initializeResetStates();
 
-    // 然后，安全地检查并弥补真正错过的重置任务
+    // 安全地检查并弥补真正错过的重置任务
     await checkForMissedResets();
 
     // --- 设置所有定时任务 ---
@@ -1954,19 +1935,50 @@ export async function apply(ctx: Context, config: Config) {
       logger.info("[抓龙王] 已设置每日 00:01 执行的禁言任务。");
     }
 
-    // 3. 数据库重置的定时任务
+    // 3. 统一的推送与数据库重置定时任务
+    // 此任务在每天 00:00 执行
     const resetTask = ctx.cron("0 0 * * *", async () => {
       const now = new Date();
       const dayOfMonth = now.getDate();
       const month = now.getMonth(); // 0-11
       const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday
 
-      // 每日重置 (总是执行)
-      // resetCounter 内部会自动备份昨日数据
+      // --- 周期性推送 (在数据重置之前执行) ---
+
+      // 在每年1月1日 00:00，重置年度数据前，推送去年的排行榜
+      if (
+        config.autoPush &&
+        config.shouldSendYearlyLeaderboard &&
+        dayOfMonth === 1 &&
+        month === 0
+      ) {
+        await generateAndPushLeaderboard("year");
+      }
+
+      // 在每月1日 00:00，重置月度数据前，推送上个月的排行榜
+      if (
+        config.autoPush &&
+        config.shouldSendMonthlyLeaderboard &&
+        dayOfMonth === 1
+      ) {
+        await generateAndPushLeaderboard("month");
+      }
+
+      // 在每周一 00:00，重置周数据前，推送上一周的排行榜
+      if (
+        config.autoPush &&
+        config.shouldSendWeeklyLeaderboard &&
+        dayOfWeek === 1
+      ) {
+        await generateAndPushLeaderboard("week");
+      }
+
+      // --- 数据重置 (在周期性推送之后执行) ---
+
+      // 每日重置 (总是执行), 它会先把 today 备份到 yesterday
       await resetCounter("todayPostCount", "今日发言榜已成功置空！", "daily");
 
       // 每周重置 (在周一 00:00 执行)
-      // 注意：getDay() 中 0 代表周日，1 代表周一。根据 cron "0 0 * * 1" 的含义，应在周一时重置。
       if (dayOfWeek === 1) {
         await resetCounter(
           "thisWeekPostCount",
@@ -1996,7 +2008,7 @@ export async function apply(ctx: Context, config: Config) {
 
     // 将这一个统一的任务添加到待清理列表
     scheduledTasks.push(resetTask);
-    logger.info("已设置统一的每日、周、月、年数据重置任务。");
+    logger.info("已设置统一的推送与数据重置任务（每日、周、月、年）。");
   });
 
   // --- 资源清理 ---
