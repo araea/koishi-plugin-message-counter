@@ -587,7 +587,7 @@ export async function apply(ctx: Context, config: Config) {
 
     const { userId, channelId, author, guildId } = session;
     let sessionChannelName = session.event.channel.name;
-    const username = author?.name || author?.nick || userId;
+    const username = author?.nick || author?.name || userId;
     const userAvatar = author?.avatar;
 
     try {
@@ -1580,6 +1580,7 @@ export async function apply(ctx: Context, config: Config) {
       currentChannelId &&
       topChannels.some(([channelId]) => channelId === currentChannelId);
 
+   // 如果当前群聊不在榜单上，则找到它的数据并直接追加到末尾
     if (currentChannelId && !isCurrentInTop) {
       const currentChannelData = sortedChannels.find(
         ([channelId]) => channelId === currentChannelId
@@ -1590,7 +1591,10 @@ export async function apply(ctx: Context, config: Config) {
     }
 
     return topChannels.map(([channelId, count]) => ({
-      name: channelInfo[channelId]?.channelName || `群聊${channelId}`,
+      // 增加★高亮当前群聊
+      name:
+        (channelId === currentChannelId ? "★" : "") +
+        (channelInfo[channelId]?.channelName || `群聊${channelId}`),
       // 使用 channelId 作为 RankingData 的 userId 和头像源
       userId: channelId,
       avatar: `https://p.qlogo.cn/gh/${
@@ -2384,6 +2388,7 @@ export async function apply(ctx: Context, config: Config) {
     const isRequesterInTop =
       requesterId && topUsers.some(([userId]) => userId === requesterId);
 
+    // 如果指令发送者不在榜单上，则找到他的数据并直接追加到末尾
     if (requesterId && !isRequesterInTop) {
       const requesterData = sortedUsers.find(
         ([userId]) => userId === requesterId
@@ -2394,7 +2399,8 @@ export async function apply(ctx: Context, config: Config) {
     }
 
     return topUsers.map(([userId, count]) => ({
-      name: userInfo[userId].username,
+      // 增加★高亮指令发送者
+      name: (userId === requesterId ? "★" : "") + userInfo[userId].username,
       userId: userId,
       avatar: userInfo[userId].avatar,
       count,
