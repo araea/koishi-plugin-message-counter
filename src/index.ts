@@ -1,6 +1,6 @@
 import { Context, h, Logger, Schema, sleep, Bot, Dict, $ } from "koishi";
-import schedule from "node-schedule";
 import {} from "koishi-plugin-markdown-to-image-service";
+import {} from "koishi-plugin-cron";
 import {} from "koishi-plugin-puppeteer";
 import path from "path";
 import {} from "@koishijs/canvas";
@@ -9,7 +9,7 @@ import { constants as fsConstants } from "fs";
 
 export const name = "message-counter";
 export const inject = {
-  required: ["database"],
+  required: ["database", "cron"],
   optional: ["markdownToImage", "puppeteer", "canvas"],
 };
 
@@ -22,22 +22,24 @@ export const usage = `## 📝 注意事项
 
 ### \`messageCounter.查询 [指定用户]\`
 
-查询指定用户的发言次数信息（次数[排名]）。
+查询指定用户的发言次数信息（次数[排名]）。若不带任何选项，则显示所有时段的数据。
 
 **选项:**
 
 | 参数 | 说明 |
 |------|------|
-| \`-d, --yesterday\` | 昨日发言次数[排名] |
-| \`-w\` | 本周发言次数[排名] |
-| \`-m\` | 本月发言次数[排名] |
-| \`-y\` | 今年发言次数[排名] |
-| \`-t\` | 总发言次数[排名] |
-| \`-a, --dag\` | 跨群今日发言次数[排名] |
+| \`-d, --day\` | 今日发言次数[排名] |
+| \`--yd, --yesterday\` | 昨日发言次数[排名] |
+| \`-w, --week\` | 本周发言次数[排名] |
+| \`-m, --month\` | 本月发言次数[排名] |
+| \`-y, --year\` | 今年发言次数[排名] |
+| \`-t, --total\` | 总发言次数[排名] |
+| \`--dag\` | 跨群今日发言次数[排名] |
 | \`--ydag\` | 跨群昨日发言次数[排名] |
 | \`--wag\` | 跨群本周发言次数[排名] |
 | \`--mag\` | 跨群本月发言次数[排名] |
-| \`--yag\` | 跨群今年发言次数[排名] |
+| \`--yag\` | 跨群本年发言次数[排名] |
+| \`-a, --across\` | 跨群总发言次数[排名] |
 
 ### \`messageCounter.排行榜 [显示的人数]\`
 
@@ -47,7 +49,7 @@ export const usage = `## 📝 注意事项
 
 | 参数 | 说明 |
 |------|------|
-| \`-d, --yesterday\` | 昨日发言排行榜 |
+| \`--yd, --yesterday\` | 昨日发言排行榜 |
 | \`-w\` | 本周发言排行榜 |
 | \`-m\` | 本月发言排行榜 |
 | \`-y\` | 今年发言排行榜 |
@@ -69,7 +71,7 @@ export const usage = `## 📝 注意事项
 
 | 参数 | 说明 |
 |------|------|
-| \`-d, --yesterday\` | 昨日发言排行榜 |
+| \`--yd, --yesterday\` | 昨日发言排行榜 |
 | \`-w, -m, -y, -t\` | 本周/本月/今年/总发言排行榜 |
 | \`-s\` | 指定用户的群发言排行榜 |
 | \`--whites\` | 白名单，只显示白名单群 |
@@ -128,8 +130,6 @@ export interface Config {
   // --- 核心功能 ---
   /** 是否统计 Bot 自己发送的消息。 */
   isBotMessageTrackingEnabled: boolean;
-  /** 是否禁用昨日发言排行榜，以解决潜在的 0 点卡顿问题。 */
-  isYesterdayCommentRankingDisabled: boolean;
 
   // --- 排行榜设置 ---
   /** 排行榜默认显示的人数。 */
@@ -224,11 +224,6 @@ export const Config: Schema<Config> = Schema.intersect([
     isBotMessageTrackingEnabled: Schema.boolean()
       .default(false)
       .description("是否统计 Bot 自己发送的消息。"),
-    isYesterdayCommentRankingDisabled: Schema.boolean()
-      .default(false)
-      .description(
-        "是否禁用昨日发言排行榜。开启后可用于解决群组消息过多导致的每日 0 点卡顿问题。"
-      ),
   }).description("核心功能"),
 
   // 排行榜基础设置
@@ -432,6 +427,7 @@ export const Config: Schema<Config> = Schema.intersect([
 declare module "koishi" {
   interface Tables {
     message_counter_records: MessageCounterRecord;
+    message_counter_state: MessageCounterState;
   }
 }
 
@@ -454,6 +450,11 @@ interface MessageCounterRecord {
   thisYearPostCount: number;
   totalPostCount: number;
   yesterdayPostCount: number;
+}
+
+interface MessageCounterState {
+  key: string;
+  value: Date;
 }
 
 interface RankingData {
@@ -551,12 +552,6 @@ export async function apply(ctx: Context, config: Config) {
     logger.info(`Reloaded ${barBgImgCache.length} bar background images.`);
   };
 
-  // 启动时加载缓存
-  ctx.on("ready", async () => {
-    await reloadIconCache();
-    await reloadBarBgImgCache();
-  });
-
   // --- 数据库表定义 ---
   ctx.model.extend(
     "message_counter_records",
@@ -575,6 +570,15 @@ export async function apply(ctx: Context, config: Config) {
       yesterdayPostCount: "unsigned",
     },
     { primary: "id", autoInc: true }
+  );
+
+  ctx.model.extend(
+    "message_counter_state",
+    {
+      key: "string",
+      value: "timestamp",
+    },
+    { primary: "key" }
   );
 
   // 限定在群组中
@@ -693,7 +697,7 @@ export async function apply(ctx: Context, config: Config) {
       "查询指定用户的发言次数信息"
     )
     .userFields(["id", "name"])
-    .option("yesterday", "-yd 昨日发言")
+    .option("yesterday", "--yd 昨日发言")
     .option("day", "-d 今日发言")
     .option("week", "-w 本周发言")
     .option("month", "-m 本月发言")
@@ -1176,7 +1180,7 @@ export async function apply(ctx: Context, config: Config) {
     .userFields(["id", "name"])
     .option("whites", "<users:text> 白名单，用空格、逗号等分隔")
     .option("blacks", "<users:text> 黑名单，用空格、逗号等分隔")
-    .option("yesterday", "-yd")
+    .option("yesterday", "--yd")
     .option("day", "-d")
     .option("week", "-w")
     .option("month", "-m")
@@ -1274,7 +1278,7 @@ export async function apply(ctx: Context, config: Config) {
     .option("specificUser", "-s <user:text> 特定用户的群发言榜")
     .option("whites", "<channels:text> 白名单群号")
     .option("blacks", "<channels:text> 黑名单群号")
-    .option("yesterday", "-yd")
+    .option("yesterday", "--yd")
     .option("day", "-d")
     .option("week", "-w")
     .option("month", "-m")
@@ -1725,31 +1729,138 @@ export async function apply(ctx: Context, config: Config) {
     }
   }
 
-  // --- 定时任务与重置逻辑 ---
-  const scheduledJobs: schedule.Job[] = [];
+  const scheduledTasks: (() => void)[] = [];
+  type PeriodIdentifier = "daily" | "weekly" | "monthly" | "yearly";
+
+  /**
+   * 检查并执行错过的重置任务
+   */
+  async function checkForMissedResets() {
+    logger.info("正在检查错过的计数器重置任务...");
+    const now = new Date();
+
+    const state = await ctx.database.get("message_counter_state", {});
+    const stateMap = new Map(state.map((s) => [s.key, new Date(s.value)]));
+
+    // 每日检查
+    const lastDailyReset = stateMap.get("last_daily_reset") || new Date(0);
+    const lastMidnight = new Date();
+    lastMidnight.setHours(0, 0, 0, 0);
+    if (lastDailyReset < lastMidnight) {
+      logger.info("检测到错过的每日重置任务，正在执行...");
+      await resetCounter(
+        "todayPostCount",
+        "已补上错过的每日发言榜重置！",
+        "daily"
+      );
+    }
+
+    // 每周检查 (周一为一周开始)
+    const lastWeeklyReset = stateMap.get("last_weekly_reset") || new Date(0);
+    const lastMonday = new Date(now);
+    lastMonday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    lastMonday.setHours(0, 0, 0, 0);
+    if (lastWeeklyReset < lastMonday) {
+      logger.info("检测到错过的每周重置任务，正在执行...");
+      await resetCounter(
+        "thisWeekPostCount",
+        "已补上错过的每周发言榜重置！",
+        "weekly"
+      );
+    }
+
+    // 每月检查
+    const lastMonthlyReset = stateMap.get("last_monthly_reset") || new Date(0);
+    const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    firstOfMonth.setHours(0, 0, 0, 0);
+    if (lastMonthlyReset < firstOfMonth) {
+      logger.info("检测到错过的每月重置任务，正在执行...");
+      await resetCounter(
+        "thisMonthPostCount",
+        "已补上错过的每月发言榜重置！",
+        "monthly"
+      );
+    }
+
+    // 每年检查
+    const lastYearlyReset = stateMap.get("last_yearly_reset") || new Date(0);
+    const firstOfYear = new Date(now.getFullYear(), 0, 1);
+    firstOfYear.setHours(0, 0, 0, 0);
+    if (lastYearlyReset < firstOfYear) {
+      logger.info("检测到错过的每年重置任务，正在执行...");
+      await resetCounter(
+        "thisYearPostCount",
+        "已补上错过的每年发言榜重置！",
+        "yearly"
+      );
+    }
+
+    logger.info("错过的计数器重置任务检查完毕。");
+  }
+
+  /**
+   * 重置计数器并更新状态
+   * @param field 要重置的数据库字段
+   * @param message 重置后发送的消息
+   * @param period 周期标识符
+   */
+  async function resetCounter(
+    field: CountField,
+    message: string,
+    period: PeriodIdentifier
+  ) {
+    // 当重置“今日”发言时，首先把“今日”的数据备份到“昨日”
+    if (field === "todayPostCount") {
+      logger.info("正在更新昨日发言数...");
+      await ctx.database.set("message_counter_records", {}, (row) => ({
+        yesterdayPostCount: row.todayPostCount,
+      }));
+      logger.success("更新昨日发言数完成。");
+    }
+
+    // 然后将相应的字段置零
+    await ctx.database.set("message_counter_records", {}, { [field]: 0 });
+    logger.success(message);
+
+    // 更新状态表，记录本次重置时间
+    await ctx.database.upsert("message_counter_state", [
+      {
+        key: `last_${period}_reset`,
+        value: new Date(),
+      },
+    ]);
+    logger.success(`已更新 ${period} 周期的最后重置时间。`);
+  }
 
   // 在插件启动完成后设置定时任务
-  ctx.on("ready", () => {
+  ctx.on("ready", async () => {
+    // 启动时加载缓存
+    await reloadIconCache();
+    await reloadBarBgImgCache();
+
+    // 启动时检查并弥补错过的重置任务
+    await checkForMissedResets();
+
+    // --- 设置所有定时任务 ---
+
     // 1. 自动推送排行榜的定时任务
     if (config.autoPush) {
-      // 每日 0 点推送昨日榜
       if (config.shouldSendDailyLeaderboardAtMidnight) {
-        const job = schedule.scheduleJob("1 0 * * *", () =>
+        const task = ctx.cron("1 0 * * *", () =>
           generateAndPushLeaderboard("yesterday")
-        ); // 在0点1分执行，确保数据已重置
-        scheduledJobs.push(job);
+        );
+        scheduledTasks.push(task);
         logger.info("[自动推送] 已设置每日 00:01 推送昨日排行榜的任务。");
       }
-      // 其他时间点推送今日榜
       (config.dailyScheduledTimers || []).forEach((time) => {
         const match = /^([0-1]?[0-9]|2[0-3]):([0-5]?[0-9])$/.exec(time);
         if (match) {
           const [_, hour, minute] = match;
           const cron = `${minute} ${hour} * * *`;
-          const job = schedule.scheduleJob(cron, () =>
+          const task = ctx.cron(cron, () =>
             generateAndPushLeaderboard("today")
           );
-          scheduledJobs.push(job);
+          scheduledTasks.push(task);
           logger.info(`[自动推送] 已设置每日 ${time} 推送今日排行榜的任务。`);
         } else {
           logger.warn(
@@ -1761,69 +1872,54 @@ export async function apply(ctx: Context, config: Config) {
 
     // 2. 抓龙王（禁言）的定时任务
     if (config.enableMostActiveUserMuting) {
-      const job = schedule.scheduleJob("1 0 * * *", () =>
-        performDragonKingMuting()
-      ); // 同样在0点后稍作延迟执行
-      scheduledJobs.push(job);
+      const task = ctx.cron("1 0 * * *", () => performDragonKingMuting());
+      scheduledTasks.push(task);
       logger.info("[抓龙王] 已设置每日 00:01 执行的禁言任务。");
     }
-  });
 
-  async function resetCounter(field: CountField, message: string) {
-    if (
-      field === "todayPostCount" &&
-      !config.isYesterdayCommentRankingDisabled
-    ) {
-      logger.info("Updating yesterday's post count...");
-      // 批量更新昨日发言数
-      const allRecords = await ctx.database.get("message_counter_records", {});
-      const updates = allRecords.map((user) =>
-        ctx.database.set(
-          "message_counter_records",
-          { id: user.id },
-          { yesterdayPostCount: user.todayPostCount }
-        )
-      );
-      await Promise.all(updates);
-      logger.success("Finished updating yesterday's post count.");
-    }
+    // 3. 数据库重置的定时任务
+    const jobs: {
+      cron: string;
+      field: CountField;
+      message: string;
+      period: PeriodIdentifier;
+    }[] = [
+      {
+        cron: "0 0 * * *",
+        field: "todayPostCount",
+        message: "今日发言榜已成功置空！",
+        period: "daily",
+      },
+      {
+        cron: "0 0 * * 1",
+        field: "thisWeekPostCount",
+        message: "本周发言榜已成功置空！",
+        period: "weekly",
+      },
+      {
+        cron: "0 0 1 * *",
+        field: "thisMonthPostCount",
+        message: "本月发言榜已成功置空！",
+        period: "monthly",
+      },
+      {
+        cron: "0 0 1 1 *",
+        field: "thisYearPostCount",
+        message: "今年发言榜已成功置空！",
+        period: "yearly",
+      },
+    ];
 
-    await ctx.database.set("message_counter_records", {}, { [field]: 0 });
-    logger.success(message);
-  }
-
-  // 创建定时任务
-  const jobs: { cron: string; field: CountField; message: string }[] = [
-    {
-      cron: "0 0 * * *",
-      field: "todayPostCount",
-      message: "今日发言榜已成功置空！",
-    },
-    {
-      cron: "0 0 * * 1",
-      field: "thisWeekPostCount",
-      message: "本周发言榜已成功置空！",
-    },
-    {
-      cron: "0 0 1 * *",
-      field: "thisMonthPostCount",
-      message: "本月发言榜已成功置空！",
-    },
-    {
-      cron: "0 0 1 1 *",
-      field: "thisYearPostCount",
-      message: "今年发言榜已成功置空！",
-    },
-  ];
-
-  jobs.forEach(({ cron, field, message }) => {
-    const job = schedule.scheduleJob(cron, () => resetCounter(field, message));
-    scheduledJobs.push(job);
+    jobs.forEach(({ cron, field, message, period }) => {
+      const task = ctx.cron(cron, () => resetCounter(field, message, period));
+      scheduledTasks.push(task);
+    });
   });
 
   // --- 资源清理 ---
   ctx.on("dispose", () => {
-    scheduledJobs.forEach((job) => job.cancel());
+    // 调用 disposer 函数来取消定时任务
+    scheduledTasks.forEach((task) => task());
     avatarCache.clear();
     iconCache = [];
     barBgImgCache = [];

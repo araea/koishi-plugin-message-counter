@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-message-counter",
   "description": "Koishi 的消息数量统计插件。生成各种发言排行榜。",
-  "version": "2.3.8",
+  "version": "2.3.9",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
@@ -11,7 +11,8 @@
   "koishi": {
     "service": {
       "required": [
-        "database"
+        "database",
+        "cron"
       ],
       "optional": [
         "markdownToImage",
@@ -46,13 +47,8 @@
   "peerDependencies": {
     "koishi": "^4.18.8"
   },
-  "dependencies": {
-    "node-schedule": "^2.1.1",
-    "pako": "^2.1.0"
-  },
   "devDependencies": {
-    "@types/node-schedule": "^2",
-    "@types/pako": "^2",
+    "koishi-plugin-cron": "^3.1.0",
     "koishi-plugin-markdown-to-image-service": "^1.2.5",
     "koishi-plugin-puppeteer": "^3.9.0"
   }
