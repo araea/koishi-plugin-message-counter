@@ -1496,48 +1496,60 @@ export async function apply(ctx: Context, config: Config) {
     const scopeName = "本群"; // 自动推送总是基于单个群聊的视角
     const rankTimeTitle = getCurrentBeijingTime();
 
-    // 1. 确定需要推送的频道列表（使用 Set 自动去重）
-    // targetChannels 将存储带平台前缀的ID，例如 "onebot:12345678"
-    const targetChannels = new Set<string>(config.pushChannelIds || []);
-    if (config.shouldSendLeaderboardNotificationsToAllChannels) {
-      try {
-        // 遍历所有机器人实例，获取它们各自的群列表
-        const guildListPromises = ctx.bots.map(async (bot) => {
-          // 确保机器人实例在线且支持获取群列表
-          if (!bot.online || !bot.getGuildList) return [];
-          const prefixedIds: string[] = [];
-          let next: string | undefined;
-          // 处理分页，确保获取所有群
-          do {
-            const result = await bot.getGuildList(next);
-            result.data.forEach((guild) => {
-              // 为每个群号添加平台前缀
-              prefixedIds.push(`${bot.platform}:${guild.id}`);
-            });
-            next = result.next;
-          } while (next);
-          return prefixedIds;
-        });
-
-        const allPrefixedIdsNested = await Promise.all(guildListPromises);
-        const allPrefixedIds = allPrefixedIdsNested.flat();
-
-        // 将所有获取到的带前缀的群号添加到目标集合中
-        allPrefixedIds.forEach((id) => targetChannels.add(id));
-
-        // 应用排除列表
-        const excluded = new Set(config.excludedLeaderboardChannels || []);
-        if (excluded.size > 0) {
-          for (const id of Array.from(targetChannels)) {
-            // 兼容带前缀和不带前缀的排除项
-            const unprefixedId = id.slice(id.indexOf(":") + 1);
-            if (excluded.has(id) || excluded.has(unprefixedId)) {
-              targetChannels.delete(id);
+    // 1. 优先获取所有机器人能触及的群聊列表，并建立一个 ID -> 带平台前缀ID 的映射
+    const guildIdMap = new Map<string, string>(); // key: unprefixedId, value: prefixedId
+    try {
+      const guildListPromises = ctx.bots.map(async (bot) => {
+        if (!bot.online || !bot.getGuildList) return [];
+        let next: string | undefined;
+        do {
+          const result = await bot.getGuildList(next);
+          result.data.forEach((guild) => {
+            // 避免因多个机器人同在一个群而覆盖
+            if (!guildIdMap.has(guild.id)) {
+              guildIdMap.set(guild.id, `${bot.platform}:${guild.id}`);
             }
-          }
+          });
+          next = result.next;
+        } while (next);
+      });
+      await Promise.all(guildListPromises);
+    } catch (error) {
+      logger.error("[自动推送] 获取所有群聊列表时出错，任务可能不完整:", error);
+    }
+
+    // 2. 确定需要推送的频道列表（使用 Set 自动去重）
+    const targetChannels = new Set<string>();
+
+    // 2.1 解析配置中的 pushChannelIds，利用映射表转换为带前缀的 ID
+    for (const channelId of config.pushChannelIds || []) {
+      if (channelId.includes(":")) {
+        // 本身就是带前缀的 ID
+        targetChannels.add(channelId);
+      } else if (guildIdMap.has(channelId)) {
+        // 在映射表中找到了对应的带前缀 ID
+        targetChannels.add(guildIdMap.get(channelId)!);
+      } else {
+        logger.warn(
+          `[自动推送] 无法在任何机器人实例中找到频道 ID: ${channelId}，已跳过。`
+        );
+      }
+    }
+
+    // 2.2 如果开启了“向所有群聊推送”，则添加所有已知的频道
+    if (config.shouldSendLeaderboardNotificationsToAllChannels) {
+      guildIdMap.forEach((prefixedId) => targetChannels.add(prefixedId));
+    }
+
+    // 2.3 应用排除列表
+    const excluded = new Set(config.excludedLeaderboardChannels || []);
+    if (excluded.size > 0) {
+      for (const id of Array.from(targetChannels)) {
+        // 兼容带前缀和不带前缀的排除项
+        const unprefixedId = id.slice(id.indexOf(":") + 1);
+        if (excluded.has(id) || excluded.has(unprefixedId)) {
+          targetChannels.delete(id);
         }
-      } catch (error) {
-        logger.error("[自动推送] 获取所有群聊列表时出错:", error);
       }
     }
 
@@ -1548,7 +1560,7 @@ export async function apply(ctx: Context, config: Config) {
 
     logger.info(`[自动推送] 将向 ${targetChannels.size} 个频道进行推送。`);
 
-    // 2. 遍历频道并推送
+    // 3. 遍历频道并推送 (此部分逻辑无需修改)
     for (const prefixedChannelId of targetChannels) {
       try {
         // 从带前缀的ID中提取不带前缀的ID，用于数据库查询
@@ -1558,7 +1570,7 @@ export async function apply(ctx: Context, config: Config) {
             ? prefixedChannelId
             : prefixedChannelId.substring(platformSeparatorIndex + 1);
 
-        // 2.1 获取该频道的发言记录 (使用不带前缀的ID)
+        // 3.1 获取该频道的发言记录
         const records = await ctx.database.get("message_counter_records", {
           channelId,
         });
@@ -1570,7 +1582,7 @@ export async function apply(ctx: Context, config: Config) {
           continue;
         }
 
-        // 2.2 聚合数据，生成排行榜
+        // 3.2 聚合数据，生成排行榜
         const userPostCounts: Dict<number> = {};
         const userInfo: Dict<{ username: string; avatar: string }> = {};
         let totalCount = 0;
@@ -1608,7 +1620,7 @@ export async function apply(ctx: Context, config: Config) {
           config.defaultMaxDisplayCount
         );
 
-        // 2.3 发送提示信息 (如果启用，使用带前缀的ID进行广播)
+        // 3.3 发送提示信息
         if (config.isGeneratingRankingListPromptVisible) {
           await ctx.broadcast(
             [prefixedChannelId],
@@ -1617,7 +1629,7 @@ export async function apply(ctx: Context, config: Config) {
           await sleep(config.leaderboardGenerationWaitTime * 1000);
         }
 
-        // 2.4 渲染并发送排行榜 (使用带前缀的ID进行广播)
+        // 3.4 渲染并发送排行榜
         const rankTitle = `${scopeName}${periodName}发言排行榜`;
         const renderedMessage = await renderLeaderboard({
           rankTimeTitle,
@@ -1630,7 +1642,7 @@ export async function apply(ctx: Context, config: Config) {
           `[自动推送] 已成功向频道 ${prefixedChannelId} 推送${periodName}排行榜。`
         );
 
-        // 2.5 随机延迟，防止风控
+        // 3.5 随机延迟，防止风控
         const randomDelay =
           Math.random() * config.groupPushDelayRandomizationSeconds;
         const delay =
