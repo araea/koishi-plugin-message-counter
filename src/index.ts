@@ -302,11 +302,11 @@ export const Config: Schema<Config> = Schema.intersect([
           .description("自定义背景图在整行背景的不透明度。"),
         maxBarBgWidth: Schema.number()
           .min(0)
-          .default(2000)
+          .default(850)
           .description("允许上传的背景图最大宽度（像素），0为不限制。"),
         maxBarBgHeight: Schema.number()
           .min(0)
-          .default(200)
+          .default(50)
           .description("允许上传的背景图最大高度（像素），0为不限制。"),
         maxBarBgSize: Schema.number()
           .min(0)
