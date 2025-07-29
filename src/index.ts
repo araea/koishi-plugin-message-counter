@@ -2254,7 +2254,7 @@ export async function apply(ctx: Context, config: Config) {
           const maxCount = rankingData.reduce((max, item) => Math.max(max, item.count), 0) || 1;
           const userNum = rankingData.length;
           const userAvatarSize = 50;
-          const tableWidth = 950; // 固定宽度
+          const tableWidth = 200 + 7 * 100; // 固定宽度
           const canvasHeight = 50 * userNum;
 
           const canvas = document.getElementById('rankingCanvas');
@@ -2263,7 +2263,7 @@ export async function apply(ctx: Context, config: Config) {
           // 根据最大计数的文本宽度动态调整画布宽度，以防数字溢出
           context.font = "30px JMH, SJbangkaijianti, SJkaishu";
           const maxCountTextWidth = context.measureText(maxCount.toString()).width;
-          canvas.width = tableWidth + maxCountTextWidth + 50; // 增加一些边距
+          canvas.width = tableWidth + maxCountTextWidth + 100; // 增加一些边距
           canvas.height = canvasHeight;
 
           // 重新获取上下文，因为尺寸变化会重置状态
@@ -2300,7 +2300,7 @@ export async function apply(ctx: Context, config: Config) {
             // 绘制剩余部分灰色背景
             if (data.count < maxCount) { 
                 context.fillStyle = colorWithOpacity;
-                context.fillRect(countBarWidth, countBarY, tableWidth - (countBarX + countBarWidth), userAvatarSize);
+                context.fillRect(countBarX + countBarWidth, countBarY, tableWidth - (countBarX + countBarWidth), userAvatarSize);
             }
             
             // 绘制文本和图标
