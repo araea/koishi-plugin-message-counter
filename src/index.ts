@@ -154,6 +154,17 @@ export interface Config {
   imageType: "png" | "jpeg" | "webp";
   /** 页面加载等待事件，影响图片生成速度和稳定性。 */
   waitUntil: "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
+  /**
+   * 生成水平柱状图时，渲染页面的视口宽度（像素）。
+   * @default 1080
+   */
+  chartViewportWidth: number;
+  /**
+   * 渲染时的设备像素比 (DPR)。
+   * 更高的值可以生成更清晰的图片（例如，设置为 2 相当于 2x 图），但也会增加图片文件体积。
+   * @default 1
+   */
+  deviceScaleFactor: number;
   /** 是否将自定义图标显示在柱状条的末端。 */
   shouldMoveIconToBarEndLeft: boolean;
   /** 是否在生成水平柱状图时，在当前用户/群聊名称前显示★以高亮。 */
@@ -287,6 +298,20 @@ export const Config: Schema<Config> = Schema.intersect([
         ])
           .default("networkidle0")
           .description("页面加载等待事件，影响图片生成速度和稳定性。"),
+        chartViewportWidth: Schema.number()
+          .min(1)
+          .default(1080)
+          .description(
+            "渲染页面的视口宽度，单位为像素。此参数主要影响背景图片可显示的最大宽度。默认值为 1080px。"
+          ),
+        deviceScaleFactor: Schema.number()
+          .min(0.1)
+          .max(4)
+          .step(0.1)
+          .default(1)
+          .description(
+            "渲染时的设备像素比 (DPR)。更高的值可以生成更清晰的图片（例如 2 倍图），但也会增加图片文件体积。默认值为 1。"
+          ),
         shouldMoveIconToBarEndLeft: Schema.boolean()
           .default(true)
           .description(
@@ -2214,8 +2239,6 @@ export async function apply(ctx: Context, config: Config) {
           }
         }
 
-        // 修复：将背景应用于 <html> 并添加 background-attachment: fixed
-        // 这能确保图片背景在 fullPage 截图中正确覆盖整个页面
         return `html {
           background-image: ${backgroundImage};
           background-size: cover;
@@ -2229,12 +2252,9 @@ export async function apply(ctx: Context, config: Config) {
     }
 
     if (config.backgroundType === "css" && config.backgroundValue) {
-      // 对于用户自定义 CSS，我们直接返回。
-      // 新的默认值和描述会引导用户使用 `html` 选择器。
       return config.backgroundValue;
     }
 
-    // 修复：默认或失败时的回退背景也应用于 <html>
     return `html {
       background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
     }`;
@@ -2692,9 +2712,9 @@ export async function apply(ctx: Context, config: Config) {
 
       await page.goto(`file://${emptyHtmlPath}`);
       await page.setViewport({
-        width: 1130,
+        width: config.chartViewportWidth,
         height: 256,
-        deviceScaleFactor: 1,
+        deviceScaleFactor: config.deviceScaleFactor,
       });
       await page.setContent(h.unescape(htmlContent), {
         waitUntil: config.waitUntil,
