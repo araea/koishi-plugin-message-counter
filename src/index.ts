@@ -156,6 +156,8 @@ export interface Config {
   waitUntil: "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
   /** 是否将自定义图标显示在柱状条的末端。 */
   shouldMoveIconToBarEndLeft: boolean;
+  /** 是否在生成水平柱状图时，在当前用户/群聊名称前显示★以高亮。 */
+  showStarInChart: boolean;
   /** 自定义背景图在进度条区域的不透明度。 */
   horizontalBarBackgroundOpacity: number;
   /** 自定义背景图在整行背景的不透明度。 */
@@ -290,6 +292,11 @@ export const Config: Schema<Config> = Schema.intersect([
           .description(
             "是否将自定义图标显示在柱状条的末端。关闭则显示在用户名旁。"
           ),
+        showStarInChart: Schema.boolean()
+          .default(true)
+          .description(
+            "是否在生成水平柱状图时，在当前用户/群聊名称前显示★以高亮。"
+          ),
         horizontalBarBackgroundOpacity: Schema.number()
           .min(0)
           .max(1)
@@ -331,9 +338,11 @@ export const Config: Schema<Config> = Schema.intersect([
         backgroundValue: Schema.string()
           .role("textarea", { rows: [2, 4] })
           .default(
-            `body {\n  background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);\n}`
+            `html {\n  background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);\n}`
           )
-          .description("自定义背景的 CSS 代码（仅当类型为 CSS 时生效）。"),
+          .description(
+            "自定义背景的 CSS 代码（仅当类型为 CSS 时生效）。建议使用 `html` 选择器来设置背景，以确保其能填充整个截图区域。"
+          ),
 
         // --- 柱状图字体设置 ---
         chartTitleFont: Schema.union(FONT_OPTIONS)
@@ -2114,10 +2123,19 @@ export async function apply(ctx: Context, config: Config) {
         src: local('SJbangkaijianti'), url('./assets/fonts/SJbangkaijianti-Regular.woff2') format('woff2');
       }
 
+      html {  
+        min-height: 100%;
+      }
+
       body {
         font-family: 'JMH', 'SJbangkaijianti', 'SJkaishu';
         margin: 0;
         padding: 20px;
+        /* 强制 body 元素占据100%宽度 */
+        width: 100%;
+        min-height: 100%;
+        /* 关键属性，让 padding 不会撑大元素的总宽度 */
+        box-sizing: border-box;
       }
       
       .ranking-title {
@@ -2138,9 +2156,10 @@ export async function apply(ctx: Context, config: Config) {
 
   /**
    * 准备图表的背景样式。
-   * 修复了 responseType 配置项未被使用的问题。
+   * 此函数根据配置生成应用于整个 HTML 页面的背景 CSS。
+   * 通过将样式应用于 `<html>` 标签，确保背景能完全覆盖 `fullPage` 截图的区域。
    * @param config 插件配置对象。
-   * @returns 一个包含 body 背景样式的 CSS 字符串。
+   * @returns 一个包含背景样式的 CSS 字符串。
    */
   async function _prepareBackgroundStyle(config: Config): Promise<string> {
     if (config.backgroundType === "api" && config.apiBackgroundConfig?.apiUrl) {
@@ -2195,11 +2214,14 @@ export async function apply(ctx: Context, config: Config) {
           }
         }
 
-        return `body {
+        // 修复：将背景应用于 <html> 并添加 background-attachment: fixed
+        // 这能确保图片背景在 fullPage 截图中正确覆盖整个页面
+        return `html {
           background-image: ${backgroundImage};
           background-size: cover;
           background-position: center;
           background-repeat: no-repeat;
+          background-attachment: fixed;
         }`;
       } catch (error) {
         logger.error("获取 API 背景图失败，将使用默认背景:", error);
@@ -2207,11 +2229,13 @@ export async function apply(ctx: Context, config: Config) {
     }
 
     if (config.backgroundType === "css" && config.backgroundValue) {
+      // 对于用户自定义 CSS，我们直接返回。
+      // 新的默认值和描述会引导用户使用 `html` 选择器。
       return config.backgroundValue;
     }
 
-    // 默认或失败时的回退背景
-    return `body {
+    // 修复：默认或失败时的回退背景也应用于 <html>
+    return `html {
       background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
     }`;
   }
@@ -2274,8 +2298,10 @@ export async function apply(ctx: Context, config: Config) {
             }
             
             // 绘制剩余部分灰色背景
-            context.fillStyle = colorWithOpacity;
-            context.fillRect(countBarX + countBarWidth, countBarY, tableWidth - (countBarX + countBarWidth), userAvatarSize);
+            if (data.count < maxCount) { 
+                context.fillStyle = colorWithOpacity;
+                context.fillRect(countBarWidth, countBarY, tableWidth - (countBarX + countBarWidth), userAvatarSize);
+            }
             
             // 绘制文本和图标
             drawTextAndIcons(context, data, index, avgColor, countBarX, countBarY, countBarWidth, userAvatarSize);
@@ -2666,7 +2692,7 @@ export async function apply(ctx: Context, config: Config) {
 
       await page.goto(`file://${emptyHtmlPath}`);
       await page.setViewport({
-        width: 1080,
+        width: 1130,
         height: 256,
         deviceScaleFactor: 1,
       });
@@ -2914,9 +2940,19 @@ export async function apply(ctx: Context, config: Config) {
         logger.warn("Puppeteer service is not enabled. Falling back to text.");
       } else {
         try {
+          // 创建一份用于图表的数据副本，以防修改影响后续的回退渲染
+          const chartReadyData = rankingData.map((item) => {
+            const newItem = { ...item }; // 浅拷贝足以满足需求
+            // 如果配置项关闭，并且名称以★开头，则移除它
+            if (!config.showStarInChart && newItem.name.startsWith("★")) {
+              newItem.name = newItem.name.substring(1);
+            }
+            return newItem;
+          });
+
           // 在生成图表前，填充头像的 base64 缓存
           await Promise.all(
-            rankingData.map(async (item) => {
+            chartReadyData.map(async (item) => {
               if (!avatarCache.has(item.avatar)) {
                 const base64 = await resizeImageToBase64(ctx, item.avatar);
                 avatarCache.set(item.avatar, base64);
@@ -2926,7 +2962,7 @@ export async function apply(ctx: Context, config: Config) {
           );
           // 调用唯一的柱状图生成函数
           const imageBuffer = await generateRankingChart(
-            { rankTimeTitle, rankTitle, data: rankingData },
+            { rankTimeTitle, rankTitle, data: chartReadyData },
             { iconCache, barBgImgCache, emptyHtmlPath }
           );
           return h.image(imageBuffer, `image/${config.imageType}`);
