@@ -77,22 +77,29 @@
 
 ### `messageCounter.重载资源`
 
-- 实时重载用户图标和柱状条背景，使其更改即时生效（需要权限等级 2）
+- 实时重载用户图标、柱状条背景和字体文件，使其更改即时生效（需要权限等级 2）
 
 ## 🎨 自定义水平柱状图样式
 
+- 重载插件或使用 `messageCounter.重载资源` 指令可使新增的文件立即生效。
+
 ### 1. 用户图标
 
-- 在 `data/messageCounterIcons` 文件夹下添加用户图标
+- 在 `data/messageCounter/icons` 文件夹下添加用户图标
 - 文件名格式为 `用户ID.png`（例：`1234567890.png`）
 - 支持多图标，文件名格式为 `用户ID-1.png`, `用户ID-2.png`
 
 ### 2. 柱状条背景
 
 - **推荐方式**：使用 `messageCounter.上传柱状条背景` 指令
-- **手动方式**：在 `data/messageCounterBarBgImgs` 文件夹下添加背景图片
+- **手动方式**：在 `data/messageCounter/barBgImgs` 文件夹下添加背景图片
 - 支持多背景（随机选用），文件名格式为 `用户ID-1.png` 等
 - 建议尺寸 850x50 像素，文件名 `用户ID.png`
+
+### 3. 自定义字体
+
+- 插件启动时，会自动将内置字体 `HarmonyOS_Sans_Medium.ttf` 拷贝到 `data/messageCounter/fonts/` 目录下。
+- 您可以将自己喜爱的字体文件放入此文件夹，并在配置项的“字体设置”中填入该字体的文件名称（不带后缀）。
 
 ## 📷 示例截图
 

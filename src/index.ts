@@ -85,22 +85,29 @@ export const usage = `## 📝 注意事项
 
 ### \`messageCounter.重载资源\`
 
-- 实时重载用户图标和柱状条背景，使其更改即时生效（需要权限等级 2）
+- 实时重载用户图标、柱状条背景和字体文件，使其更改即时生效（需要权限等级 2）
 
 ## 🎨 自定义水平柱状图样式
 
+- 重载插件或使用 \`messageCounter.重载资源\` 指令可使新增的文件立即生效。
+
 ### 1. 用户图标
 
-- 在 \`data/messageCounterIcons\` 文件夹下添加用户图标
+- 在 \`data/messageCounter/icons\` 文件夹下添加用户图标
 - 文件名格式为 \`用户ID.png\`（例：\`1234567890.png\`）
 - 支持多图标，文件名格式为 \`用户ID-1.png\`, \`用户ID-2.png\`
 
 ### 2. 柱状条背景
 
 - **推荐方式**：使用 \`messageCounter.上传柱状条背景\` 指令
-- **手动方式**：在 \`data/messageCounterBarBgImgs\` 文件夹下添加背景图片
+- **手动方式**：在 \`data/messageCounter/barBgImgs\` 文件夹下添加背景图片
 - 支持多背景（随机选用），文件名格式为 \`用户ID-1.png\` 等
 - 建议尺寸 850x50 像素，文件名 \`用户ID.png\`
+
+### 3. 自定义字体
+
+- 插件启动时，会自动将内置字体 \`HarmonyOS_Sans_Medium.ttf\` 拷贝到 \`data/messageCounter/fonts/\` 目录下。
+- 您可以将自己喜爱的字体文件放入此文件夹，并在配置项的“字体设置”中填入该字体的文件名称（不带后缀）。
 
 ---
 
@@ -111,20 +118,10 @@ export const usage = `## 📝 注意事项
 const logger = new Logger("messageCounter");
 
 // --- 定义字体选项常量 ---
-const FONT_OPTIONS = [
-  // 插件内置字体
-  "JMH",
-  "SJkaishu",
-  "SJbangkaijianti",
-  // 系统/浏览器通用字体
-  "sans-serif", // 无衬线 (通用)
-  "serif", // 衬线 (通用)
-  "monospace", // 等宽 (通用)
-  "Microsoft YaHei", // 微软雅黑
-  "SimSun", // 宋体
-  "Arial", // 常用无衬线
-  "Verdana", // 常用无衬线
-];
+const FONT_OPTIONS = {
+  TITLE: "HarmonyOS_Sans_Medium",
+  NICKNAME: "HarmonyOS_Sans_Medium",
+};
 
 export interface Config {
   // --- 核心功能 ---
@@ -370,15 +367,15 @@ export const Config: Schema<Config> = Schema.intersect([
           ),
 
         // --- 柱状图字体设置 ---
-        chartTitleFont: Schema.union(FONT_OPTIONS)
-          .default("JMH")
+        chartTitleFont: Schema.string()
+          .default(FONT_OPTIONS.TITLE)
           .description(
-            "标题使用的字体。包含插件内置字体 (如 JMH) 和系统/浏览器字体 (如 sans-serif, Microsoft YaHei 等)。"
+            `标题使用的字体。请填写 'data/messageCounter/fonts' 目录中的字体文件名（不含后缀）。`
           ),
-        chartNicknameFont: Schema.union(FONT_OPTIONS)
-          .default("Microsoft YaHei")
+        chartNicknameFont: Schema.string()
+          .default(FONT_OPTIONS.NICKNAME)
           .description(
-            "成员昵称和发言次数使用的字体。包含插件内置字体和系统/浏览器字体。"
+            `成员昵称和发言次数使用的字体。请填写 'data/messageCounter/fonts' 目录中的字体文件名（不含后缀），或使用通用字体（如 sans-serif, Microsoft YaHei 等）。`
           ),
       }),
       Schema.object({}),
@@ -549,60 +546,49 @@ const periodMapping: Record<PeriodKey, { field: CountField; name: string }> = {
 };
 
 export async function apply(ctx: Context, config: Config) {
+  // cl*
   // --- 资源路径和缓存初始化 ---
   const dataRoot = path.join(ctx.baseDir, "data");
-  const messageCounterIconsPath = path.join(dataRoot, "messageCounterIcons");
-  const messageCounterBarBgImgsPath = path.join(
-    dataRoot,
-    "messageCounterBarBgImgs"
-  );
+  const messageCounterRoot = path.join(dataRoot, "messageCounter"); // 统一资源根目录
+  const iconsPath = path.join(messageCounterRoot, "icons");
+  const barBgImgsPath = path.join(messageCounterRoot, "barBgImgs");
+  const fontsPath = path.join(messageCounterRoot, "fonts"); // 字体目录路径
   const emptyHtmlPath = path
-    .join(__dirname, "emptyHtml.html")
+    .join(messageCounterRoot, "emptyHtml.html")
     .replace(/\\/g, "/");
+
+  // 兼容旧版插件的资源路径
+  const oldIconsPath = path.join(dataRoot, "messageCounterIcons");
+  const oldBarBgImgsPath = path.join(dataRoot, "messageCounterBarBgImgs");
+
+  // 自动创建所有必要的目录
+  await fs.mkdir(fontsPath, { recursive: true });
+  await fs.mkdir(iconsPath, { recursive: true });
+  await fs.mkdir(barBgImgsPath, { recursive: true });
+
+  await migrateFolder(oldIconsPath, iconsPath);
+  await migrateFolder(oldBarBgImgsPath, barBgImgsPath);
+
+  // 拷贝 emptyHtml.html
+  await copyAssetIfNotExists(
+    __dirname,
+    messageCounterRoot,
+    "emptyHtml.html",
+    "assets"
+  );
+
+  // 拷贝内置字体
+  const fontFiles = ["HarmonyOS_Sans_Medium.ttf"];
+  for (const fontFile of fontFiles) {
+    // 假设字体文件在打包后的 assets/fonts 目录
+    await copyAssetIfNotExists(__dirname, fontsPath, fontFile, "assets/fonts");
+  }
 
   // 缓存
   const avatarCache = new Map<string, string>();
   let iconCache: AssetData[] = [];
   let barBgImgCache: AssetData[] = [];
-
-  // 确保目录存在
-  await fs.mkdir(messageCounterIconsPath, { recursive: true });
-  await fs.mkdir(messageCounterBarBgImgsPath, { recursive: true });
-
-  // --- 缓存加载函数 ---
-  async function loadAssetsFromFolder(
-    folderPath: string
-  ): Promise<AssetData[]> {
-    const assetData: AssetData[] = [];
-    try {
-      await fs.access(folderPath, fsConstants.R_OK); // 检查目录是否存在且可读
-      const files = await fs.readdir(folderPath);
-
-      for (const file of files) {
-        const userId = path.parse(file).name.split("-")[0].trim();
-        const filePath = path.join(folderPath, file);
-        try {
-          const fileData = await fs.readFile(filePath);
-          assetData.push({ userId, base64: fileData.toString("base64") });
-        } catch (readError) {
-          logger.warn(`Failed to read asset file ${filePath}:`, readError);
-        }
-      }
-    } catch (err) {
-      logger.warn(`Error accessing asset folder ${folderPath}:`, err);
-    }
-    return assetData;
-  }
-
-  const reloadIconCache = async () => {
-    iconCache = await loadAssetsFromFolder(messageCounterIconsPath);
-    logger.info(`Reloaded ${iconCache.length} user icons.`);
-  };
-
-  const reloadBarBgImgCache = async () => {
-    barBgImgCache = await loadAssetsFromFolder(messageCounterBarBgImgsPath);
-    logger.info(`Reloaded ${barBgImgCache.length} bar background images.`);
-  };
+  let fontFilesCache: string[] = []; // 字体文件缓存
 
   // --- 数据库表定义 ---
   ctx.model.extend(
@@ -729,6 +715,7 @@ export async function apply(ctx: Context, config: Config) {
   }
 
   // --- 指令定义 ---
+  // zl*
   ctx
     .command("messageCounter", "查看messageCounter帮助")
     .action(({ session }) => session?.execute(`help messageCounter`));
@@ -1393,16 +1380,14 @@ export async function apply(ctx: Context, config: Config) {
       // 辅助函数：清理用户旧的背景图
       const cleanupOldBackground = async () => {
         try {
-          const allFiles = await fs.readdir(messageCounterBarBgImgsPath);
+          const allFiles = await fs.readdir(barBgImgsPath);
           // 查找所有以 "用户ID." 开头的文件，以匹配不同后缀名
           const userFiles = allFiles.filter((file) =>
             file.startsWith(`${userId}.`)
           );
           if (userFiles.length > 0) {
             await Promise.all(
-              userFiles.map((file) =>
-                fs.unlink(path.join(messageCounterBarBgImgsPath, file))
-              )
+              userFiles.map((file) => fs.unlink(path.join(barBgImgsPath, file)))
             );
           }
         } catch (error) {
@@ -1462,7 +1447,7 @@ export async function apply(ctx: Context, config: Config) {
 
         // 统一保存为 png 格式，文件名为 用户ID.png
         const newFileName = `${userId}.png`;
-        const newFilePath = path.join(messageCounterBarBgImgsPath, newFileName);
+        const newFilePath = path.join(barBgImgsPath, newFileName);
 
         await fs.writeFile(newFilePath, buffer);
         await reloadBarBgImgCache();
@@ -1485,16 +1470,19 @@ export async function apply(ctx: Context, config: Config) {
 
   // 重载资源
   ctx
-    .command("messageCounter.重载资源", "重载图标和背景资源", { authority: 2 })
+    .command("messageCounter.重载资源", "重载图标、背景和字体资源", {
+      authority: 2,
+    })
     .action(async ({ session }) => {
       if (!session) return;
 
-      await session.send("正在重新加载用户图标和背景图片缓存...");
+      await session.send("正在重新加载用户图标、背景图片和字体文件缓存...");
 
       await reloadIconCache();
       await reloadBarBgImgCache();
+      await reloadFontCache(); // 新增: 调用字体缓存重载
 
-      return `资源重载完毕！\n- 已加载 ${iconCache.length} 个用户图标。\n- 已加载 ${barBgImgCache.length} 个柱状条背景图片。`;
+      return `资源重载完毕！\n- 已加载 ${iconCache.length} 个用户图标。\n- 已加载 ${barBgImgCache.length} 个柱状条背景图片。\n- 已加载 ${fontFilesCache.length} 个字体文件。`;
     });
 
   type PushPeriod = "today" | "yesterday" | "week" | "month" | "year";
@@ -1926,6 +1914,7 @@ export async function apply(ctx: Context, config: Config) {
     // 启动时加载缓存
     await reloadIconCache();
     await reloadBarBgImgCache();
+    await reloadFontCache();
 
     // 执行非破坏性的状态初始化
     await initializeResetStates();
@@ -2052,11 +2041,165 @@ export async function apply(ctx: Context, config: Config) {
     avatarCache.clear();
     iconCache = [];
     barBgImgCache = [];
+    fontFilesCache = [];
     logger.info("All scheduled jobs and caches have been cleared.");
   });
 
   // --- 辅助函数 ---
   // hs*
+
+  async function reloadIconCache() {
+    iconCache = await loadAssetsFromFolder(iconsPath);
+    logger.info(`Reloaded ${iconCache.length} user icons.`);
+  }
+
+  async function reloadBarBgImgCache() {
+    barBgImgCache = await loadAssetsFromFolder(barBgImgsPath);
+    logger.info(`Reloaded ${barBgImgCache.length} bar background images.`);
+  }
+
+  async function reloadFontCache() {
+    try {
+      await fs.access(fontsPath);
+      fontFilesCache = await fs.readdir(fontsPath);
+      logger.info(`已重载 ${fontFilesCache.length} 个字体文件。`);
+    } catch (error) {
+      logger.warn(`无法读取或重载字体目录 ${fontsPath}:`, error);
+      fontFilesCache = [];
+    }
+  }
+
+  // 自动迁移旧资源文件到新目录结构
+  async function migrateFolder(oldPath: string, newPath: string) {
+    try {
+      await fs.access(oldPath, fsConstants.F_OK); // 检查旧文件夹是否存在
+      logger.info(`检测到旧资源文件夹: ${oldPath}，将迁移至: ${newPath}`);
+      const files = await fs.readdir(oldPath);
+      for (const file of files) {
+        const oldFile = path.join(oldPath, file);
+        const newFile = path.join(newPath, file);
+        try {
+          // 尝试移动，如果目标文件已存在则跳过
+          await fs.rename(oldFile, newFile);
+        } catch (renameError) {
+          if (renameError.code !== "EEXIST") {
+            logger.warn(`迁移文件 ${file} 失败:`, renameError);
+          }
+        }
+      }
+      await sleep(100); // 短暂等待以确保文件系统同步
+      await fs.rmdir(oldPath);
+      logger.info(`旧资源文件夹 ${oldPath} 迁移成功并已删除。`);
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        // ENOENT (Not Found) 是正常情况，说明无需迁移
+        logger.warn(`处理旧文件夹 ${oldPath} 时出错:`, error);
+      }
+    }
+  }
+
+  // 拷贝渲染所需的核心文件 (HTML 和内置字体)
+  async function copyAssetIfNotExists(
+    sourceDir: string,
+    destDir: string,
+    filename: string,
+    assetSubDir: string = "" // 用于处理打包后资源路径的变化
+  ) {
+    const destPath = path.join(destDir, filename);
+    try {
+      // 仅当目标文件不存在时才拷贝
+      await fs.access(destPath, fsConstants.F_OK);
+    } catch {
+      // 目标文件不存在，开始拷贝
+      let sourcePath = path.join(sourceDir, assetSubDir, filename);
+      try {
+        await fs.access(sourcePath, fsConstants.F_OK);
+      } catch {
+        // 如果在 assetSubDir 找不到，尝试在根目录找
+        sourcePath = path.join(sourceDir, filename);
+        try {
+          await fs.access(sourcePath, fsConstants.F_OK);
+        } catch {
+          logger.warn(`插件资源文件未找到，无法拷贝: ${filename}`);
+          return;
+        }
+      }
+      await fs.copyFile(sourcePath, destPath);
+      logger.info(`已拷贝资源文件 ${filename} 到 ${destDir}`);
+    }
+  }
+
+  /**
+   * 根据字体缓存动态生成 @font-face CSS 规则。
+   * @param fontsPath - 字体目录的绝对路径。
+   * @param fontFiles - 缓存的字体文件名列表。
+   * @returns 包含所有 @font-face 规则的 CSS 字符串。
+   */
+  async function generateFontFacesCSS(
+    fontsPath: string,
+    fontFiles: string[]
+  ): Promise<string> {
+    let css = "";
+    for (const file of fontFiles) {
+      const fontName = path.parse(file).name.replace("-Regular", ""); // 移除 '-Regular' 后缀以简化字体名
+      const ext = path.parse(file).ext.toLowerCase();
+      let format: string;
+
+      switch (ext) {
+        case ".woff2":
+          format = "woff2";
+          break;
+        case ".woff":
+          format = "woff";
+          break;
+        case ".ttf":
+          format = "truetype";
+          break;
+        case ".otf":
+          format = "opentype";
+          break;
+        default:
+          continue; // 跳过不支持或非字体的文件
+      }
+
+      // Puppeteer 需要 'file://' 协议和绝对路径
+      const fontUrl = `file://${path
+        .join(fontsPath, file)
+        .replace(/\\/g, "/")}`;
+      css += `
+        @font-face {
+          font-family: '${fontName}';
+          src: url("${fontUrl}") format('${format}');
+        }
+      `;
+    }
+    return css;
+  }
+
+  /** 缓存加载函数 */
+  async function loadAssetsFromFolder(
+    folderPath: string
+  ): Promise<AssetData[]> {
+    const assetData: AssetData[] = [];
+    try {
+      await fs.access(folderPath, fsConstants.R_OK); // 检查目录是否存在且可读
+      const files = await fs.readdir(folderPath);
+
+      for (const file of files) {
+        const userId = path.parse(file).name.split("-")[0].trim();
+        const filePath = path.join(folderPath, file);
+        try {
+          const fileData = await fs.readFile(filePath);
+          assetData.push({ userId, base64: fileData.toString("base64") });
+        } catch (readError) {
+          logger.warn(`Failed to read asset file ${filePath}:`, readError);
+        }
+      }
+    } catch (err) {
+      logger.warn(`Error accessing asset folder ${folderPath}:`, err);
+    }
+    return assetData;
+  }
 
   /** 聚合群组数据 */
   function aggregateChannelData(
@@ -2119,58 +2262,33 @@ export async function apply(ctx: Context, config: Config) {
     }));
   }
 
-  async function updateDataWithBase64(data: RankingData[]) {
-    await Promise.all(
-      data.map(async (item) => {
-        item.avatarBase64 = await resizeImageToBase64(ctx, item.avatar);
-      })
-    );
-  }
-
   // --- 辅助函数：图表生成 ---
 
   /**
    * 生成图表的静态 CSS 样式。
-   * @returns 包含 @font-face 和基本元素样式的 CSS 字符串。
+   * @returns 包含基本元素样式的 CSS 字符串。
    */
-  function _getChartStyles(): string {
+  function _getChartBaseStyles(): string {
     return `
-      @font-face {
-        font-family: 'JMH';
-        src: local('JMH'), url('./assets/fonts/JMH.woff2') format('woff2');
-      }
-      @font-face {
-        font-family: 'SJkaishu';
-        src: local('SJkaishu'), url('./assets/fonts/SJkaishu.woff2') format('woff2');
-      }
-      @font-face {
-        font-family: 'SJbangkaijianti';
-        src: local('SJbangkaijianti'), url('./assets/fonts/SJbangkaijianti-Regular.woff2') format('woff2');
-      }
-
       html {  
         min-height: 100%;
       }
 
       body {
-        font-family: 'JMH', 'SJbangkaijianti', 'SJkaishu';
+        font-family: sans-serif;
         margin: 0;
         padding: 20px;
-        /* 强制 body 元素占据100%宽度 */
         width: 100%;
         min-height: 100%;
-        /* 关键属性，让 padding 不会撑大元素的总宽度 */
         box-sizing: border-box;
       }
       
-      .ranking-title {
-        text-align: center;
-        margin-bottom: 20px;
-        color: #333;
-        font-family: 'JMH'; 
-        font-weight: normal; 
-        font-style: normal;
-      }
+    .ranking-title {
+      text-align: center;
+      margin-bottom: 20px;
+      color: #333;
+      font-style: normal;
+    }
 
       /* 预加载字体用，不显示 */
       .font-preload {
@@ -2281,26 +2399,40 @@ export async function apply(ctx: Context, config: Config) {
           let context = canvas.getContext('2d');
           
           // 根据最大计数的文本宽度动态调整画布宽度，以防数字溢出
-          context.font = "30px JMH, SJbangkaijianti, SJkaishu";
-          const maxCountTextWidth = context.measureText(maxCount.toString()).width;
-          canvas.width = tableWidth + maxCountTextWidth + 100; // 增加一些边距
+          context.font = \`30px "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
+          // 找到拥有最大发言数的条目，因为它的文本通常最长
+          const maxCountData = rankingData.find(d => d.count === maxCount) || rankingData[0] || { count: 1, percentage: 0 };
+          let maxCountText = maxCount.toString();
+          if (config.isUserMessagePercentageVisible && maxCountData) {
+              const percentage = maxCountData.percentage;
+              let percentageStr = percentage < 0.01 && percentage > 0 ? '<0.01' : percentage.toFixed(percentage < 1 ? 2 : 0);
+              maxCountText += \` ( \${percentageStr}%)\`;
+          }
+          const maxCountTextWidth = context.measureText(maxCountText).width;
+
+          // 最长进度条的宽度是固定的
+          const maxBarWidth = 150 + 700; // 进度条区域总宽度
+          
+          // 计算最终画布宽度：头像(50) + 进度条(850) + 文本与进度条间距(10) + 文本宽度 + 右侧留白(20)
+          // 头像左侧的空白由页面 body 的 padding 提供
+          canvas.width = 50 + maxBarWidth + 10 + maxCountTextWidth + 20; 
           canvas.height = canvasHeight;
 
           // 重新获取上下文，因为尺寸变化会重置状态
           context = canvas.getContext('2d');
 
           // 按顺序绘制图层
-          await drawRankingBars(context, maxCount, userAvatarSize, tableWidth);
+          await drawRankingBars(context, maxCount, userAvatarSize, tableWidth); // 传递动态的 canvas.width
           await drawAvatars(context, userAvatarSize);
-          drawVerticalLines(context, canvas.height, tableWidth);
+          drawVerticalLines(context, canvas.height, tableWidth); // 竖线仍然可以按旧的固定宽度绘制，不影响主体
         }
 
         // --- 核心绘图逻辑 ---
 
-        async function drawRankingBars(context, maxCount, userAvatarSize, tableWidth) {
+        async function drawRankingBars(context, maxCount, userAvatarSize, canvasWidth) { // 接收 canvasWidth
           for (const [index, data] of rankingData.entries()) {
             const countBarWidth = 150 + (700 * data.count) / maxCount;
-            const countBarX = 50;
+            const countBarX = 50; // 头像宽度
             const countBarY = 50 * index;
 
             let avgColor = await getAverageColor(data.avatarBase64);
@@ -2314,21 +2446,21 @@ export async function apply(ctx: Context, config: Config) {
             const userBarBgImgs = findAssets(data.userId, barBgImgs, 'barBgImgBase64');
             if (userBarBgImgs.length > 0) {
               const randomBarBgImgBase64 = userBarBgImgs[Math.floor(Math.random() * userBarBgImgs.length)];
-              avgColor = await drawCustomBarBackground(context, randomBarBgImgBase64, countBarX, countBarY, countBarWidth, userAvatarSize, tableWidth);
+              avgColor = await drawCustomBarBackground(context, randomBarBgImgBase64, countBarX, countBarY, countBarWidth, userAvatarSize, canvasWidth); // 传递 canvasWidth
             }
             
             // 绘制剩余部分灰色背景
-            if (data.count < maxCount) { 
-                context.fillStyle = colorWithOpacity;
-                context.fillRect(countBarX + countBarWidth, countBarY, tableWidth - (countBarX + countBarWidth), userAvatarSize);
-            }
+            const remainingBarX = countBarX + countBarWidth;
+            // 确保灰色背景能填满到画布最右侧，减去文本区域
+            context.fillStyle = colorWithOpacity;
+            context.fillRect(remainingBarX, countBarY, canvasWidth - remainingBarX, userAvatarSize);
             
             // 绘制文本和图标
             drawTextAndIcons(context, data, index, avgColor, countBarX, countBarY, countBarWidth, userAvatarSize);
           }
         }
         
-        async function drawCustomBarBackground(context, base64, x, y, barWidth, barHeight, tableWidth) {
+        async function drawCustomBarBackground(context, base64, x, y, barWidth, barHeight, canvasWidth) { // 接收 canvasWidth
             return new Promise(async (resolve) => {
                 const barBgImg = new Image();
                 barBgImg.src = "data:image/png;base64," + base64;
@@ -2337,7 +2469,7 @@ export async function apply(ctx: Context, config: Config) {
                     // 绘制整行背景（如果透明度 > 0）
                     if (config.horizontalBarBackgroundFullOpacity > 0) {
                         context.globalAlpha = config.horizontalBarBackgroundFullOpacity;
-                        context.drawImage(barBgImg, x, y, tableWidth - x, barHeight);
+                        context.drawImage(barBgImg, x, y, canvasWidth - x, barHeight); // 填充到画布右侧
                     }
                     // 绘制进度条区域背景
                     context.globalAlpha = config.horizontalBarBackgroundOpacity;
@@ -2355,7 +2487,7 @@ export async function apply(ctx: Context, config: Config) {
 
         function drawTextAndIcons(context, data, index, avgColor, barX, barY, barWidth, barHeight) {
             // 字体栈包含了用户选择的字体、插件内置字体和通用字体，以确保兼容性。
-            context.font = \`30px "\${config.chartNicknameFont}", SJbangkaijianti, JMH, SJkaishu, "Microsoft YaHei", sans-serif\`;
+            context.font = \`30px "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
             const textY = barY + barHeight / 2 + 10.5;
 
 
@@ -2593,6 +2725,7 @@ export async function apply(ctx: Context, config: Config) {
     iconCache: AssetData[];
     barBgImgCache: AssetData[];
     backgroundStyle: string;
+    fontFacesCSS: string;
     chartConfig: any;
   }): string {
     const {
@@ -2602,6 +2735,7 @@ export async function apply(ctx: Context, config: Config) {
       iconCache,
       barBgImgCache,
       backgroundStyle,
+      fontFacesCSS,
       chartConfig,
     } = params;
 
@@ -2626,21 +2760,25 @@ export async function apply(ctx: Context, config: Config) {
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>排行榜</title>
-          <style>${_getChartStyles()}</style>
+          <style>${_getChartBaseStyles()}</style>
           <style>${backgroundStyle}</style>
-          <!-- 修改：增强标题字体栈 -->
+          <style>${fontFacesCSS}</style>
           <style>
             .ranking-title { font-family: "${
               chartConfig.chartTitleFont
-            }", 'JMH', 'SJbangkaijianti', 'SJkaishu', "Microsoft YaHei", sans-serif; }
+            }", "Microsoft YaHei", sans-serif; }
           </style>
       </head>
       <body>
           <h1 class="ranking-title">${rankTimeTitle}</h1>
           <h1 class="ranking-title">${rankTitle}</h1>
           <div class="font-preload">
-            <span style="font-family: 'SJkaishu';">预加载</span>
-            <span style="font-family: 'SJbangkaijianti';">预加载</span>
+            <span style="font-family: '${
+              chartConfig.chartNicknameFont
+            }';">预加载</span>
+            <span style="font-family: '${
+              chartConfig.chartTitleFont
+            }';">预加载</span>
           </div>
           <canvas id="rankingCanvas"></canvas>
           <script>
@@ -2659,7 +2797,6 @@ export async function apply(ctx: Context, config: Config) {
    * 生成排行榜图片。
    * 该函数通过组合多个辅助函数来创建 HTML 页面，并使用 Puppeteer 进行截图。
    * @param params 包含标题和数据的对象。
-   * @param context 包含图标和背景缓存的对象。
    * @returns 包含图表图片的 Buffer。
    */
   async function generateRankingChart(
@@ -2671,10 +2808,12 @@ export async function apply(ctx: Context, config: Config) {
     {
       iconCache,
       barBgImgCache,
+      fontFilesCache,
       emptyHtmlPath,
     }: {
       iconCache: AssetData[];
       barBgImgCache: AssetData[];
+      fontFilesCache: string[];
       emptyHtmlPath: string;
     }
   ): Promise<Buffer> {
@@ -2688,6 +2827,7 @@ export async function apply(ctx: Context, config: Config) {
 
     const page = await browser.newPage();
     try {
+      const fontFaces = await generateFontFacesCSS(fontsPath, fontFilesCache);
       const backgroundStyle = await _prepareBackgroundStyle(config);
 
       const chartConfigForClient = {
@@ -2707,17 +2847,29 @@ export async function apply(ctx: Context, config: Config) {
         iconCache,
         barBgImgCache,
         backgroundStyle,
+        fontFacesCSS: fontFaces,
         chartConfig: chartConfigForClient,
       });
 
       await page.goto(`file://${emptyHtmlPath}`);
-      await page.setViewport({
-        width: config.chartViewportWidth,
-        height: 256,
-        deviceScaleFactor: config.deviceScaleFactor,
-      });
+
       await page.setContent(h.unescape(htmlContent), {
         waitUntil: config.waitUntil,
+      });
+
+      const calculatedWidth = await page.evaluate(() => {
+        const canvas = document.getElementById("rankingCanvas") as HTMLCanvasElement | null;
+        const bodyPadding = 40; // 对应 body 的左右 padding (20px + 20px)
+        // 如果 canvas 存在，则返回其宽度加上页面的 padding；否则返回一个默认值。
+        return canvas ? canvas.width + bodyPadding : 1080;
+      });
+
+      await page.setViewport({
+        // 使用客户端计算出的宽度，但确保不小于用户在配置中设定的值
+        width: Math.max(config.chartViewportWidth, Math.ceil(calculatedWidth)),
+        // 高度在这里是次要的，因为 fullPage: true 会自动调整，但设置一个合理的值可以避免潜在问题
+        height: 256,
+        deviceScaleFactor: config.deviceScaleFactor,
       });
 
       const imageBuffer = await page.screenshot({
@@ -2983,7 +3135,7 @@ export async function apply(ctx: Context, config: Config) {
           // 调用唯一的柱状图生成函数
           const imageBuffer = await generateRankingChart(
             { rankTimeTitle, rankTitle, data: chartReadyData },
-            { iconCache, barBgImgCache, emptyHtmlPath }
+            { iconCache, barBgImgCache, fontFilesCache, emptyHtmlPath }
           );
           return h.image(imageBuffer, `image/${config.imageType}`);
         } catch (error) {
