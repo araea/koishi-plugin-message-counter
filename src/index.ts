@@ -6,6 +6,7 @@ import path from "path";
 import {} from "@koishijs/canvas";
 import * as fs from "fs/promises";
 import { constants as fsConstants } from "fs";
+import * as crypto from "crypto";
 
 export const name = "message-counter";
 export const inject = {
@@ -149,6 +150,10 @@ export interface Config {
   // -- 柱状图专属设置 --
   /** 生成的柱状图图片类型。 */
   imageType: "png" | "jpeg" | "webp";
+  /** 头像缓存的有效期（秒）。设置为 0 可禁用缓存刷新。 */
+  avatarCacheTTL: number;
+  /** 头像获取失败后的重试间隔（秒）。 */
+  avatarFailureCacheTTL: number;
   /** 页面加载等待事件，影响图片生成速度和稳定性。 */
   waitUntil: "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
   /**
@@ -285,6 +290,19 @@ export const Config: Schema<Config> = Schema.intersect([
         imageType: Schema.union(["png", "jpeg", "webp"])
           .default("png")
           .description(`生成的柱状图图片类型。`),
+
+        // 头像缓存 TTL 设置
+        avatarCacheTTL: Schema.number()
+          .default(86400) // 默认 24 小时 (24 * 60 * 60)
+          .description(
+            "头像缓存的有效期（秒）。设置为 0 则永不刷新。过短的有效期会增加网络请求。"
+          ),
+        // 失败缓存 TTL 设置
+        avatarFailureCacheTTL: Schema.number()
+          .default(300) // 默认 5 分钟
+          .description(
+            "头像获取失败后的缓存时间（秒）。在此期间将使用默认头像且不再尝试获取，以避免频繁请求无效链接。"
+          ),
 
         // --- 柱状图专属设置 ---
         waitUntil: Schema.union([
@@ -526,6 +544,11 @@ interface UserRecord {
   username: string;
 }
 
+interface AvatarCacheEntry {
+  base64: string;
+  timestamp: number; // 存储 Unix 时间戳 (毫秒)
+}
+
 type PeriodKey = "today" | "yesterday" | "week" | "month" | "year" | "total";
 
 type CountField =
@@ -553,6 +576,7 @@ export async function apply(ctx: Context, config: Config) {
   const iconsPath = path.join(messageCounterRoot, "icons");
   const barBgImgsPath = path.join(messageCounterRoot, "barBgImgs");
   const fontsPath = path.join(messageCounterRoot, "fonts"); // 字体目录路径
+  const avatarsPath = path.join(messageCounterRoot, "avatars");
   const emptyHtmlPath = path
     .join(messageCounterRoot, "emptyHtml.html")
     .replace(/\\/g, "/");
@@ -565,6 +589,7 @@ export async function apply(ctx: Context, config: Config) {
   await fs.mkdir(fontsPath, { recursive: true });
   await fs.mkdir(iconsPath, { recursive: true });
   await fs.mkdir(barBgImgsPath, { recursive: true });
+  await fs.mkdir(avatarsPath, { recursive: true });
 
   await migrateFolder(oldIconsPath, iconsPath);
   await migrateFolder(oldBarBgImgsPath, barBgImgsPath);
@@ -585,7 +610,7 @@ export async function apply(ctx: Context, config: Config) {
   }
 
   // 缓存
-  const avatarCache = new Map<string, string>();
+  const avatarCache = new Map<string, AvatarCacheEntry>();
   let iconCache: AssetData[] = [];
   let barBgImgCache: AssetData[] = [];
   let fontFilesCache: string[] = []; // 字体文件缓存
@@ -2048,6 +2073,104 @@ export async function apply(ctx: Context, config: Config) {
   // --- 辅助函数 ---
   // hs*
 
+  /**
+   * getAvatarAsBase64 函数
+   * 实现了成功的长 TTL 缓存和失败的短 TTL 缓存策略。
+   * @param url 头像的URL
+   * @returns 处理后的头像 base64 字符串
+   */
+  async function getAvatarAsBase64(url: string): Promise<string> {
+    const fallbackBase64 =
+      "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";
+    const now = Date.now();
+    // 从配置中获取成功和失败的缓存有效期（转换为毫秒）
+    const successTtl = config.avatarCacheTTL * 1000;
+    const failureTtl = config.avatarFailureCacheTTL * 1000;
+
+    // 辅助函数，用于检查缓存条目是否过期
+    const isEntryExpired = (entry: AvatarCacheEntry): boolean => {
+      // 判断缓存的头像是真实头像还是备用头像
+      const isFallback = entry.base64 === fallbackBase64;
+      // 根据情况选择对应的 TTL
+      const ttl = isFallback ? failureTtl : successTtl;
+      // 如果 TTL 设置为 0 且不是失败缓存，则永不过期
+      if (ttl === 0 && !isFallback) return false;
+      // 检查当前时间是否已超过缓存的创建时间+有效期
+      return now - entry.timestamp >= ttl;
+    };
+
+    // 1. 检查内存缓存 (Hot Cache)，用于最快的响应
+    if (avatarCache.has(url)) {
+      const entry = avatarCache.get(url)!;
+      if (!isEntryExpired(entry)) {
+        // 内存缓存命中且未过期，直接返回
+        return entry.base64;
+      }
+    }
+
+    // 2. 检查磁盘缓存 (Persistent Cache)，用于持久化
+    // 使用 URL 的 MD5 哈希作为文件名，避免特殊字符和路径过长问题
+    const hash = crypto.createHash("md5").update(url).digest("hex");
+    const cacheFilePath = path.join(avatarsPath, `${hash}.json`);
+
+    try {
+      const cachedFile = await fs.readFile(cacheFilePath, "utf-8");
+      const entry: AvatarCacheEntry = JSON.parse(cachedFile);
+
+      if (!isEntryExpired(entry)) {
+        // 磁盘缓存命中且未过期，将其加载到内存并返回
+        avatarCache.set(url, entry); // 更新内存缓存
+        return entry.base64;
+      }
+    } catch (error) {
+      // 捕获错误（如文件不存在、JSON解析失败），意味着磁盘缓存无效，继续执行网络请求
+    }
+
+    // 3. 从网络获取，并根据结果应用不同的缓存策略
+    let finalBase64 = fallbackBase64;
+    try {
+      if (!ctx.canvas) {
+        throw new Error("Canvas service is not available.");
+      }
+      // 设置5秒超时，防止请求卡死
+      const buffer = await ctx.http.get(url, {
+        responseType: "arraybuffer",
+        timeout: 5000,
+      });
+      // 使用 canvas 将图片统一处理为 50x50 的 PNG
+      const image = await ctx.canvas.loadImage(buffer);
+      const canvas = await ctx.canvas.createCanvas(50, 50);
+      const context = canvas.getContext("2d");
+      context.drawImage(image, 0, 0, 50, 50);
+      finalBase64 = (await canvas.toBuffer("image/png")).toString("base64");
+    } catch (error) {
+      logger.warn(
+        `获取或处理头像失败 (URL: ${url})，将使用默认头像并缓存失败状态:`,
+        error.message || error
+      );
+      // 如果获取或处理失败，finalBase64 保持为 fallbackBase64
+    }
+
+    // 4. 将获取结果（无论成功或失败）写入缓存
+    const newEntry: AvatarCacheEntry = {
+      base64: finalBase64,
+      timestamp: now,
+    };
+
+    try {
+      // 同时写入磁盘和内存，确保数据同步
+      await fs.writeFile(cacheFilePath, JSON.stringify(newEntry));
+      avatarCache.set(url, newEntry);
+    } catch (cacheError) {
+      logger.error(
+        `无法写入头像缓存文件 (Path: ${cacheFilePath}):`,
+        cacheError
+      );
+    }
+
+    return newEntry.base64;
+  }
+
   async function reloadIconCache() {
     iconCache = await loadAssetsFromFolder(iconsPath);
     logger.info(`Reloaded ${iconCache.length} user icons.`);
@@ -2858,7 +2981,9 @@ export async function apply(ctx: Context, config: Config) {
       });
 
       const calculatedWidth = await page.evaluate(() => {
-        const canvas = document.getElementById("rankingCanvas") as HTMLCanvasElement | null;
+        const canvas = document.getElementById(
+          "rankingCanvas"
+        ) as HTMLCanvasElement | null;
         const bodyPadding = 40; // 对应 body 的左右 padding (20px + 20px)
         // 如果 canvas 存在，则返回其宽度加上页面的 padding；否则返回一个默认值。
         return canvas ? canvas.width + bodyPadding : 1080;
@@ -3112,27 +3237,22 @@ export async function apply(ctx: Context, config: Config) {
         logger.warn("Puppeteer service is not enabled. Falling back to text.");
       } else {
         try {
-          // 创建一份用于图表的数据副本，以防修改影响后续的回退渲染
           const chartReadyData = rankingData.map((item) => {
-            const newItem = { ...item }; // 浅拷贝足以满足需求
-            // 如果配置项关闭，并且名称以★开头，则移除它
+            const newItem = { ...item };
             if (!config.showStarInChart && newItem.name.startsWith("★")) {
               newItem.name = newItem.name.substring(1);
             }
             return newItem;
           });
 
-          // 在生成图表前，填充头像的 base64 缓存
+          // 调用新的、带持久化缓存的函数来获取头像
+          // 旧的逻辑是直接在这里操作内存缓存，现在封装到 getAvatarAsBase64 中
           await Promise.all(
             chartReadyData.map(async (item) => {
-              if (!avatarCache.has(item.avatar)) {
-                const base64 = await resizeImageToBase64(ctx, item.avatar);
-                avatarCache.set(item.avatar, base64);
-              }
-              item.avatarBase64 = avatarCache.get(item.avatar);
+              item.avatarBase64 = await getAvatarAsBase64(item.avatar);
             })
           );
-          // 调用唯一的柱状图生成函数
+
           const imageBuffer = await generateRankingChart(
             { rankTimeTitle, rankTitle, data: chartReadyData },
             { iconCache, barBgImgCache, fontFilesCache, emptyHtmlPath }
@@ -3140,7 +3260,6 @@ export async function apply(ctx: Context, config: Config) {
           return h.image(imageBuffer, `image/${config.imageType}`);
         } catch (error) {
           logger.error("Failed to generate leaderboard chart:", error);
-          // 发生错误时，降级为 Markdown 图片或纯文本
         }
       }
     }
@@ -3206,42 +3325,5 @@ export async function apply(ctx: Context, config: Config) {
       } 次${percentageStr}\n`;
     });
     return result.trim();
-  }
-
-  async function resizeImageToBase64(
-    ctx: Context,
-    url: string
-  ): Promise<string> {
-    if (!ctx.canvas) {
-      throw new Error("Canvas service is not available for image processing.");
-    }
-    const MAX_RETRIES = 2;
-    for (let i = 0; i < MAX_RETRIES; i++) {
-      try {
-        const buffer = await ctx.http.get(url, {
-          responseType: "arraybuffer",
-          timeout: 5000,
-        });
-        const image = await ctx.canvas.loadImage(buffer);
-        const canvas = await ctx.canvas.createCanvas(50, 50);
-        const context = canvas.getContext("2d");
-        context.drawImage(image, 0, 0, 50, 50);
-        return (await canvas.toBuffer("image/png")).toString("base64");
-      } catch (error) {
-        logger.warn(
-          `Failed to process image from ${url} (attempt ${i + 1}):`,
-          error
-        );
-        if (i === MAX_RETRIES - 1) {
-          // 如果是最后一次尝试，返回一个备用或占位图
-          logger.error(`Giving up on image ${url}. Using fallback.`);
-          // 返回一个 1x1 的透明像素
-          return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
-        }
-        await sleep(500);
-      }
-    }
-    // 理论上不会执行到这里
-    return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
   }
 }
