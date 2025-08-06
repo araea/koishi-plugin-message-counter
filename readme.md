@@ -103,7 +103,7 @@
 
 ## 📷 示例截图
 
-![排行榜示例](https://github.com/araea/koishi-plugin-message-counter/assets/120614554/3eb50393-00a2-4400-b4fd-d54d3acee390)
+![排行榜示例](https://github.com/user-attachments/assets/a893f995-a74f-4170-a417-e826cf73f6a2)
 
 ## 🙏 致谢
 
