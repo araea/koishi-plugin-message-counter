@@ -774,6 +774,7 @@ export async function apply(ctx: Context, config: Config) {
     .option("yag", "跨群本年发言")
     .option("across", "-a 跨群总发言")
     .action(async ({ session, options }, targetUser) => {
+      // -- 1. 选项解析 --
       const optionKeys = [
         "day",
         "week",
@@ -781,424 +782,256 @@ export async function apply(ctx: Context, config: Config) {
         "year",
         "total",
         "yesterday",
-        "across",
         "dag",
         "wag",
         "mag",
         "yag",
         "ydag",
+        "across",
       ];
       const selectedOptions: Dict<boolean> = {};
       let noOptionSelected = true;
-
       for (const key of optionKeys) {
         if (options[key]) {
           selectedOptions[key] = true;
           noOptionSelected = false;
         }
       }
-
-      // 如果没有任何选项被选择，则默认全选
       if (noOptionSelected) {
         for (const key of optionKeys) {
           selectedOptions[key] = true;
         }
       }
 
-      const {
-        day,
-        week,
-        month,
-        year,
-        total,
-        across,
-        dag,
-        yesterday,
-        wag,
-        yag,
-        mag,
-        ydag,
-      } = selectedOptions; // selectedOptions 对象包含了用户选择的选项
-
-      // 查询： 直接获取 返回提示 跨群总榜
+      // -- 2. 用户信息与数据获取 --
       let channelId = session?.channelId;
       let userId = session?.userId;
-      let username = session?.user?.name || "";
       let targetUserRecord: MessageCounterRecord[] = [];
-      const originalUerId = userId;
+
       if (targetUser) {
-        if (session) {
-          targetUser = await replaceAtTags(session, targetUser);
-        }
-        const userIdRegex = /<at id="([^"]+)"(?: name="([^"]+)")?\/>/;
-        const match = targetUser.match(userIdRegex);
-        userId = match?.[1] ?? userId;
-        username = match?.[2] ?? username;
-        if (originalUerId === userId) {
-          targetUserRecord = await ctx.database.get("message_counter_records", {
-            channelId,
-            userId: targetUser,
-          });
-          if (targetUserRecord.length !== 0) {
-            userId = targetUser;
+        if (session) targetUser = await replaceAtTags(session, targetUser);
+        const match = targetUser.match(/<at id="([^"]+)"/);
+        if (match) userId = match[1];
+      }
+
+      targetUserRecord = await ctx.database.get("message_counter_records", {
+        channelId,
+        userId,
+      });
+      if (targetUserRecord.length === 0) return `被查询对象无任何发言记录。`;
+
+      const guildUsers = await ctx.database.get("message_counter_records", {
+        channelId,
+      });
+      const allUsers = await ctx.database.get("message_counter_records", {});
+
+      // -- 3. 数据处理与结构化 --
+      // 定义数据行接口
+      interface StatRow {
+        label: string;
+        count: number;
+        total: number;
+        rank: number | null;
+        enabled: boolean;
+      }
+      const guildStats: StatRow[] = [];
+      const acrossStats: StatRow[] = [];
+
+      // 累加总数
+      const accumulate = (records: MessageCounterRecord[]) =>
+        records.reduce((sums, user) => {
+          for (const key in periodMapping) {
+            sums[periodMapping[key].field] =
+              (sums[periodMapping[key].field] || 0) +
+              user[periodMapping[key].field];
           }
-        } else {
-          targetUserRecord = await ctx.database.get("message_counter_records", {
-            channelId,
-            userId,
-          });
-        }
-      } else {
-        targetUserRecord = await ctx.database.get("message_counter_records", {
-          channelId,
-          userId,
-        });
-      }
+          return sums;
+        }, {} as Record<CountField, number>);
 
-      if (targetUserRecord.length === 0) {
-        return `被查询对象无任何发言记录。`;
-      }
-      const guildUsers: MessageCounterRecord[] = await ctx.database.get(
-        "message_counter_records",
-        { channelId }
-      );
-      const getDragons = await ctx.database.get("message_counter_records", {});
+      const guildTotals = accumulate(guildUsers);
+      const acrossTotals = accumulate(allUsers);
 
-      const totalSums = {
-        todayPostCount: 0,
-        thisWeekPostCount: 0,
-        thisMonthPostCount: 0,
-        thisYearPostCount: 0,
-        totalPostCount: 0,
-        yesterdayPostCount: 0,
-      };
-
-      const acrossTotalSums = {
-        todayPostCount: 0,
-        thisWeekPostCount: 0,
-        thisMonthPostCount: 0,
-        thisYearPostCount: 0,
-        totalPostCount: 0,
-        yesterdayPostCount: 0,
-      };
-
-      interface Sums {
-        todayPostCount: number;
-        thisWeekPostCount: number;
-        thisMonthPostCount: number;
-        thisYearPostCount: number;
-        totalPostCount: number;
-        yesterdayPostCount: number;
-      }
-
-      interface User {
-        todayPostCount: number;
-        thisWeekPostCount: number;
-        thisMonthPostCount: number;
-        thisYearPostCount: number;
-        totalPostCount: number;
-        yesterdayPostCount: number;
-      }
-
-      const accumulateSums = (sums: Sums, user: User): void => {
-        sums.todayPostCount += user.todayPostCount;
-        sums.thisWeekPostCount += user.thisWeekPostCount;
-        sums.thisMonthPostCount += user.thisMonthPostCount;
-        sums.thisYearPostCount += user.thisYearPostCount;
-        sums.totalPostCount += user.totalPostCount;
-        sums.yesterdayPostCount += user.yesterdayPostCount;
-      };
-
-      guildUsers.forEach((user) => accumulateSums(totalSums, user));
-      getDragons.forEach((user) => accumulateSums(acrossTotalSums, user));
-      // 获取 userId 对应对象的各种种类的排名数据
-      const getUserRanking = (userId: string) => {
-        const userRecords = guildUsers.find((user) => user.userId === userId);
-        if (userRecords) {
-          return {
-            todayRank: getRank("todayPostCount", userId),
-            thisWeekRank: getRank("thisWeekPostCount", userId),
-            thisMonthRank: getRank("thisMonthPostCount", userId),
-            thisYearRank: getRank("thisYearPostCount", userId),
-            totalRank: getRank("totalPostCount", userId),
-            yesterdayRank: getRank("yesterdayPostCount", userId),
-          };
-        } else {
-          return null; // 如果找不到对应 userId 的记录，返回 null 或者其他适当的值
-        }
-      };
-
-      // 获取指定属性的排名
+      // 获取排名
       const getRank = (
-        property: keyof MessageCounterRecord,
-        userId: string
+        records: MessageCounterRecord[],
+        field: CountField,
+        uid: string
       ) => {
-        const sortedUsers = guildUsers
-          .slice()
-          .sort((a, b) => (b[property] as number) - (a[property] as number));
-
-        const userIndex = sortedUsers.findIndex(
-          (user) => user.userId === userId
-        );
-        return userIndex !== -1 ? userIndex + 1 : null; // 如果找不到对应 userId 的记录，返回 null 或者其他适当的值
+        const sorted = [...records].sort((a, b) => b[field] - a[field]);
+        const index = sorted.findIndex((u) => u.userId === uid);
+        return index !== -1 ? index + 1 : null;
       };
 
-      // 使用方法获取 userId 对应对象的各种种类的排名数据
-      if (!userId) {
-        return "无法获取用户ID，无法查询排名。";
-      }
-      const userRankingData = getUserRanking(userId);
+      const getAcrossRank = (
+        records: MessageCounterRecord[],
+        field: CountField,
+        uid: string
+      ) => {
+        const userTotals = records.reduce((acc, cur) => {
+          acc[cur.userId] = (acc[cur.userId] || 0) + cur[field];
+          return acc;
+        }, {} as Dict<number>);
+        const sorted = Object.entries(userTotals).sort(([, a], [, b]) => b - a);
+        const index = sorted.findIndex(([id]) => id === uid);
+        return index !== -1 ? index + 1 : null;
+      };
 
-      const {
-        todayRank,
-        thisWeekRank,
-        thisMonthRank,
-        thisYearRank,
-        totalRank,
-        yesterdayRank,
-      } = userRankingData || {};
+      const getAcrossCount = (
+        records: MessageCounterRecord[],
+        field: CountField,
+        uid: string
+      ) => {
+        return records
+          .filter((r) => r.userId === uid)
+          .reduce((sum, r) => sum + r[field], 0);
+      };
 
-      function getAcrossUserRank(
-        userId: string,
-        dragons: [string, number][]
-      ): number {
-        const userIndex = dragons.findIndex(([id, _]) => id === userId);
-        if (userIndex !== -1) {
-          // 用户在 dragons 中的排名为索引加1
-          return userIndex + 1;
-        } else {
-          // 如果用户不在 dragons 中，返回一个特定值（比如-1）表示未上榜
-          return -1;
-        }
-      }
+      // 填充本群数据
+      guildStats.push({
+        label: "昨日",
+        count: targetUserRecord[0].yesterdayPostCount,
+        total: guildTotals.yesterdayPostCount,
+        rank: getRank(guildUsers, "yesterdayPostCount", userId),
+        enabled: selectedOptions.yesterday,
+      });
+      guildStats.push({
+        label: "今日",
+        count: targetUserRecord[0].todayPostCount,
+        total: guildTotals.todayPostCount,
+        rank: getRank(guildUsers, "todayPostCount", userId),
+        enabled: selectedOptions.day,
+      });
+      guildStats.push({
+        label: "本周",
+        count: targetUserRecord[0].thisWeekPostCount,
+        total: guildTotals.thisWeekPostCount,
+        rank: getRank(guildUsers, "thisWeekPostCount", userId),
+        enabled: selectedOptions.week,
+      });
+      guildStats.push({
+        label: "本月",
+        count: targetUserRecord[0].thisMonthPostCount,
+        total: guildTotals.thisMonthPostCount,
+        rank: getRank(guildUsers, "thisMonthPostCount", userId),
+        enabled: selectedOptions.month,
+      });
+      guildStats.push({
+        label: "全年",
+        count: targetUserRecord[0].thisYearPostCount,
+        total: guildTotals.thisYearPostCount,
+        rank: getRank(guildUsers, "thisYearPostCount", userId),
+        enabled: selectedOptions.year,
+      });
+      guildStats.push({
+        label: "总计",
+        count: targetUserRecord[0].totalPostCount,
+        total: guildTotals.totalPostCount,
+        rank: getRank(guildUsers, "totalPostCount", userId),
+        enabled: selectedOptions.total,
+      });
 
-      // 跨群发言总次数和排名信息
-      const dragons = getSortedDragons(getDragons);
-      const acrossRank = getAcrossUserRank(userId, dragons);
+      // 填充跨群数据
+      acrossStats.push({
+        label: "昨日",
+        count: getAcrossCount(allUsers, "yesterdayPostCount", userId),
+        total: acrossTotals.yesterdayPostCount,
+        rank: getAcrossRank(allUsers, "yesterdayPostCount", userId),
+        enabled: selectedOptions.ydag,
+      });
+      acrossStats.push({
+        label: "今日",
+        count: getAcrossCount(allUsers, "todayPostCount", userId),
+        total: acrossTotals.todayPostCount,
+        rank: getAcrossRank(allUsers, "todayPostCount", userId),
+        enabled: selectedOptions.dag,
+      });
+      acrossStats.push({
+        label: "本周",
+        count: getAcrossCount(allUsers, "thisWeekPostCount", userId),
+        total: acrossTotals.thisWeekPostCount,
+        rank: getAcrossRank(allUsers, "thisWeekPostCount", userId),
+        enabled: selectedOptions.wag,
+      });
+      acrossStats.push({
+        label: "本月",
+        count: getAcrossCount(allUsers, "thisMonthPostCount", userId),
+        total: acrossTotals.thisMonthPostCount,
+        rank: getAcrossRank(allUsers, "thisMonthPostCount", userId),
+        enabled: selectedOptions.mag,
+      });
+      acrossStats.push({
+        label: "全年",
+        count: getAcrossCount(allUsers, "thisYearPostCount", userId),
+        total: acrossTotals.thisYearPostCount,
+        rank: getAcrossRank(allUsers, "thisYearPostCount", userId),
+        enabled: selectedOptions.yag,
+      });
+      acrossStats.push({
+        label: "总计",
+        count: getAcrossCount(allUsers, "totalPostCount", userId),
+        total: acrossTotals.totalPostCount,
+        rank: getAcrossRank(allUsers, "totalPostCount", userId),
+        enabled: selectedOptions.across,
+      });
 
-      const userRecords: MessageCounterRecord[] = await ctx.database.get(
-        "message_counter_records",
-        { userId }
-      );
+      // -- 4. 格式化与输出 --
+      const formatPercentage = (count: number, total: number): string => {
+        if (total === 0) return "(0%)";
+        const percentage = (count / total) * 100;
+        const numStr =
+          percentage % 1 === 0 ? String(percentage) : percentage.toFixed(2);
+        return `(${numStr}%)`;
+      };
 
-      // 使用 reduce 方法计算跨群总发言次数
-      const totalPostCountAcrossGuilds = userRecords.reduce((total, record) => {
-        return total + record.totalPostCount;
-      }, 0);
+      const formatStatsTable = (title: string, stats: StatRow[]): string => {
+        const activeStats = stats.filter((s) => s.enabled && s.count > 0);
+        if (activeStats.length === 0) return "";
 
-      const {
-        todayPostCount,
-        thisWeekPostCount,
-        thisMonthPostCount,
-        thisYearPostCount,
-        totalPostCount,
-        yesterdayPostCount,
-      } = targetUserRecord[0];
-
-      let message = config.isTextToImageConversionEnabled
-        ? `# 查询对象：${targetUserRecord[0].username}\n\n`
-        : `查询对象：${targetUserRecord[0].username}\n\n`;
-      if (config.isTimeInfoSupplementEnabled) {
-        const currentBeijingTime = getCurrentBeijingTime();
-        message = config.isTextToImageConversionEnabled
-          ? `# ${currentBeijingTime}\n${message}`
-          : `${currentBeijingTime}\n${message}`;
-      }
-      if (yesterday) {
-        message += `${
-          config.isTextToImageConversionEnabled ? "## " : ""
-        }本群昨日发言次数[排名]：${yesterdayPostCount} 次${
-          config.isUserMessagePercentageVisible
-            ? ` ${calculatePercentage(
-                yesterdayPostCount,
-                totalSums.yesterdayPostCount
-              )}`
-            : ""
-        }[${yesterdayRank}]\n`;
-      }
-      if (day) {
-        message += `${
-          config.isTextToImageConversionEnabled ? "## " : ""
-        }本群今日发言次数[排名]：${todayPostCount} 次${
-          config.isUserMessagePercentageVisible
-            ? ` ${calculatePercentage(
-                todayPostCount,
-                totalSums.todayPostCount
-              )}`
-            : ""
-        }[${todayRank}]\n`;
-      }
-      if (week) {
-        message += `${
-          config.isTextToImageConversionEnabled ? "## " : ""
-        }本群本周发言次数[排名]：${thisWeekPostCount} 次${
-          config.isUserMessagePercentageVisible
-            ? ` ${calculatePercentage(
-                thisWeekPostCount,
-                totalSums.thisWeekPostCount
-              )}`
-            : ""
-        }[${thisWeekRank}]\n`;
-      }
-      if (month) {
-        message += `${
-          config.isTextToImageConversionEnabled ? "## " : ""
-        }本群本月发言次数[排名]：${thisMonthPostCount} 次${
-          config.isUserMessagePercentageVisible
-            ? ` ${calculatePercentage(
-                thisMonthPostCount,
-                totalSums.thisMonthPostCount
-              )}`
-            : ""
-        }[${thisMonthRank}]\n`;
-      }
-      if (year) {
-        message += `${
-          config.isTextToImageConversionEnabled ? "## " : ""
-        }本群今年发言次数[排名]：${thisYearPostCount} 次${
-          config.isUserMessagePercentageVisible
-            ? ` ${calculatePercentage(
-                thisYearPostCount,
-                totalSums.thisYearPostCount
-              )}`
-            : ""
-        }[${thisYearRank}]\n`;
-      }
-      if (total) {
-        message += `${
-          config.isTextToImageConversionEnabled ? "## " : ""
-        }本群总发言次数[排名]：${totalPostCount} 次${
-          config.isUserMessagePercentageVisible
-            ? ` ${calculatePercentage(
-                totalPostCount,
-                totalSums.totalPostCount
-              )}`
-            : ""
-        }[${totalRank}]\n`;
-      }
-      if (ydag) {
-        const ydagResult = getUserRankAndRecord(
-          getDragons,
-          userId,
-          "yesterdayPostCount"
+        const counts = activeStats.map((s) => String(s.count));
+        const percents = activeStats.map((s) =>
+          formatPercentage(s.count, s.total)
         );
-        if (ydagResult) {
-          const ydagUserRecord = ydagResult.userRecord;
-          const ydagRank = ydagResult.acrossRank;
-          message += `${
-            config.isTextToImageConversionEnabled ? "## " : ""
-          }跨群昨日发言次数[排名]：${ydagUserRecord.postCountAll} 次${
-            config.isUserMessagePercentageVisible
-              ? ` ${calculatePercentage(
-                  ydagUserRecord.postCountAll,
-                  acrossTotalSums.yesterdayPostCount
-                )}`
-              : ""
-          }[${ydagRank}]\n`;
-        }
-      }
-      if (dag) {
-        const dagResult = getUserRankAndRecord(
-          getDragons,
-          userId,
-          "todayPostCount"
-        );
-        if (dagResult) {
-          const dagUserRecord = dagResult.userRecord;
-          const dagRank = dagResult.acrossRank;
-          message += `${
-            config.isTextToImageConversionEnabled ? "## " : ""
-          }跨群今日发言次数[排名]：${dagUserRecord.postCountAll} 次${
-            config.isUserMessagePercentageVisible
-              ? ` ${calculatePercentage(
-                  dagUserRecord.postCountAll,
-                  acrossTotalSums.todayPostCount
-                )}`
-              : ""
-          }[${dagRank}]\n`;
-        }
-      }
-      if (wag) {
-        const wagResult = getUserRankAndRecord(
-          getDragons,
-          userId,
-          "thisWeekPostCount"
-        );
-        if (wagResult) {
-          const wagUserRecord = wagResult.userRecord;
-          const wagRank = wagResult.acrossRank;
-          message += `${
-            config.isTextToImageConversionEnabled ? "## " : ""
-          }跨群本周发言次数[排名]：${wagUserRecord.postCountAll} 次${
-            config.isUserMessagePercentageVisible
-              ? ` ${calculatePercentage(
-                  wagUserRecord.postCountAll,
-                  acrossTotalSums.thisWeekPostCount
-                )}`
-              : ""
-          }[${wagRank}]\n`;
-        }
-      }
-      if (mag) {
-        const magResult = getUserRankAndRecord(
-          getDragons,
-          userId,
-          "thisMonthPostCount"
-        );
-        if (magResult) {
-          const magUserRecord = magResult.userRecord;
-          const magRank = magResult.acrossRank;
-          message += `${
-            config.isTextToImageConversionEnabled ? "## " : ""
-          }跨群本月发言次数[排名]：${magUserRecord.postCountAll} 次${
-            config.isUserMessagePercentageVisible
-              ? ` ${calculatePercentage(
-                  magUserRecord.postCountAll,
-                  acrossTotalSums.thisMonthPostCount
-                )}`
-              : ""
-          }[${magRank}]\n`;
-        }
-      }
-      if (yag) {
-        const yagResult = getUserRankAndRecord(
-          getDragons,
-          userId,
-          "thisYearPostCount"
-        );
-        if (yagResult) {
-          const yagUserRecord = yagResult.userRecord;
-          const yagRank = yagResult.acrossRank;
-          message += `${
-            config.isTextToImageConversionEnabled ? "## " : ""
-          }跨群本年发言次数[排名]：${yagUserRecord.postCountAll} 次${
-            config.isUserMessagePercentageVisible
-              ? ` ${calculatePercentage(
-                  yagUserRecord.postCountAll,
-                  acrossTotalSums.thisYearPostCount
-                )}`
-              : ""
-          }[${yagRank}]\n`;
-        }
-      }
-      if (across) {
-        message += `${
-          config.isTextToImageConversionEnabled ? "## " : ""
-        }跨群总发言次数[排名]：${totalPostCountAcrossGuilds} 次${
-          config.isUserMessagePercentageVisible
-            ? ` ${calculatePercentage(
-                totalPostCountAcrossGuilds,
-                acrossTotalSums.totalPostCount
-              )}`
-            : ""
-        }[${acrossRank}]\n`;
-      }
 
-      if (config.isTextToImageConversionEnabled) {
-        const imageBuffer = await ctx.markdownToImage.convertToImage(message);
-        return h.image(imageBuffer, `image/${config.imageType}`);
+        const maxCountWidth = Math.max(0, ...counts.map((s) => s.length));
+        const maxPercentWidth = Math.max(0, ...percents.map((s) => s.length));
+
+        let table = `${title}\n`;
+        for (const row of activeStats) {
+          const label = row.label.padEnd(2, "　"); // 使用全角空格对齐中文
+          const countStr = String(row.count).padStart(maxCountWidth, " ");
+          const percentStr = formatPercentage(row.count, row.total).padEnd(
+            maxPercentWidth,
+            " "
+          );
+          const rankStr = row.rank ? `#${row.rank}` : "#-";
+          table += `${label} ${countStr}  ${percentStr}  ${rankStr}\n`;
+        }
+        return table;
+      };
+
+      const guildTable = formatStatsTable("群发言", guildStats);
+      const acrossTable = formatStatsTable("跨群发言", acrossStats);
+
+      const body = [guildTable, acrossTable].filter(Boolean).join("\n");
+      if (!body) return `被查询对象在指定时段内无发言记录。`;
+
+      // 使用 'sv-SE' locale 可以方便地得到 YYYY-MM-DD HH:MM:SS 格式
+      const timestamp = new Date().toLocaleString("sv-SE", {
+        timeZone: "Asia/Shanghai",
+      });
+      const header = `${timestamp}\n\n${targetUserRecord[0].username}\n\n`;
+      const message = header + body;
+
+      // -- 5. 图片转换 --
+      if (config.isTextToImageConversionEnabled && ctx.markdownToImage) {
+        try {
+          const imageBuffer = await ctx.markdownToImage.convertToImage(message);
+          return h.image(imageBuffer, `image/${config.imageType}`);
+        } catch (error) {
+          logger.warn("生成图片失败，将回退到文本输出:", error);
+        }
       }
-      // 返回消息
+      // -- 6. 文本输出 (如果图片转换失败，或者未开启图片转换) --
       return message;
     });
 
@@ -2072,6 +1905,16 @@ export async function apply(ctx: Context, config: Config) {
 
   // --- 辅助函数 ---
   // hs*
+  // 将数字格式化为保留两位小数的百分比字符串，例如 "12.34%"
+  function formatPercentageForDisplay(count: number, total: number): string {
+    if (total === 0) {
+      return "(0%)";
+    }
+    const percentage = (count / total) * 100;
+    // 使用 toFixed(2) 保证最多两位小数，然后用 parseFloat 去掉末尾多余的 .0 和 0
+    const formattedNumber = parseFloat(percentage.toFixed(2));
+    return `(${formattedNumber}%)`;
+  }
 
   /**
    * getAvatarAsBase64 函数
