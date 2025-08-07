@@ -1019,7 +1019,7 @@ export async function apply(ctx: Context, config: Config) {
       const timestamp = new Date().toLocaleString("sv-SE", {
         timeZone: "Asia/Shanghai",
       });
-      const header = `${timestamp}\n\n${targetUserRecord[0].username}\n\n`;
+      const header = `${timestamp}\n${targetUserRecord[0].username}\n\n`;
       const message = header + body;
 
       // -- 5. 图片转换 --
