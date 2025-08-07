@@ -1169,10 +1169,13 @@ export async function apply(ctx: Context, config: Config) {
         const at = h.select(options.specificUser, "at");
         const userId = at.length ? at[0].attrs.id : options.specificUser;
 
-        const userRecords = await ctx.database.get("user", { id: userId });
+        const userRecords = await ctx.database.get("message_counter_records", {
+          userId,
+          channelId: session.channelId,
+        });
         const username =
           userRecords.length > 0
-            ? userRecords[0].name || `用户${userId}`
+            ? userRecords[0].username || `用户${userId}`
             : `用户${userId}`;
 
         rankTitle = `${username}的${periodName}群发言排行榜`;
