@@ -88,6 +88,11 @@ export const usage = `## 📝 注意事项
 
 - 实时重载用户图标、柱状条背景和字体文件，使其更改即时生效（需要权限等级 2）
 
+### \`messageCounter.清理缓存\`
+
+- 清理过期的头像缓存文件，以释放磁盘空间（需要权限等级 3）
+- 用户更换头像后，旧的头像缓存会变成“孤儿缓存”。此指令可以安全地移除它们。
+
 ## 🎨 自定义水平柱状图样式
 
 - 重载插件或使用 \`messageCounter.重载资源\` 指令可使新增的文件立即生效。
@@ -647,7 +652,144 @@ export async function apply(ctx: Context, config: Config) {
   // 限定在群组中
   const guildCtx = ctx.guild();
 
+  // 在插件启动完成后设置定时任务
+  ctx.on("ready", async () => {
+    // 启动时加载缓存
+    await reloadIconCache();
+    await reloadBarBgImgCache();
+    await reloadFontCache();
+
+    // 执行非破坏性的状态初始化
+    await initializeResetStates();
+
+    // 安全地检查并弥补真正错过的重置任务
+    await checkForMissedResets();
+
+    // --- 设置所有定时任务 ---
+
+    // 1. 自动推送排行榜的定时任务
+    if (config.autoPush) {
+      if (config.shouldSendDailyLeaderboardAtMidnight) {
+        const task = ctx.cron("1 0 * * *", () =>
+          generateAndPushLeaderboard("yesterday")
+        );
+        scheduledTasks.push(task);
+        logger.info("[自动推送] 已设置每日 00:01 推送昨日排行榜的任务。");
+      }
+      (config.dailyScheduledTimers || []).forEach((time) => {
+        const match = /^([0-1]?[0-9]|2[0-3]):([0-5]?[0-9])$/.exec(time);
+        if (match) {
+          const [_, hour, minute] = match;
+          const cron = `${minute} ${hour} * * *`;
+          const task = ctx.cron(cron, () =>
+            generateAndPushLeaderboard("today")
+          );
+          scheduledTasks.push(task);
+          logger.info(`[自动推送] 已设置每日 ${time} 推送今日排行榜的任务。`);
+        } else {
+          logger.warn(
+            `[自动推送] 无效的时间格式: "${time}"，已跳过。请使用 "HH:mm" 格式。`
+          );
+        }
+      });
+    }
+
+    // 2. 抓龙王（禁言）的定时任务
+    if (config.enableMostActiveUserMuting) {
+      const task = ctx.cron("1 0 * * *", () => performDragonKingMuting());
+      scheduledTasks.push(task);
+      logger.info("[抓龙王] 已设置每日 00:01 执行的禁言任务。");
+    }
+
+    // 3. 统一的推送与数据库重置定时任务
+    // 此任务在每天 00:00 执行
+    const resetTask = ctx.cron("0 0 * * *", async () => {
+      const now = new Date();
+      const dayOfMonth = now.getDate();
+      const month = now.getMonth(); // 0-11
+      const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday
+
+      // --- 周期性推送 (在数据重置之前执行) ---
+
+      // 在每年1月1日 00:00，重置年度数据前，推送去年的排行榜
+      if (
+        config.autoPush &&
+        config.shouldSendYearlyLeaderboard &&
+        dayOfMonth === 1 &&
+        month === 0
+      ) {
+        await generateAndPushLeaderboard("year");
+      }
+
+      // 在每月1日 00:00，重置月度数据前，推送上个月的排行榜
+      if (
+        config.autoPush &&
+        config.shouldSendMonthlyLeaderboard &&
+        dayOfMonth === 1
+      ) {
+        await generateAndPushLeaderboard("month");
+      }
+
+      // 在每周一 00:00，重置周数据前，推送上一周的排行榜
+      if (
+        config.autoPush &&
+        config.shouldSendWeeklyLeaderboard &&
+        dayOfWeek === 1
+      ) {
+        await generateAndPushLeaderboard("week");
+      }
+
+      // --- 数据重置 (在周期性推送之后执行) ---
+
+      // 每日重置 (总是执行), 它会先把 today 备份到 yesterday
+      await resetCounter("todayPostCount", "今日发言榜已成功置空！", "daily");
+
+      // 每周重置 (在周一 00:00 执行)
+      if (dayOfWeek === 1) {
+        await resetCounter(
+          "thisWeekPostCount",
+          "本周发言榜已成功置空！",
+          "weekly"
+        );
+      }
+
+      // 每月重置 (在每月1号 00:00 执行)
+      if (dayOfMonth === 1) {
+        await resetCounter(
+          "thisMonthPostCount",
+          "本月发言榜已成功置空！",
+          "monthly"
+        );
+      }
+
+      // 每年重置 (在1月1号 00:00 执行)
+      if (dayOfMonth === 1 && month === 0) {
+        await resetCounter(
+          "thisYearPostCount",
+          "今年发言榜已成功置空！",
+          "yearly"
+        );
+      }
+    });
+
+    // 将这一个统一的任务添加到待清理列表
+    scheduledTasks.push(resetTask);
+    logger.info("已设置统一的推送与数据重置任务（每日、周、月、年）。");
+  });
+
+  // --- 资源清理 ---
+  ctx.on("dispose", () => {
+    // 调用 disposer 函数来取消定时任务
+    scheduledTasks.forEach((task) => task());
+    avatarCache.clear();
+    iconCache = [];
+    barBgImgCache = [];
+    fontFilesCache = [];
+    logger.info("All scheduled jobs and caches have been cleared.");
+  });
+
   // --- 核心消息监听器 ---
+  // jt*
   guildCtx.on("message", async (session) => {
     // 忽略无效会话或机器人自身消息
     if (!session.userId || !session.channelId || session.author?.isBot) return;
@@ -1346,6 +1488,83 @@ export async function apply(ctx: Context, config: Config) {
       return `资源重载完毕！\n- 已加载 ${iconCache.length} 个用户图标。\n- 已加载 ${barBgImgCache.length} 个柱状条背景图片。\n- 已加载 ${fontFilesCache.length} 个字体文件。`;
     });
 
+  // 清理缓存
+  ctx
+    .command("messageCounter.清理缓存", "清理过期的头像缓存文件", {
+      authority: 3,
+    })
+    .option(
+      "days",
+      "-d <days:number> 清理超过指定天数未使用的缓存文件 (默认: 30)"
+    )
+    .action(async ({ session, options }) => {
+      if (!session) return;
+
+      const days = options.days ?? 30;
+      if (typeof days !== "number" || days < 0) {
+        return "请输入一个有效的天数（大于等于0）。";
+      }
+
+      await session.send(`正在开始清理 ${days} 天前的头像缓存，请稍候...`);
+
+      const cacheDir = avatarsPath; // 使用已定义的头像缓存路径
+      let deletedCount = 0;
+      let totalFreedSize = 0;
+      const now = Date.now();
+      const expirationTime = now - days * 24 * 60 * 60 * 1000;
+
+      try {
+        const files = await fs.readdir(cacheDir);
+
+        for (const file of files) {
+          if (!file.endsWith(".json")) continue; // 只处理 .json 缓存文件
+
+          const filePath = path.join(cacheDir, file);
+          try {
+            const stats = await fs.stat(filePath);
+            const content = await fs.readFile(filePath, "utf-8");
+            const entry: AvatarCacheEntry = JSON.parse(content);
+
+            // 检查时间戳是否早于我们设定的过期时间点
+            if (entry.timestamp < expirationTime) {
+              await fs.unlink(filePath);
+              deletedCount++;
+              totalFreedSize += stats.size;
+            }
+          } catch (error) {
+            logger.warn(`处理缓存文件 ${file} 时出错，已跳过:`, error);
+          }
+        }
+
+        const freedSizeFormatted = formatBytes(totalFreedSize);
+        return `缓存清理完成！\n- 共删除 ${deletedCount} 个过期缓存文件。\n- 释放磁盘空间约 ${freedSizeFormatted}。`;
+      } catch (error) {
+        if (error.code === "ENOENT") {
+          return "头像缓存目录不存在，无需清理。";
+        }
+        logger.error("清理头像缓存时发生未知错误:", error);
+        return "清理过程中发生错误，请查看控制台日志。";
+      }
+    });
+
+  // --- 辅助函数 ---
+  // hs*
+
+  /**
+   * 将字节数格式化为易于阅读的字符串 (B, KB, MB, GB...)
+   * @param bytes - 要格式化的字节数
+   * @param decimals - 保留的小数位数
+   * @returns 格式化后的字符串
+   */
+  function formatBytes(bytes: number, decimals = 2): string {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
+  }
+
   type PushPeriod = "today" | "yesterday" | "week" | "month" | "year";
 
   /**
@@ -1770,144 +1989,6 @@ export async function apply(ctx: Context, config: Config) {
     logger.success(`已更新 ${period} 周期的最后重置时间。`);
   }
 
-  // 在插件启动完成后设置定时任务
-  ctx.on("ready", async () => {
-    // 启动时加载缓存
-    await reloadIconCache();
-    await reloadBarBgImgCache();
-    await reloadFontCache();
-
-    // 执行非破坏性的状态初始化
-    await initializeResetStates();
-
-    // 安全地检查并弥补真正错过的重置任务
-    await checkForMissedResets();
-
-    // --- 设置所有定时任务 ---
-
-    // 1. 自动推送排行榜的定时任务
-    if (config.autoPush) {
-      if (config.shouldSendDailyLeaderboardAtMidnight) {
-        const task = ctx.cron("1 0 * * *", () =>
-          generateAndPushLeaderboard("yesterday")
-        );
-        scheduledTasks.push(task);
-        logger.info("[自动推送] 已设置每日 00:01 推送昨日排行榜的任务。");
-      }
-      (config.dailyScheduledTimers || []).forEach((time) => {
-        const match = /^([0-1]?[0-9]|2[0-3]):([0-5]?[0-9])$/.exec(time);
-        if (match) {
-          const [_, hour, minute] = match;
-          const cron = `${minute} ${hour} * * *`;
-          const task = ctx.cron(cron, () =>
-            generateAndPushLeaderboard("today")
-          );
-          scheduledTasks.push(task);
-          logger.info(`[自动推送] 已设置每日 ${time} 推送今日排行榜的任务。`);
-        } else {
-          logger.warn(
-            `[自动推送] 无效的时间格式: "${time}"，已跳过。请使用 "HH:mm" 格式。`
-          );
-        }
-      });
-    }
-
-    // 2. 抓龙王（禁言）的定时任务
-    if (config.enableMostActiveUserMuting) {
-      const task = ctx.cron("1 0 * * *", () => performDragonKingMuting());
-      scheduledTasks.push(task);
-      logger.info("[抓龙王] 已设置每日 00:01 执行的禁言任务。");
-    }
-
-    // 3. 统一的推送与数据库重置定时任务
-    // 此任务在每天 00:00 执行
-    const resetTask = ctx.cron("0 0 * * *", async () => {
-      const now = new Date();
-      const dayOfMonth = now.getDate();
-      const month = now.getMonth(); // 0-11
-      const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday
-
-      // --- 周期性推送 (在数据重置之前执行) ---
-
-      // 在每年1月1日 00:00，重置年度数据前，推送去年的排行榜
-      if (
-        config.autoPush &&
-        config.shouldSendYearlyLeaderboard &&
-        dayOfMonth === 1 &&
-        month === 0
-      ) {
-        await generateAndPushLeaderboard("year");
-      }
-
-      // 在每月1日 00:00，重置月度数据前，推送上个月的排行榜
-      if (
-        config.autoPush &&
-        config.shouldSendMonthlyLeaderboard &&
-        dayOfMonth === 1
-      ) {
-        await generateAndPushLeaderboard("month");
-      }
-
-      // 在每周一 00:00，重置周数据前，推送上一周的排行榜
-      if (
-        config.autoPush &&
-        config.shouldSendWeeklyLeaderboard &&
-        dayOfWeek === 1
-      ) {
-        await generateAndPushLeaderboard("week");
-      }
-
-      // --- 数据重置 (在周期性推送之后执行) ---
-
-      // 每日重置 (总是执行), 它会先把 today 备份到 yesterday
-      await resetCounter("todayPostCount", "今日发言榜已成功置空！", "daily");
-
-      // 每周重置 (在周一 00:00 执行)
-      if (dayOfWeek === 1) {
-        await resetCounter(
-          "thisWeekPostCount",
-          "本周发言榜已成功置空！",
-          "weekly"
-        );
-      }
-
-      // 每月重置 (在每月1号 00:00 执行)
-      if (dayOfMonth === 1) {
-        await resetCounter(
-          "thisMonthPostCount",
-          "本月发言榜已成功置空！",
-          "monthly"
-        );
-      }
-
-      // 每年重置 (在1月1号 00:00 执行)
-      if (dayOfMonth === 1 && month === 0) {
-        await resetCounter(
-          "thisYearPostCount",
-          "今年发言榜已成功置空！",
-          "yearly"
-        );
-      }
-    });
-
-    // 将这一个统一的任务添加到待清理列表
-    scheduledTasks.push(resetTask);
-    logger.info("已设置统一的推送与数据重置任务（每日、周、月、年）。");
-  });
-
-  // --- 资源清理 ---
-  ctx.on("dispose", () => {
-    // 调用 disposer 函数来取消定时任务
-    scheduledTasks.forEach((task) => task());
-    avatarCache.clear();
-    iconCache = [];
-    barBgImgCache = [];
-    fontFilesCache = [];
-    logger.info("All scheduled jobs and caches have been cleared.");
-  });
-
-  // --- 辅助函数 ---
-  // hs*
   // 将数字格式化为保留两位小数的百分比字符串，例如 "12.34%"
   function formatPercentageForDisplay(count: number, total: number): string {
     if (total === 0) {
