@@ -2507,7 +2507,7 @@ export async function apply(ctx: Context, config: Config) {
             context.fillRect(remainingBarX, countBarY, canvasWidth - remainingBarX, userAvatarSize);
             
             // 绘制文本和图标
-            drawTextAndIcons(context, data, index, avgColor, countBarX, countBarY, countBarWidth, userAvatarSize);
+            await drawTextAndIcons(context, data, index, avgColor, countBarX, countBarY, countBarWidth, userAvatarSize);
           }
         }
         
@@ -2536,7 +2536,7 @@ export async function apply(ctx: Context, config: Config) {
             });
         }
 
-        function drawTextAndIcons(context, data, index, avgColor, barX, barY, barWidth, barHeight) {
+        async function drawTextAndIcons(context, data, index, avgColor, barX, barY, barWidth, barHeight) {
             // 字体栈包含了用户选择的字体、插件内置字体和通用字体，以确保兼容性。
             context.font = \`30px "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
             const textY = barY + barHeight / 2 + 10.5;
@@ -2582,7 +2582,7 @@ export async function apply(ctx: Context, config: Config) {
             // 绘制用户自定义图标
             const userIcons = findAssets(data.userId, iconData, 'iconBase64');
             if (userIcons.length > 0) {
-                drawUserIcons(context, userIcons, {
+                await drawUserIcons(context, userIcons, {
                     nameText: data.name, // 传递原始nameText用于计算位置
                     nameTextX: context.measureText(nameText).width + nameTextX, 
                     barX: barX,
@@ -2591,24 +2591,30 @@ export async function apply(ctx: Context, config: Config) {
                 });
             }
         }
-        
-        function drawUserIcons(context, icons, positions) {
-            const { nameText, nameTextX, barX, barWidth, textY } = positions;
-            icons.forEach((iconBase64, i) => {
-                const icon = new Image();
-                icon.src = "data:image/png;base64," + iconBase64;
-                icon.onload = () => {
-                    const iconSize = 40;
-                    const iconY = textY - 30;
-                    let iconX;
-                    if (config.shouldMoveIconToBarEndLeft) {
-                        iconX = barX + barWidth - (iconSize * (i + 1));
-                    } else {
-                        iconX = nameTextX + (iconSize * i) + 5;
-                    }
-                    context.drawImage(icon, iconX, iconY, iconSize, iconSize);
-                };
-            });
+
+        async function drawUserIcons(context, icons, positions) {
+            const { nameTextX, barX, barWidth, textY } = positions;
+            
+            // 使用 Promise.all 等待所有图片加载和绘制
+            await Promise.all(icons.map((iconBase64, i) => {
+                return new Promise((resolve, reject) => {
+                    const icon = new Image();
+                    icon.src = "data:image/png;base64," + iconBase64;
+                    icon.onload = () => {
+                        const iconSize = 40;
+                        const iconY = textY - 30;
+                        let iconX = config.shouldMoveIconToBarEndLeft
+                            ? barX + barWidth - (iconSize * (i + 1))
+                            : nameTextX + (iconSize * i) + 5;
+                        context.drawImage(icon, iconX, iconY, iconSize, iconSize);
+                        resolve(); // 图片绘制成功
+                    };
+                    icon.onerror = () => {
+                        console.error("Failed to load user icon.");
+                        resolve(); // 即使单个图标加载失败，也继续执行，不中断整个排行榜生成
+                    };
+                });
+            }));
         }
 
         async function drawAvatars(context, userAvatarSize) {
