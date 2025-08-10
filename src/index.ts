@@ -599,13 +599,14 @@ export async function apply(ctx: Context, config: Config) {
   await migrateFolder(oldIconsPath, iconsPath);
   await migrateFolder(oldBarBgImgsPath, barBgImgsPath);
 
-  // 拷贝 emptyHtml.html
-  await copyAssetIfNotExists(
-    __dirname,
-    messageCounterRoot,
-    "emptyHtml.html",
-    "assets"
-  );
+  // 确保 emptyHtml.html 存在，用于 puppeteer 渲染
+  try {
+    await fs.access(emptyHtmlPath, fsConstants.F_OK);
+  } catch {
+    // 文件不存在，则创建一个空文件
+    await fs.writeFile(emptyHtmlPath, "");
+    logger.info(`已创建空的渲染模板文件: emptyHtml.html`);
+  }
 
   // 拷贝内置字体
   const fontFiles = ["HarmonyOS_Sans_Medium.ttf"];
