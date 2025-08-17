@@ -18,6 +18,7 @@ export const usage = `## 📝 注意事项
 
 - 仅记录群聊消息
 - 初始化需要权限等级 3 级
+- 必需 database 和 cron 服务
 
 ## 🔍 关键指令
 
