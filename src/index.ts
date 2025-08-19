@@ -17,7 +17,6 @@ export const inject = {
 export const usage = `## 📝 注意事项
 
 - 仅记录群聊消息
-- 定时任务使用中国时区
 - 初始化需要权限等级 3 级
 - 必需 database 和 cron 服务
 
@@ -707,13 +706,7 @@ export async function apply(ctx: Context, config: Config) {
     // 3. 统一的推送与数据库重置定时任务
     // 此任务在每天 00:00 执行
     const resetTask = ctx.cron("0 0 * * *", async () => {
-      // 使用 'sv-SE' 格式化器在 'Asia/Shanghai' 时区下获取 `YYYY-MM-DD` 格式的日期字符串。
-      // 'sv-SE' locale 可以稳定地输出此格式，避免了不同环境下的解析混乱。
-      const beijingDateStr = new Date().toLocaleDateString("sv-SE", {
-        timeZone: "Asia/Shanghai",
-      });
-
-      const now = new Date(beijingDateStr);
+      const now = new Date();
       const dayOfMonth = now.getDate();
       const month = now.getMonth(); // 0-11
       const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday
