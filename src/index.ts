@@ -1797,32 +1797,45 @@ export async function apply(ctx: Context, config: Config) {
 
         if (!topUser) continue;
 
-        const durationInSeconds = config.detentionDuration * 24 * 60 * 60;
+        const durationInMs = config.detentionDuration * 24 * 60 * 60 * 1000;
+        let isMuted = false;
 
-        // 执行禁言
-        // 注意：需要机器人有对应权限。`ctx.broadcast` 会自动寻找合适的 bot 实例。
-        await ctx.broadcast(
-          [channelId],
-          h("mute", {
-            userId: topUser.userId,
-            duration: durationInSeconds * 1000,
-          })
-        );
+        // 遍历所有在线的机器人，尝试使用标准 API 执行禁言
+        for (const bot of ctx.bots) {
+          // 只尝试在线的机器人
+          if (bot.status !== 1) continue;
+          try {
+            // 使用标准的 bot.muteGuildMember API
+            await bot.muteGuildMember(channelId, topUser.userId, durationInMs);
 
-        logger.success(
-          `[抓龙王] 已在频道 ${channelId} 将昨日龙王 ${topUser.username} (${topUser.userId}) 禁言 ${config.detentionDuration} 天。`
-        );
+            // 只要有一个 bot 成功，就标记成功并停止尝试
+            isMuted = true;
+            logger.success(
+              `[抓龙王] Bot ${bot.selfId} 已在频道 ${channelId} 将昨日龙王 ${topUser.username} (${topUser.userId}) 禁言 ${config.detentionDuration} 天。`
+            );
+            break; // 禁言成功，跳出循环
+          } catch (e) {
+            // 这个机器人可能不在该群或权限不足，这是正常现象，静默处理并尝试下一个
+          }
+        }
 
-        // 发送通知
-        await ctx.broadcast(
-          [channelId],
-          `根据统计，昨日发言最多的是 ${h("at", {
-            id: topUser.userId,
-            name: topUser.username,
-          })}，现执行禁言 ${config.detentionDuration} 天。`
-        );
+        if (isMuted) {
+          // 禁言成功后，再向群内发送通知
+          await ctx.broadcast(
+            [channelId],
+            `根据统计，昨日发言最多的是 ${h("at", {
+              id: topUser.userId,
+              name: topUser.username,
+            })}，现执行禁言 ${config.detentionDuration} 天。`
+          );
+        } else {
+          // 如果所有机器人都尝试失败了
+          logger.warn(
+            `[抓龙王] 在频道 ${channelId} 执行禁言失败。可能没有任何机器人拥有该群的管理员权限，或目标用户是管理员。`
+          );
+        }
       } catch (error) {
-        logger.error(`[抓龙王] 在频道 ${channelId} 执行禁言时出错:`, error);
+        logger.error(`[抓龙王] 在频道 ${channelId} 查找龙王时出错:`, error);
       }
     }
   }
