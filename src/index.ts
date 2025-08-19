@@ -17,6 +17,7 @@ export const inject = {
 export const usage = `## 📝 注意事项
 
 - 仅记录群聊消息
+- 定时任务使用中国时区
 - 初始化需要权限等级 3 级
 - 必需 database 和 cron 服务
 
@@ -706,7 +707,13 @@ export async function apply(ctx: Context, config: Config) {
     // 3. 统一的推送与数据库重置定时任务
     // 此任务在每天 00:00 执行
     const resetTask = ctx.cron("0 0 * * *", async () => {
-      const now = new Date();
+      // 使用 'sv-SE' 格式化器在 'Asia/Shanghai' 时区下获取 `YYYY-MM-DD` 格式的日期字符串。
+      // 'sv-SE' locale 可以稳定地输出此格式，避免了不同环境下的解析混乱。
+      const beijingDateStr = new Date().toLocaleDateString("sv-SE", {
+        timeZone: "Asia/Shanghai",
+      });
+
+      const now = new Date(beijingDateStr);
       const dayOfMonth = now.getDate();
       const month = now.getMonth(); // 0-11
       const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday
@@ -787,7 +794,7 @@ export async function apply(ctx: Context, config: Config) {
     iconCache = [];
     barBgImgCache = [];
     fontFilesCache = [];
-    logger.info("All scheduled jobs and caches have been cleared.");
+    logger.info("所有已安排的任务和缓存都已清除。");
   });
 
   // --- 核心消息监听器 ---
@@ -1597,6 +1604,19 @@ export async function apply(ctx: Context, config: Config) {
         let next: string | undefined;
         do {
           const result = await bot.getGuildList(next);
+          if (!result || !result.data) {
+            logger.warn(
+              `[自动推送] 机器人 ${bot.platform} 获取群聊列表失败，已跳过。`
+            );
+            return [];
+          }
+          // 如果 result.data 没有 forEach 方法，可能是因为它不是数组
+          if (!Array.isArray(result.data)) {
+            logger.warn(
+              `[自动推送] 机器人 ${bot.platform} 获取的群聊列表格式不正确，已跳过。`
+            );
+            return [];
+          }
           result.data.forEach((guild) => {
             // 避免因多个机器人同在一个群而覆盖
             if (!guildIdMap.has(guild.id)) {
@@ -2102,19 +2122,19 @@ export async function apply(ctx: Context, config: Config) {
 
   async function reloadIconCache() {
     iconCache = await loadAssetsFromFolder(iconsPath);
-    logger.info(`Reloaded ${iconCache.length} user icons.`);
+    logger.info(`已加载 ${iconCache.length} 个用户图标。`);
   }
 
   async function reloadBarBgImgCache() {
     barBgImgCache = await loadAssetsFromFolder(barBgImgsPath);
-    logger.info(`Reloaded ${barBgImgCache.length} bar background images.`);
+    logger.info(`已加载 ${barBgImgCache.length} 个柱状图背景图片。`);
   }
 
   async function reloadFontCache() {
     try {
       await fs.access(fontsPath);
       fontFilesCache = await fs.readdir(fontsPath);
-      logger.info(`已重载 ${fontFilesCache.length} 个字体文件。`);
+      logger.info(`已加载 ${fontFilesCache.length} 个字体文件。`);
     } catch (error) {
       logger.warn(`无法读取或重载字体目录 ${fontsPath}:`, error);
       fontFilesCache = [];
