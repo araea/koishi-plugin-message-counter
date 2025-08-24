@@ -3076,7 +3076,7 @@ export async function apply(ctx: Context, config: Config) {
       const pageUrl = emptyHtmlPath.includes(":")
         ? `file:///${emptyHtmlPath}`
         : `file://${emptyHtmlPath}`;
-      await page.goto(pageUrl, { waitUntil: config.waitUntil });
+      await page.goto(pageUrl, { waitUntil: "load" });
 
       // 调试：将 html 内容保存到文件中
       // const debugHtmlPath = path.join(
