@@ -1487,7 +1487,7 @@ export async function apply(ctx: Context, config: Config) {
 
       await reloadIconCache();
       await reloadBarBgImgCache();
-      await reloadFontCache(); // 新增: 调用字体缓存重载
+      await reloadFontCache(); // 调用字体缓存重载
 
       return `资源重载完毕！\n- 已加载 ${iconCache.length} 个用户图标。\n- 已加载 ${barBgImgCache.length} 个柱状条背景图片。\n- 已加载 ${fontFilesCache.length} 个字体文件。`;
     });
@@ -1553,6 +1553,75 @@ export async function apply(ctx: Context, config: Config) {
 
   // --- 辅助函数 ---
   // hs*
+
+  /**
+   * 检查字体文件，如果存在不规范的 vhea 版本，则创建一个修复后的副本，并返回可用字体的路径。
+   * @param filePath 原始字体的绝对路径
+   * @returns 一个保证可用的字体文件的绝对路径（可能是原始路径或修复后的副本路径）
+   */
+  async function patchAndGetUsableFontPath(filePath: string): Promise<string> {
+    let buffer: Buffer;
+    try {
+      buffer = await fs.readFile(filePath);
+    } catch (readError) {
+      logger.warn(
+        `读取字体文件 "${path.basename(filePath)}" 失败，已跳过。错误: ${
+          readError.message
+        }`
+      );
+      return filePath; // 返回原始路径，让后续流程处理错误
+    }
+
+    // --- 核心检查逻辑 (与之前相同) ---
+    if (buffer.length < 12) return filePath;
+    const numTables = buffer.readUInt16BE(4);
+    for (let i = 0; i < numTables; i++) {
+      const recordOffset = 12 + i * 16;
+      if (recordOffset + 16 > buffer.length) break;
+      if (buffer.toString("ascii", recordOffset, recordOffset + 4) === "vhea") {
+        const tableOffset = buffer.readUInt32BE(recordOffset + 8);
+        if (tableOffset + 4 > buffer.length) break;
+
+        const version = buffer.readUInt32BE(tableOffset);
+        const INCORRECT_VERSION = 0x00010001; // 65537
+
+        if (version === INCORRECT_VERSION) {
+          // --- 新的修复逻辑：创建副本 ---
+          const parsedPath = path.parse(filePath);
+          const patchedFilename = `${parsedPath.name}-patched${parsedPath.ext}`;
+          const patchedFilePath = path.join(parsedPath.dir, patchedFilename);
+
+          try {
+            // 检查修复后的文件是否已存在。如果存在，就直接使用它，避免重复写入。
+            await fs.access(patchedFilePath);
+            return patchedFilePath;
+          } catch (e) {
+            // 修复后的文件不存在，现在创建它。
+            logger.info(
+              `检测到字体 "${path.basename(
+                filePath
+              )}" 不规范，正在创建修复版本 "${patchedFilename}"...`
+            );
+            const CORRECT_VERSION = 0x00010000; // 65536
+            buffer.writeUInt32BE(CORRECT_VERSION, tableOffset);
+            try {
+              await fs.writeFile(patchedFilePath, buffer);
+              logger.success(
+                `已成功创建修复后的字体文件 "${patchedFilename}"。`
+              );
+              return patchedFilePath;
+            } catch (writeError) {
+              logger.warn(`创建修复字体副本失败: ${writeError.message}`);
+              return filePath; // 创建失败，回退到使用原始文件
+            }
+          }
+        }
+        break; // 找到 vhea 表后即可退出
+      }
+    }
+    // 如果字体本身没问题，返回原始路径
+    return filePath;
+  }
 
   /**
    * 将字节数格式化为易于阅读的字符串 (B, KB, MB, GB...)
@@ -2140,11 +2209,41 @@ export async function apply(ctx: Context, config: Config) {
     logger.info(`已加载 ${barBgImgCache.length} 个柱状图背景图片。`);
   }
 
+  /**
+   * 重新加载字体缓存，自动修复不规范的 TTF/OTF 文件，并包含 WOFF/WOFF2 等其他格式。
+   */
   async function reloadFontCache() {
     try {
       await fs.access(fontsPath);
-      fontFilesCache = await fs.readdir(fontsPath);
-      logger.info(`已加载 ${fontFilesCache.length} 个字体文件。`);
+      const files = await fs.readdir(fontsPath);
+      const usableFontBasenames = new Set<string>(); // 使用 Set 自动处理重复项
+
+      for (const file of files) {
+        // 跳过我们自己创建的 "-patched" 文件，避免将其作为原始文件处理
+        if (file.toLowerCase().includes("-patched.")) {
+          continue;
+        }
+
+        const lowerCaseFile = file.toLowerCase();
+
+        if (lowerCaseFile.endsWith(".ttf") || lowerCaseFile.endsWith(".otf")) {
+          // 对 TTF/OTF 文件应用修复逻辑
+          const filePath = path.join(fontsPath, file);
+          const usablePath = await patchAndGetUsableFontPath(filePath);
+          usableFontBasenames.add(path.basename(usablePath));
+        } else if (
+          lowerCaseFile.endsWith(".woff2") ||
+          lowerCaseFile.endsWith(".woff")
+        ) {
+          // 对于 WOFF/WOFF2 文件，直接视为可用并添加
+          usableFontBasenames.add(file);
+        }
+        // 其他非字体文件将被忽略
+      }
+
+      // 将 Set 转换为数组，更新缓存
+      fontFilesCache = [...usableFontBasenames];
+      logger.info(`已加载 ${fontFilesCache.length} 个可用字体文件。`);
     } catch (error) {
       logger.warn(`无法读取或重载字体目录 ${fontsPath}:`, error);
       fontFilesCache = [];
@@ -2213,17 +2312,14 @@ export async function apply(ctx: Context, config: Config) {
 
   /**
    * 根据字体缓存动态生成 @font-face CSS 规则。
-   * @param fontsPath - 字体目录的绝对路径。
    * @param fontFiles - 缓存的字体文件名列表。
    * @returns 包含所有 @font-face 规则的 CSS 字符串。
    */
-  async function generateFontFacesCSS(
-    fontsPath: string,
-    fontFiles: string[]
-  ): Promise<string> {
+  function generateFontFacesCSS(fontFiles: string[]): string {
     let css = "";
     for (const file of fontFiles) {
-      const fontName = path.parse(file).name.replace("-Regular", ""); // 移除 '-Regular' 后缀以简化字体名
+      // 原始文件名（不含后缀），用于生成安全的 CSS 名称
+      const rawFontName = path.parse(file).name.replace(/-patched$/i, "");
       const ext = path.parse(file).ext.toLowerCase();
       let format: string;
 
@@ -2244,17 +2340,16 @@ export async function apply(ctx: Context, config: Config) {
           continue; // 跳过不支持或非字体的文件
       }
 
-      // Puppeteer 需要 'file://' 协议和绝对路径
-      const fontUrl = `file://${path
-        .join(fontsPath, file)
-        .replace(/\\/g, "/")}`;
+      const fontUrl = `fonts/${file}`;
+
       css += `
         @font-face {
-          font-family: '${fontName}';
+          font-family: '${rawFontName}';
           src: url("${fontUrl}") format('${format}');
         }
       `;
     }
+
     return css;
   }
 
@@ -2444,7 +2539,6 @@ export async function apply(ctx: Context, config: Config) {
           background-size: cover;
           background-position: center;
           background-repeat: no-repeat;
-          background-attachment: fixed;
         }`;
       } catch (error) {
         logger.error("获取 API 背景图失败，将使用默认背景:", error);
@@ -2641,7 +2735,6 @@ export async function apply(ctx: Context, config: Config) {
                         resolve(); // 图片绘制成功
                     };
                     icon.onerror = () => {
-                        console.error("Failed to load user icon.");
                         resolve(); // 即使单个图标加载失败，也继续执行，不中断整个排行榜生成
                     };
                 });
@@ -2845,7 +2938,7 @@ export async function apply(ctx: Context, config: Config) {
       <!DOCTYPE html>
       <html lang="zh-CN">
       <head>
-          <meta charset="UTF-8">
+          <meta charset="UTF--8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>排行榜</title>
           <style>${_getChartBaseStyles()}</style>
@@ -2915,7 +3008,7 @@ export async function apply(ctx: Context, config: Config) {
 
     const page = await browser.newPage();
     try {
-      const fontFaces = await generateFontFacesCSS(fontsPath, fontFilesCache);
+      const fontFaces = generateFontFacesCSS(fontFilesCache);
       const backgroundStyle = await _prepareBackgroundStyle(config);
 
       const chartConfigForClient = {
@@ -2939,7 +3032,21 @@ export async function apply(ctx: Context, config: Config) {
         chartConfig: chartConfigForClient,
       });
 
-      await page.goto(`file://${emptyHtmlPath}`);
+      // 加载本地空 HTML 文件作为起点
+      const pageUrl = emptyHtmlPath.includes(":")
+        ? `file:///${emptyHtmlPath}`
+        : `file://${emptyHtmlPath}`;
+      await page.goto(pageUrl, { waitUntil: config.waitUntil });
+
+      // 调试：将 html 内容保存到文件中
+      // const debugHtmlPath = path.join(
+      //   ctx.baseDir,
+      //   "data",
+      //   "messageCounter",
+      //   "debug-ranking-chart.html"
+      // );
+      // await fs.writeFile(debugHtmlPath, htmlContent, "utf-8");
+      // logger.info(`排行榜 HTML 已保存到 ${debugHtmlPath}`);
 
       await page.setContent(h.unescape(htmlContent), {
         waitUntil: config.waitUntil,
