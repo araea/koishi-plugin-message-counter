@@ -247,168 +247,200 @@ export interface Config {
   muteChannelIds: string[];
 }
 // pz*
+// pz*
 export const Config: Schema<Config> = Schema.intersect([
-  // 核心功能设置
+  // --- 核心功能 ---
   Schema.object({
     isBotMessageTrackingEnabled: Schema.boolean()
       .default(false)
       .description("是否统计 Bot 自己发送的消息。"),
   }).description("核心功能"),
 
-  // 排行榜基础设置
+  // --- 排行榜设置 ---
   Schema.object({
     defaultMaxDisplayCount: Schema.number()
       .min(0)
       .default(20)
-      .description("排行榜默认显示的人数。"),
+      .description("排行榜默认显示的人数。设置为 0 则显示所有。"),
     isTimeInfoSupplementEnabled: Schema.boolean()
       .default(true)
-      .description("是否在显示排行榜时补充时间信息。"),
+      .description("是否在排行榜标题中显示生成时间。"),
     isUserMessagePercentageVisible: Schema.boolean()
       .default(true)
-      .description("是否在排行榜中显示用户消息占比。"),
+      .description("是否在排行榜中显示用户的消息数占比。"),
     hiddenUserIdsInLeaderboard: Schema.array(String)
       .role("table")
-      .description("在排行榜中全局隐藏的用户列表。"),
+      .description("全局隐藏的用户 ID 列表，在所有用户排行榜中生效。"),
     hiddenChannelIdsInLeaderboard: Schema.array(String)
       .role("table")
-      .description("在群排行榜中全局隐藏的频道列表。"),
+      .description("全局隐藏的频道 ID 列表，在群排行榜中生效。"),
   }).description("排行榜设置"),
 
-  // 图片生成设置
+  // --- 图片生成 ---
   Schema.intersect([
     Schema.object({
       isTextToImageConversionEnabled: Schema.boolean()
         .default(false)
         .description(
-          "是否将文本排行榜转为图片（基于 `markdownToImage` 服务）。"
+          "是否将文本排行榜转为 Markdown 图片（依赖 `markdownToImage` 服务）。"
         ),
       isLeaderboardToHorizontalBarChartConversionEnabled: Schema.boolean()
         .default(false)
-        .description(
-          "是否将排行榜渲染为更美观的水平柱状图（基于 `puppeteer` 服务）。"
-        ),
+        .description("是否将排行榜渲染为水平柱状图（依赖 `puppeteer` 服务）。"),
     }).description("图片生成"),
 
     // 仅在开启柱状图功能时显示以下详细选项
     Schema.union([
-      Schema.object({
-        isLeaderboardToHorizontalBarChartConversionEnabled:
-          Schema.const(true).required(),
-        imageType: Schema.union(["png", "jpeg", "webp"])
-          .default("png")
-          .description(`生成的柱状图图片类型。`),
+      Schema.intersect([
+        Schema.object({
+          isLeaderboardToHorizontalBarChartConversionEnabled:
+            Schema.const(true).required(),
+          imageType: Schema.union(["png", "jpeg", "webp"])
+            .default("png")
+            .description(`生成的柱状图图片格式。`),
+        }).description("柱状图基础设置"),
 
-        // 头像缓存 TTL 设置
-        avatarCacheTTL: Schema.number()
-          .default(86400) // 默认 24 小时 (24 * 60 * 60)
-          .description(
-            "头像缓存的有效期（秒）。设置为 0 则永不刷新。过短的有效期会增加网络请求。"
-          ),
-        // 失败缓存 TTL 设置
-        avatarFailureCacheTTL: Schema.number()
-          .default(300) // 默认 5 分钟
-          .description(
-            "头像获取失败后的缓存时间（秒）。在此期间将使用默认头像且不再尝试获取，以避免频繁请求无效链接。"
-          ),
+        Schema.object({
+          chartViewportWidth: Schema.number()
+            .min(1)
+            .default(1080)
+            .description(
+              "渲染页面的视口宽度（像素）。此值会影响图片清晰度及背景图的展示。"
+            ),
+          deviceScaleFactor: Schema.number()
+            .min(0.1)
+            .max(4)
+            .step(0.1)
+            .default(1)
+            .description(
+              "设备像素比 (DPR)。更高的值可生成更清晰的图片（如 2 倍图），但会增加文件体积。"
+            ),
+          waitUntil: Schema.union([
+            "load",
+            "domcontentloaded",
+            "networkidle0",
+            "networkidle2",
+          ])
+            .default("networkidle0")
+            .description(
+              "页面加载等待策略，影响图片生成速度和稳定性。`networkidle0` 最稳定。"
+            ),
+        }).description("渲染与性能"),
 
-        // --- 柱状图专属设置 ---
-        waitUntil: Schema.union([
-          "load",
-          "domcontentloaded",
-          "networkidle0",
-          "networkidle2",
-        ])
-          .default("networkidle0")
-          .description("页面加载等待事件，影响图片生成速度和稳定性。"),
-        chartViewportWidth: Schema.number()
-          .min(1)
-          .default(1080)
-          .description(
-            "渲染页面的视口宽度，单位为像素。此参数主要影响背景图片可显示的最大宽度。默认值为 1080px。"
-          ),
-        deviceScaleFactor: Schema.number()
-          .min(0.1)
-          .max(4)
-          .step(0.1)
-          .default(1)
-          .description(
-            "渲染时的设备像素比 (DPR)。更高的值可以生成更清晰的图片（例如 2 倍图），但也会增加图片文件体积。默认值为 1。"
-          ),
-        shouldMoveIconToBarEndLeft: Schema.boolean()
-          .default(true)
-          .description(
-            "是否将自定义图标显示在柱状条的末端。关闭则显示在用户名旁。"
-          ),
-        showStarInChart: Schema.boolean()
-          .default(true)
-          .description(
-            "是否在生成水平柱状图时，在当前用户/群聊名称前显示★以高亮。"
-          ),
-        horizontalBarBackgroundOpacity: Schema.number()
-          .min(0)
-          .max(1)
-          .default(0.6)
-          .description("自定义背景图在进度条区域的不透明度。"),
-        horizontalBarBackgroundFullOpacity: Schema.number()
-          .min(0)
-          .max(1)
-          .default(0)
-          .description("自定义背景图在整行背景的不透明度。"),
-        maxBarBgWidth: Schema.number()
-          .min(0)
-          .default(850)
-          .description("允许上传的背景图最大宽度（像素），0为不限制。"),
-        maxBarBgHeight: Schema.number()
-          .min(0)
-          .default(50)
-          .description("允许上传的背景图最大高度（像素），0为不限制。"),
-        maxBarBgSize: Schema.number()
-          .min(0)
-          .default(5)
-          .description("允许上传的背景图最大体积（MB），0为不限制。"),
+        Schema.object({
+          avatarCacheTTL: Schema.number()
+            .default(86400) // 24 hours
+            .description(
+              "头像缓存有效期（秒）。设置为 0 则永不刷新。过短的有效期会增加网络请求。"
+            ),
+          avatarFailureCacheTTL: Schema.number()
+            .default(300) // 5 minutes
+            .description(
+              "头像获取失败后的重试间隔（秒）。期间将使用默认头像，避免频繁请求无效链接。"
+            ),
+        }).description("缓存设置"),
 
-        // --- 柱状图背景设置 ---
-        backgroundType: Schema.union(["none", "api", "css"])
-          .default("none")
-          .description("图片整体背景的类型。"),
-        apiBackgroundConfig: Schema.object({
-          apiUrl: Schema.string().description("获取背景图的 API 地址。"),
-          apiKey: Schema.string()
-            .role("secret")
-            .description("API 的访问凭证（可选）。"),
-          responseType: Schema.union(["binary", "url", "base64"])
-            .default("binary")
-            .description("API 返回的数据类型。"),
-        })
-          .role("collapse")
-          .description("API 背景配置（仅当类型为 API 时生效）。"),
-        backgroundValue: Schema.string()
-          .role("textarea", { rows: [2, 4] })
-          .default(
-            `html {\n  background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);\n}`
-          )
-          .description(
-            "自定义背景的 CSS 代码（仅当类型为 CSS 时生效）。建议使用 `html` 选择器来设置背景，以确保其能填充整个截图区域。"
-          ),
+        Schema.object({
+          shouldMoveIconToBarEndLeft: Schema.boolean()
+            .default(true)
+            .description(
+              "是否将自定义图标显示在进度条的末端。关闭则显示在用户名旁。"
+            ),
+          showStarInChart: Schema.boolean()
+            .default(true)
+            .description(
+              "是否在图表中对触发指令的用户/群聊名称前添加 ★ 以高亮显示。"
+            ),
+          horizontalBarBackgroundOpacity: Schema.number()
+            .min(0)
+            .max(1)
+            .step(0.05)
+            .default(0.6)
+            .description("自定义背景图在进度条区域的不透明度。"),
+          horizontalBarBackgroundFullOpacity: Schema.number()
+            .min(0)
+            .max(1)
+            .step(0.05)
+            .default(0)
+            .description("自定义背景图在整行背景区域的不透明度。"),
+        }).description("样式定制"),
 
-        // --- 柱状图字体设置 ---
-        chartTitleFont: Schema.string()
-          .default(FONT_OPTIONS.TITLE)
-          .description(
-            `标题使用的字体。请填写 'data/messageCounter/fonts' 目录中的字体文件名（不含后缀）。`
-          ),
-        chartNicknameFont: Schema.string()
-          .default(FONT_OPTIONS.NICKNAME)
-          .description(
-            `成员昵称和发言次数使用的字体。请填写 'data/messageCounter/fonts' 目录中的字体文件名（不含后缀），或使用通用字体（如 sans-serif, Microsoft YaHei 等）。`
-          ),
-      }),
+        Schema.object({
+          maxBarBgWidth: Schema.number()
+            .min(0)
+            .default(850)
+            .description("允许上传的背景图最大宽度（像素）。0为不限制。"),
+          maxBarBgHeight: Schema.number()
+            .min(0)
+            .default(50)
+            .description("允许上传的背景图最大高度（像素）。0为不限制。"),
+          maxBarBgSize: Schema.number()
+            .min(0)
+            .default(5)
+            .description("允许上传的背景图最大体积（MB）。0为不限制。"),
+        }).description("上传限制"),
+
+        // 背景设置（条件化）
+        Schema.intersect([
+          Schema.object({
+            backgroundType: Schema.union([
+              Schema.const("none").description("默认渐变"),
+              Schema.const("api").description("API 获取"),
+              Schema.const("css").description("自定义 CSS"),
+            ])
+              .default("none")
+              .description("图片整体背景类型。"),
+          }),
+          Schema.union([
+            Schema.object({
+              backgroundType: Schema.const("api").required(),
+              apiBackgroundConfig: Schema.object({
+                apiUrl: Schema.string()
+                  .description("获取背景图的 API 地址。")
+                  .required(),
+                apiKey: Schema.string()
+                  .role("secret")
+                  .description("API 的访问凭证（可选）。"),
+                responseType: Schema.union(["binary", "url", "base64"])
+                  .default("binary")
+                  .description("API 返回的数据类型。"),
+              })
+                .description("API 背景配置")
+                .collapse(),
+            }),
+            Schema.object({
+              backgroundType: Schema.const("css").required(),
+              backgroundValue: Schema.string()
+                .role("textarea", { rows: [2, 4] })
+                .default(
+                  `html {\n  background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);\n}`
+                )
+                .description(
+                  "自定义背景的 CSS 代码。建议使用 `html` 选择器来设置背景。"
+                ),
+            }),
+            Schema.object({}),
+          ]),
+        ]).description("背景设置"),
+
+        Schema.object({
+          chartTitleFont: Schema.string()
+            .default(FONT_OPTIONS.TITLE)
+            .description(
+              `标题字体。填写 'data/messageCounter/fonts' 目录中的字体文件名（不含后缀）。`
+            ),
+          chartNicknameFont: Schema.string()
+            .default(FONT_OPTIONS.NICKNAME)
+            .description(
+              `昵称与计数字体。填写 'data/messageCounter/fonts' 目录中的字体文件名（不含后缀），或使用通用字体名称。`
+            ),
+        }).description("字体设置"),
+      ]),
       Schema.object({}),
     ]),
   ]),
 
-  // 自动推送设置
+  // --- 自动推送 ---
   Schema.intersect([
     Schema.object({
       autoPush: Schema.boolean()
@@ -416,64 +448,71 @@ export const Config: Schema<Config> = Schema.intersect([
         .description("是否启用定时自动推送排行榜功能。"),
     }).description("自动推送"),
     Schema.union([
-      Schema.object({
-        autoPush: Schema.const(true).required(),
-        shouldSendDailyLeaderboardAtMidnight: Schema.boolean()
-          .default(true)
-          .description("是否在每日 0 点自动发送昨日排行榜。"),
-        /** 每周排行榜推送配置 */
-        shouldSendWeeklyLeaderboard: Schema.boolean()
-          .default(false)
-          .description("是否在每周一 0 点自动发送上周排行榜。"),
-        /** 每月排行榜推送配置 */
-        shouldSendMonthlyLeaderboard: Schema.boolean()
-          .default(false)
-          .description("是否在每月第一天 0 点自动发送上月排行榜。"),
-        /** 每年排行榜推送配置 */
-        shouldSendYearlyLeaderboard: Schema.boolean()
-          .default(false)
-          .description("是否在每年第一天 0 点自动发送去年排行榜。"),
-        dailyScheduledTimers: Schema.array(String)
-          .role("table")
-          .description(
-            "除 0 点外，其他定时发送今日排行榜的时间点（24小时制，如 `08:00`）。"
-          ),
-        isGeneratingRankingListPromptVisible: Schema.boolean()
-          .default(true)
-          .description("在生成并发送排行榜前，是否先发送一条提示消息。"),
-        leaderboardGenerationWaitTime: Schema.number()
-          .min(0)
-          .default(3)
-          .description("发送提示消息后，等待多少秒再发送排行榜图片。"),
-        pushChannelIds: Schema.array(String)
-          .role("table")
-          .description(
-            "需要接收自动推送的频道列表（留空则不推送到任何特定频道）。"
-          ),
-        shouldSendLeaderboardNotificationsToAllChannels: Schema.boolean()
-          .default(false)
-          .description(
-            "是否向机器人所在的所有群聊推送（注意：这可能造成打扰）。"
-          ),
-        excludedLeaderboardChannels: Schema.array(String)
-          .role("table")
-          .description(
-            "当“向所有群聊推送”开启时，此处指定的频道将不会收到推送。"
-          ),
-        delayBetweenGroupPushesInSeconds: Schema.number()
-          .min(0)
-          .default(5)
-          .description("批量推送时，每个群之间的发送延迟（秒），以防风控。"),
-        groupPushDelayRandomizationSeconds: Schema.number()
-          .min(0)
-          .default(10)
-          .description("延迟时间的随机波动范围（秒），以进一步模拟人工操作。"),
-      }),
+      Schema.intersect([
+        Schema.object({
+          autoPush: Schema.const(true).required(),
+          shouldSendDailyLeaderboardAtMidnight: Schema.boolean()
+            .default(true)
+            .description("每日 0 点自动发送昨日排行榜。"),
+          shouldSendWeeklyLeaderboard: Schema.boolean()
+            .default(false)
+            .description("每周一 0 点自动发送上周排行榜。"),
+          shouldSendMonthlyLeaderboard: Schema.boolean()
+            .default(false)
+            .description("每月一日 0 点自动发送上月排行榜。"),
+          shouldSendYearlyLeaderboard: Schema.boolean()
+            .default(false)
+            .description("每年一日 0 点自动发送去年排行榜。"),
+          dailyScheduledTimers: Schema.array(String)
+            .role("table")
+            .description(
+              "其他定时发送今日排行榜的时间点（24小时制，如 `08:00`）。"
+            ),
+        }).description("推送时机"),
+
+        Schema.object({
+          pushChannelIds: Schema.array(String)
+            .role("table")
+            .description("需要接收自动推送的频道 ID 列表。"),
+          shouldSendLeaderboardNotificationsToAllChannels: Schema.boolean()
+            .default(false)
+            .description(
+              "是否向机器人所在的所有群聊推送（可能造成打扰，请谨慎开启）。"
+            ),
+          excludedLeaderboardChannels: Schema.array(String)
+            .role("table")
+            .description(
+              "当“向所有群聊推送”开启时，此处指定的频道将不会收到推送。"
+            ),
+        }).description("推送目标"),
+
+        Schema.object({
+          isGeneratingRankingListPromptVisible: Schema.boolean()
+            .default(true)
+            .description("发送排行榜前，是否先发送一条“正在生成”的提示消息。"),
+          leaderboardGenerationWaitTime: Schema.number()
+            .min(0)
+            .default(3)
+            .description("发送提示消息后，等待多少秒再发送排行榜图片。"),
+          delayBetweenGroupPushesInSeconds: Schema.number()
+            .min(0)
+            .default(5)
+            .description(
+              "批量推送时，每个群之间的基础发送延迟（秒），以防风控。"
+            ),
+          groupPushDelayRandomizationSeconds: Schema.number()
+            .min(0)
+            .default(10)
+            .description(
+              "在基础延迟之上，增加一个随机波动范围（秒），以模拟人工操作。"
+            ),
+        }).description("推送行为"),
+      ]),
       Schema.object({}),
     ]),
   ]),
 
-  // 龙王禁言设置
+  // --- 龙王禁言 ---
   Schema.intersect([
     Schema.object({
       enableMostActiveUserMuting: Schema.boolean()
@@ -488,8 +527,9 @@ export const Config: Schema<Config> = Schema.intersect([
           .default(5)
           .description("0 点后，等待多少秒再执行禁言操作。"),
         detentionDuration: Schema.number()
+          .min(1)
           .default(1)
-          .description("禁言时长，单位为天。"),
+          .description("禁言时长（天）。"),
         muteChannelIds: Schema.array(String)
           .role("table")
           .description("在哪些频道中执行“抓龙王”操作。"),
