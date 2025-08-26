@@ -681,7 +681,11 @@ export async function apply(ctx: Context, config: Config) {
       totalPostCount: "unsigned",
       yesterdayPostCount: "unsigned",
     },
-    { primary: "id", autoInc: true }
+    {
+      primary: "id",
+      autoInc: true,
+      unique: [["channelId", "userId"]],
+    }
   );
 
   ctx.model.extend(
