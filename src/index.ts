@@ -618,6 +618,8 @@ const periodMapping: Record<PeriodKey, { field: CountField; name: string }> = {
 
 export async function apply(ctx: Context, config: Config) {
   // cl*
+  // 定义一个唯一的 Symbol 作为处理标记，防止与其他插件冲突
+  const PROCESSED = Symbol("message-counter.processed");
   // --- 资源路径和缓存初始化 ---
   const dataRoot = path.join(ctx.baseDir, "data");
   const messageCounterRoot = path.join(dataRoot, "messageCounter"); // 统一资源根目录
@@ -838,9 +840,18 @@ export async function apply(ctx: Context, config: Config) {
 
   // --- 核心消息监听器 ---
   // jt*
-  guildCtx.on("message", async (session) => {
-    // 忽略无效会话或机器人自身消息
-    if (!session.userId || !session.channelId || session.author?.isBot) return;
+  guildCtx.middleware(async (session, next) => {
+    // 检查此消息是否已被本插件处理过，如果是，则直接跳过
+    if (session[PROCESSED]) return next();
+
+    // 忽略无效会话或机器人自身消息（除非配置允许）
+    if (
+      !session.userId ||
+      !session.channelId ||
+      (session.author?.isBot && !config.isBotMessageTrackingEnabled)
+    ) {
+      return next();
+    }
 
     const { userId, channelId, author, guildId } = session;
     let sessionChannelName = session.event.channel.name;
@@ -872,6 +883,8 @@ export async function apply(ctx: Context, config: Config) {
         ],
         ["channelId", "userId"]
       );
+      // 成功更新数据库后，为此 session 打上处理标记
+      session[PROCESSED] = true;
     } catch (error) {
       logger.error(
         "Failed to update message count for user %s in channel %s:",
@@ -880,6 +893,9 @@ export async function apply(ctx: Context, config: Config) {
         error
       );
     }
+
+    // 继续消息处理链
+    return next();
   });
 
   // 统计机器人自身消息
