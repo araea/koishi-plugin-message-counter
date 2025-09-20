@@ -896,7 +896,7 @@ export async function apply(ctx: Context, config: Config) {
 
     // 继续消息处理链
     return next();
-  });
+  }, true);
 
   // 统计机器人自身消息
   if (config.isBotMessageTrackingEnabled) {
