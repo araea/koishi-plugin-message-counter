@@ -553,7 +553,7 @@ interface apiBackgroundConfig {
 }
 
 interface MessageCounterRecord {
-  id: number;
+  // id: number;
   channelId: string;
   channelName: string;
   userId: string;
@@ -670,7 +670,7 @@ export async function apply(ctx: Context, config: Config) {
   ctx.model.extend(
     "message_counter_records",
     {
-      id: "unsigned",
+      // id: "unsigned",
       channelId: "string",
       channelName: "string",
       userId: "string",
@@ -684,9 +684,7 @@ export async function apply(ctx: Context, config: Config) {
       yesterdayPostCount: "unsigned",
     },
     {
-      primary: "id",
-      autoInc: true,
-      unique: [["channelId", "userId"]],
+      primary: ["channelId", "userId"],
     }
   );
 
@@ -853,6 +851,8 @@ export async function apply(ctx: Context, config: Config) {
       return next();
     }
 
+    session[PROCESSED] = true;
+
     const { userId, channelId, author, guildId } = session;
     let sessionChannelName = session.event.channel.name;
     const username = author?.nick || author?.name || userId;
@@ -883,8 +883,6 @@ export async function apply(ctx: Context, config: Config) {
         ],
         ["channelId", "userId"]
       );
-      // 成功更新数据库后，为此 session 打上处理标记
-      session[PROCESSED] = true;
     } catch (error) {
       logger.error(
         "Failed to update message count for user %s in channel %s:",
