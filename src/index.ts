@@ -1,9 +1,9 @@
 import { Context, h, Logger, Schema, sleep, Bot, Dict, $ } from "koishi";
-import {} from "koishi-plugin-markdown-to-image-service";
-import {} from "koishi-plugin-cron";
-import {} from "koishi-plugin-puppeteer";
+import { } from "koishi-plugin-markdown-to-image-service";
+import { } from "koishi-plugin-cron";
+import { } from "koishi-plugin-puppeteer";
 import path from "path";
-import {} from "@koishijs/canvas";
+import { } from "@koishijs/canvas";
 import * as fs from "fs/promises";
 import { constants as fsConstants } from "fs";
 import * as crypto from "crypto";
@@ -1778,8 +1778,7 @@ export async function apply(ctx: Context, config: Config) {
         const imageSizeInMB = buffer.byteLength / 1024 / 1024;
         if (config.maxBarBgSize > 0 && imageSizeInMB > config.maxBarBgSize) {
           throw new Error(
-            `图片文件过大（${imageSizeInMB.toFixed(2)}MB），请上传小于 ${
-              config.maxBarBgSize
+            `图片文件过大（${imageSizeInMB.toFixed(2)}MB），请上传小于 ${config.maxBarBgSize
             }MB 的图片。`
           );
         }
@@ -1997,8 +1996,7 @@ export async function apply(ctx: Context, config: Config) {
       buffer = await fs.readFile(filePath);
     } catch (readError) {
       logger.warn(
-        `读取字体文件 "${path.basename(filePath)}" 失败，已跳过。错误: ${
-          readError.message
+        `读取字体文件 "${path.basename(filePath)}" 失败，已跳过。错误: ${readError.message
         }`
       );
       return filePath; // 返回原始路径，让后续流程处理错误
@@ -2453,27 +2451,27 @@ export async function apply(ctx: Context, config: Config) {
       field: CountField;
       message: string;
     }[] = [
-      {
-        period: "daily",
-        field: "todayPostCount",
-        message: "已补上错过的每日发言榜重置！",
-      },
-      {
-        period: "weekly",
-        field: "thisWeekPostCount",
-        message: "已补上错过的每周发言榜重置！",
-      },
-      {
-        period: "monthly",
-        field: "thisMonthPostCount",
-        message: "已补上错过的每月发言榜重置！",
-      },
-      {
-        period: "yearly",
-        field: "thisYearPostCount",
-        message: "已补上错过的每年发言榜重置！",
-      },
-    ];
+        {
+          period: "daily",
+          field: "todayPostCount",
+          message: "已补上错过的每日发言榜重置！",
+        },
+        {
+          period: "weekly",
+          field: "thisWeekPostCount",
+          message: "已补上错过的每周发言榜重置！",
+        },
+        {
+          period: "monthly",
+          field: "thisMonthPostCount",
+          message: "已补上错过的每月发言榜重置！",
+        },
+        {
+          period: "yearly",
+          field: "thisYearPostCount",
+          message: "已补上错过的每年发言榜重置！",
+        },
+      ];
 
     for (const job of jobDefinitions) {
       if (await isResetDue(job.period)) {
@@ -2951,9 +2949,8 @@ export async function apply(ctx: Context, config: Config) {
         (channelInfo[channelId]?.channelName || `群聊${channelId}`),
       // 使用 channelId 作为 RankingData 的 userId 和头像源
       userId: channelId,
-      avatar: `https://p.qlogo.cn/gh/${
-        channelId === "#" ? "426230045" : channelId
-      }/${channelId === "#" ? "426230045" : channelId}/100`, // QQ群头像URL格式
+      avatar: `https://p.qlogo.cn/gh/${channelId === "#" ? "426230045" : channelId
+        }/${channelId === "#" ? "426230045" : channelId}/100`, // QQ群头像URL格式
       count,
       percentage: calculatePercentage(count, totalCount),
     }));
@@ -3465,21 +3462,18 @@ export async function apply(ctx: Context, config: Config) {
           <style>${backgroundStyle}</style>
           <style>${fontFacesCSS}</style>
           <style>
-            .ranking-title { font-family: "${
-              chartConfig.chartTitleFont
-            }", "Microsoft YaHei", sans-serif; }
+            .ranking-title { font-family: "${chartConfig.chartTitleFont
+      }", "Microsoft YaHei", sans-serif; }
           </style>
       </head>
       <body>
           <h1 class="ranking-title">${rankTimeTitle}</h1>
           <h1 class="ranking-title">${rankTitle}</h1>
           <div class="font-preload">
-            <span style="font-family: '${
-              chartConfig.chartNicknameFont
-            }';">预加载</span>
-            <span style="font-family: '${
-              chartConfig.chartTitleFont
-            }';">预加载</span>
+            <span style="font-family: '${chartConfig.chartNicknameFont
+      }';">预加载</span>
+            <span style="font-family: '${chartConfig.chartTitleFont
+      }';">预加载</span>
           </div>
           <canvas id="rankingCanvas"></canvas>
           <script>
@@ -3647,6 +3641,45 @@ export async function apply(ctx: Context, config: Config) {
 
     const page = await browser.newPage();
     try {
+      // 启用 WebGL 支持和相关 polyfill
+      await page.evaluateOnNewDocument(() => {
+        // 模拟 WebGL 上下文
+        const getParameter = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function (parameter) {
+          // UNMASKED_VENDOR_WEBGL
+          if (parameter === 37445) {
+            return 'Intel Inc.';
+          }
+          // UNMASKED_RENDERER_WEBGL
+          if (parameter === 37446) {
+            return 'Intel Iris OpenGL Engine';
+          }
+          return getParameter.call(this, parameter);
+        };
+
+        // 确保 WebGL 上下文可以被创建
+        const originalGetContext = HTMLCanvasElement.prototype.getContext;
+        HTMLCanvasElement.prototype.getContext = function (contextType, contextAttributes) {
+          if (contextType === 'webgl' || contextType === 'experimental-webgl') {
+            const context = originalGetContext.call(this, contextType, {
+              ...contextAttributes,
+              failIfMajorPerformanceCaveat: false,
+              preserveDrawingBuffer: true,
+            });
+            if (!context) {
+              console.error('Failed to create WebGL context, trying experimental-webgl');
+              return originalGetContext.call(this, 'experimental-webgl', {
+                ...contextAttributes,
+                failIfMajorPerformanceCaveat: false,
+                preserveDrawingBuffer: true,
+              });
+            }
+            return context;
+          }
+          return originalGetContext.call(this, contextType, contextAttributes);
+        };
+      });
+
       await page.setViewport({
         width: viewportWidth,
         height: viewportHeight,
@@ -3683,9 +3716,8 @@ export async function apply(ctx: Context, config: Config) {
             textStyle: { fontSize: 20, fontWeight: "bold", color: "#1f1f1f" },
           },
           {
-            text: `${params.rangeLabel} · Top ${params.topLimit} · ${
-              params.chartType === "line" ? "曲线" : "柱状"
-            }`,
+            text: `${params.rangeLabel} · Top ${params.topLimit} · ${params.chartType === "line" ? "曲线" : "柱状"
+              }`,
             left: "center",
             top: 30,
             textStyle: { fontSize: 12, color: "#4a4a4a" },
@@ -3711,7 +3743,8 @@ export async function apply(ctx: Context, config: Config) {
             main: { intensity: 1.2, shadow: true },
             ambient: { intensity: 0.35 },
           },
-          viewControl: { alpha: 24, beta: 40, distance: 220 },
+          viewControl: { alpha: 35, beta: 25, distance: 200 },
+          environment: 'none', // 禁用环境贴图,减少 WebGL 依赖
         },
         visualMap: {
           show: false,
@@ -3719,8 +3752,8 @@ export async function apply(ctx: Context, config: Config) {
         },
         legend:
           params.chartType === "line"
-            ? { show: true, top: 70, textStyle: { color: "#333" } }
-            : { show: false },
+            ? { show: true, top: 70, textStyle: { color: "#333" }, data: [] }
+            : { show: false, data: [] },
         tooltip: {},
         series: [],
       };
@@ -3742,18 +3775,22 @@ export async function apply(ctx: Context, config: Config) {
             "#8ac926",
           ];
           const echartsInstance = (window as any).echarts;
+          if (!echartsInstance) {
+            throw new Error("ECharts library not loaded");
+          }
           const chart = echartsInstance.init(
             document.getElementById("chart"),
             undefined,
             { renderer: "canvas" }
           );
           const mergedOption = { ...option };
-      const xData = Array.isArray(bucketLabels)
-        ? bucketLabels.map((v) => (v ?? "").toString())
-        : [];
-      const yData = Array.isArray(userLabels)
-        ? userLabels.map((v) => (v ?? "").toString())
-        : [];
+          const xData = Array.isArray(bucketLabels)
+            ? bucketLabels.map((v) => (v ?? "").toString())
+            : [];
+          const yData = Array.isArray(userLabels)
+            ? userLabels.map((v) => (v ?? "").toString())
+            : [];
+
           mergedOption.xAxis3D.data = xData;
           mergedOption.yAxis3D.data = yData;
           mergedOption.visualMap = Object.assign({}, option.visualMap, {
@@ -3778,16 +3815,16 @@ export async function apply(ctx: Context, config: Config) {
                 data: (Array.isArray(barData) ? barData : []).map((value) => {
                   const safeValue = Array.isArray(value)
                     ? [0, 1, 2].map((idx) => {
-                        const v = value[idx];
-                        return typeof v === "number" && Number.isFinite(v)
-                          ? v
-                          : 0;
-                      })
+                      const v = value[idx];
+                      return typeof v === "number" && Number.isFinite(v)
+                        ? v
+                        : 0;
+                    })
                     : [0, 0, 0];
                   const colorIndex =
                     typeof safeValue[1] === "number" && palette.length
                       ? ((safeValue[1] % palette.length) + palette.length) %
-                        palette.length
+                      palette.length
                       : 0;
                   const color = palette[colorIndex] || "#4d908e";
                   return {
@@ -3804,13 +3841,13 @@ export async function apply(ctx: Context, config: Config) {
               type: "line3D",
               data: Array.isArray(series?.data)
                 ? series.data.map((row) => {
-                    const safeRow = Array.isArray(row)
-                      ? row.map((v) =>
-                          typeof v === "number" && Number.isFinite(v) ? v : 0
-                        )
-                      : [0, 0, 0];
-                    return safeRow;
-                  })
+                  const safeRow = Array.isArray(row)
+                    ? row.map((v) =>
+                      typeof v === "number" && Number.isFinite(v) ? v : 0
+                    )
+                    : [0, 0, 0];
+                  return safeRow;
+                })
                 : [],
               lineStyle: { width: 3 },
               itemStyle: { color: palette[index % palette.length] },
@@ -3821,8 +3858,13 @@ export async function apply(ctx: Context, config: Config) {
               data: yData,
             });
           }
-          chart.setOption(mergedOption);
-          window.__timelineChartReady = true;
+
+          try {
+            chart.setOption(mergedOption);
+          } catch (e) {
+            throw new Error("ECharts setOption failed: " + (e instanceof Error ? e.message : String(e)));
+          }
+          (window as any).__timelineChartReady = true;
         },
         {
           option: baseOption,
@@ -3858,9 +3900,9 @@ export async function apply(ctx: Context, config: Config) {
       | "yesterdayPostCount"
   ):
     | {
-        acrossRank: number;
-        userRecord: UserRecord;
-      }
+      acrossRank: number;
+      userRecord: UserRecord;
+    }
     | undefined {
     if (getDragons.length === 0) {
       return;
@@ -4137,9 +4179,8 @@ export async function apply(ctx: Context, config: Config) {
       const percentageStr = showPercentage
         ? ` (${Math.round(item.percentage)}%)`
         : "";
-      result += `${index + 1}. **${item.name}**: ${
-        item.count
-      } 次${percentageStr}\n`;
+      result += `${index + 1}. **${item.name}**: ${item.count
+        } 次${percentageStr}\n`;
     });
     return result;
   }
@@ -4155,9 +4196,8 @@ export async function apply(ctx: Context, config: Config) {
       const percentageStr = showPercentage
         ? ` (${Math.round(item.percentage)}%)`
         : "";
-      result += `${index + 1}. ${item.name}：${
-        item.count
-      } 次${percentageStr}\n`;
+      result += `${index + 1}. ${item.name}：${item.count
+        } 次${percentageStr}\n`;
     });
     return result.trim();
   }
