@@ -1611,99 +1611,100 @@ export async function apply(ctx: Context, config: Config) {
       "-t <type:string> 图表类型：bar 或 line（默认 bar）"
     )
     .action(async ({ session, options }, top) => {
-      if (!session) return;
-      if (!config.enableTimelineTracking) {
-        return "尚未开启时间序列统计，请在配置中启用后再试。";
-      }
-      if (!session.channelId) {
-        return "该指令仅支持在群聊中使用。";
-      }
-      if (!ctx.puppeteer) {
-        return "Puppeteer 服务未启用，无法生成三维时间分布图。";
-      }
-
-      const limitRaw = typeof top === "number" ? top : 10;
-      const topLimit = Math.min(Math.max(Math.round(limitRaw), 1), 20);
-
-      const chartType: "bar" | "line" =
-        (options?.type || "").toLowerCase() === "line" ? "line" : "bar";
-      const parsedEnd = parseDateInputToTimestamp(options?.end) ?? Date.now();
-      const fallbackHours =
-        typeof options?.hours === "number" && options.hours > 0
-          ? options.hours
-          : 24;
-      const parsedStart =
-        parseDateInputToTimestamp(options?.start) ??
-        parsedEnd - fallbackHours * 60 * 60 * 1000;
-
-      if (parsedStart >= parsedEnd) {
-        return "开始时间需要早于结束时间。";
-      }
-
-      const bucketMinutes = config.timelineBucketMinutes;
-      const { labels: bucketLabels } = buildBucketLabels(
-        parsedStart,
-        parsedEnd,
-        bucketMinutes
-      );
-      if (!bucketLabels.length) {
-        return "时间范围过短，无法生成图表。";
-      }
-
-      const startBucket = alignToBucketStart(parsedStart, bucketMinutes);
-      const endBucket = alignToBucketStart(parsedEnd, bucketMinutes);
-      const records = await loadTimelineRecordsForRange(
-        session.channelId,
-        startBucket,
-        endBucket
-      );
-      if (records.length === 0) {
-        return "所选时间范围内没有发言记录。";
-      }
-
-      const userTotals = new Map<string, number>();
-      const usernameMap = new Map<string, string>();
-      for (const record of records) {
-        userTotals.set(
-          record.userId,
-          (userTotals.get(record.userId) || 0) + (record.count || 0)
-        );
-        if (!usernameMap.has(record.userId)) {
-          usernameMap.set(record.userId, record.username || record.userId);
-        }
-      }
-
-      const sortedUsers = Array.from(userTotals.entries()).sort(
-        ([, a], [, b]) => b - a
-      );
-      const topUsers = sortedUsers.slice(0, topLimit);
-      if (!topUsers.length) {
-        return "所选时间范围内没有发言记录。";
-      }
-
-      const userLabels = topUsers.map(([userId]) => {
-        const displayName = usernameMap.get(userId) || userId;
-        return config.showStarInChart && userId === session.userId
-          ? `★${displayName}`
-          : displayName;
-      });
-
-      const seriesData = buildTimelineSeriesData({
-        records,
-        bucketLabels,
-        topUsers,
-        userLabels,
-      });
-
-      if (seriesData.maxValue === 0) {
-        return "所选时间范围内没有发言记录。";
-      }
-
-      const rangeLabel = `${formatBeijingDateTime(
-        parsedStart
-      )} - ${formatBeijingDateTime(parsedEnd)}`;
-
       try {
+        if (!session) return;
+        if (!config.enableTimelineTracking) {
+          return "尚未开启时间序列统计，请在配置中启用后再试。";
+        }
+        if (!session.channelId) {
+          return "该指令仅支持在群聊中使用。";
+        }
+        if (!ctx.puppeteer) {
+          return "Puppeteer 服务未启用，无法生成三维时间分布图。";
+        }
+
+        const limitRaw = typeof top === "number" ? top : 10;
+        const topLimit = Math.min(Math.max(Math.round(limitRaw), 1), 20);
+
+        const chartType: "bar" | "line" =
+          (options?.type || "").toLowerCase() === "line" ? "line" : "bar";
+        const parsedEnd =
+          parseDateInputToTimestamp(options?.end) ?? Date.now();
+        const fallbackHours =
+          typeof options?.hours === "number" && options.hours > 0
+            ? options.hours
+            : 24;
+        const parsedStart =
+          parseDateInputToTimestamp(options?.start) ??
+          parsedEnd - fallbackHours * 60 * 60 * 1000;
+
+        if (parsedStart >= parsedEnd) {
+          return "开始时间需要早于结束时间。";
+        }
+
+        const bucketMinutes = config.timelineBucketMinutes;
+        const { labels: bucketLabels } = buildBucketLabels(
+          parsedStart,
+          parsedEnd,
+          bucketMinutes
+        );
+        if (!bucketLabels.length) {
+          return "时间范围过短，无法生成图表。";
+        }
+
+        const startBucket = alignToBucketStart(parsedStart, bucketMinutes);
+        const endBucket = alignToBucketStart(parsedEnd, bucketMinutes);
+        const records = await loadTimelineRecordsForRange(
+          session.channelId,
+          startBucket,
+          endBucket
+        );
+        if (records.length === 0) {
+          return "所选时间范围内没有发言记录。";
+        }
+
+        const userTotals = new Map<string, number>();
+        const usernameMap = new Map<string, string>();
+        for (const record of records) {
+          userTotals.set(
+            record.userId,
+            (userTotals.get(record.userId) || 0) + (record.count || 0)
+          );
+          if (!usernameMap.has(record.userId)) {
+            usernameMap.set(record.userId, record.username || record.userId);
+          }
+        }
+
+        const sortedUsers = Array.from(userTotals.entries()).sort(
+          ([, a], [, b]) => b - a
+        );
+        const topUsers = sortedUsers.slice(0, topLimit);
+        if (!topUsers.length) {
+          return "所选时间范围内没有发言记录。";
+        }
+
+        const userLabels = topUsers.map(([userId]) => {
+          const displayName = usernameMap.get(userId) || userId;
+          return config.showStarInChart && userId === session.userId
+            ? `★${displayName}`
+            : displayName;
+        });
+
+        const seriesData = buildTimelineSeriesData({
+          records,
+          bucketLabels,
+          topUsers,
+          userLabels,
+        });
+
+        if (seriesData.maxValue === 0) {
+          return "所选时间范围内没有发言记录。";
+        }
+
+        const rangeLabel = `${formatBeijingDateTime(
+          parsedStart
+        )} - ${formatBeijingDateTime(parsedEnd)}`;
+
         const imageBuffer = await generateTimelineChartImage({
           bucketLabels,
           userLabels,
@@ -3620,14 +3621,28 @@ export async function apply(ctx: Context, config: Config) {
       throw new Error("Puppeteer 浏览器实例不可用。");
     }
 
-    const bucketCount = params.bucketLabels.length || 1;
+    const safeBucketLabels = Array.isArray(params.bucketLabels)
+      ? params.bucketLabels
+      : [];
+    const safeUserLabels = Array.isArray(params.userLabels)
+      ? params.userLabels
+      : [];
+    const safeBarData = Array.isArray(params.barData) ? params.barData : [];
+    const safeLineSeries = Array.isArray(params.lineSeries)
+      ? params.lineSeries
+      : [];
+    const safeMaxValue = Number.isFinite(params.maxValue)
+      ? params.maxValue
+      : 0;
+
+    const bucketCount = safeBucketLabels.length || 1;
     const viewportWidth = Math.min(
       2600,
       Math.max(1200, bucketCount * 90)
     );
     const viewportHeight = Math.min(
       1600,
-      Math.max(820, params.userLabels.length * 40 + 520)
+      Math.max(820, safeUserLabels.length * 40 + 520)
     );
 
     const page = await browser.newPage();
@@ -3656,10 +3671,7 @@ export async function apply(ctx: Context, config: Config) {
       await page.addScriptTag({ path: echartsPath });
       await page.addScriptTag({ path: echartsGLPath });
 
-      const axisInterval = Math.max(
-        1,
-        Math.floor(params.bucketLabels.length / 8)
-      );
+      const axisInterval = Math.max(1, Math.floor(safeBucketLabels.length / 8));
 
       const baseOption = {
         backgroundColor: "#f7f7fa",
@@ -3682,19 +3694,19 @@ export async function apply(ctx: Context, config: Config) {
         xAxis3D: {
           type: "category",
           name: "时间",
-          data: params.bucketLabels,
+          data: safeBucketLabels,
           axisLabel: { interval: axisInterval, rotate: -35 },
         },
         yAxis3D: {
           type: "category",
           name: "用户",
-          data: params.userLabels,
+          data: safeUserLabels,
         },
         zAxis3D: { type: "value", name: "发言数" },
         grid3D: {
-          boxWidth: Math.max(120, params.bucketLabels.length * 16),
-          boxDepth: Math.max(120, params.userLabels.length * 26),
-          boxHeight: Math.max(80, params.maxValue * 2),
+          boxWidth: Math.max(120, safeBucketLabels.length * 16),
+          boxDepth: Math.max(120, safeUserLabels.length * 26),
+          boxHeight: Math.max(80, safeMaxValue * 2),
           light: {
             main: { intensity: 1.2, shadow: true },
             ambient: { intensity: 0.35 },
@@ -3703,7 +3715,7 @@ export async function apply(ctx: Context, config: Config) {
         },
         visualMap: {
           show: false,
-          max: Math.max(params.maxValue, 1),
+          max: Math.max(safeMaxValue, 1),
         },
         legend:
           params.chartType === "line"
@@ -3736,10 +3748,16 @@ export async function apply(ctx: Context, config: Config) {
             { renderer: "canvas" }
           );
           const mergedOption = { ...option };
-          mergedOption.xAxis3D.data = bucketLabels;
-          mergedOption.yAxis3D.data = userLabels;
+      const xData = Array.isArray(bucketLabels)
+        ? bucketLabels.map((v) => (v ?? "").toString())
+        : [];
+      const yData = Array.isArray(userLabels)
+        ? userLabels.map((v) => (v ?? "").toString())
+        : [];
+          mergedOption.xAxis3D.data = xData;
+          mergedOption.yAxis3D.data = yData;
           mergedOption.visualMap = Object.assign({}, option.visualMap, {
-            max: Math.max(maxValue, 1),
+            max: Math.max(maxValue || 0, 1),
           });
           mergedOption.tooltip = {
             formatter: (params) => {
@@ -3747,8 +3765,8 @@ export async function apply(ctx: Context, config: Config) {
                 ? params.value
                 : params.value?.value || [];
               const [xIndex, yIndex, z] = value;
-              const timeLabel = bucketLabels[xIndex] || xIndex;
-              const userLabel = userLabels[yIndex] || params.seriesName;
+              const timeLabel = xData[xIndex] || xIndex;
+              const userLabel = yData[yIndex] || params.seriesName;
               return `${userLabel}<br/>${timeLabel}<br/>发言数：${z}`;
             },
           };
@@ -3757,26 +3775,50 @@ export async function apply(ctx: Context, config: Config) {
               {
                 type: "bar3D",
                 shading: "lambert",
-                data: barData.map((value) => ({
-                  value,
-                  itemStyle: {
-                    color: palette[value[1] % palette.length],
-                  },
-                })),
+                data: (Array.isArray(barData) ? barData : []).map((value) => {
+                  const safeValue = Array.isArray(value)
+                    ? [0, 1, 2].map((idx) => {
+                        const v = value[idx];
+                        return typeof v === "number" && Number.isFinite(v)
+                          ? v
+                          : 0;
+                      })
+                    : [0, 0, 0];
+                  const colorIndex =
+                    typeof safeValue[1] === "number" && palette.length
+                      ? ((safeValue[1] % palette.length) + palette.length) %
+                        palette.length
+                      : 0;
+                  const color = palette[colorIndex] || "#4d908e";
+                  return {
+                    value: safeValue,
+                    itemStyle: { color },
+                  };
+                }),
               },
             ];
           } else {
-            mergedOption.series = lineSeries.map((series, index) => ({
-              name: series.name,
+            const safeSeries = Array.isArray(lineSeries) ? lineSeries : [];
+            mergedOption.series = safeSeries.map((series, index) => ({
+              name: series?.name ?? `用户${index + 1}`,
               type: "line3D",
-              data: series.data,
+              data: Array.isArray(series?.data)
+                ? series.data.map((row) => {
+                    const safeRow = Array.isArray(row)
+                      ? row.map((v) =>
+                          typeof v === "number" && Number.isFinite(v) ? v : 0
+                        )
+                      : [0, 0, 0];
+                    return safeRow;
+                  })
+                : [],
               lineStyle: { width: 3 },
               itemStyle: { color: palette[index % palette.length] },
               emphasis: { focus: "series" },
             }));
             mergedOption.legend = Object.assign({}, mergedOption.legend, {
               show: true,
-              data: userLabels,
+              data: yData,
             });
           }
           chart.setOption(mergedOption);
@@ -3785,11 +3827,11 @@ export async function apply(ctx: Context, config: Config) {
         {
           option: baseOption,
           chartType: params.chartType,
-          barData: params.barData,
-          lineSeries: params.lineSeries,
-          bucketLabels: params.bucketLabels,
-          userLabels: params.userLabels,
-          maxValue: params.maxValue,
+          barData: safeBarData,
+          lineSeries: safeLineSeries,
+          bucketLabels: safeBucketLabels,
+          userLabels: safeUserLabels,
+          maxValue: safeMaxValue,
         }
       );
 
