@@ -91,7 +91,7 @@ export const usage = `## 📝 注意事项
 |------|------|
 | \`-s, --start\` | 起始时间（YYYY-MM-DD 或 YYYY-MM-DD HH:mm，北京时间） |
 | \`-e, --end\` | 结束时间（默认当前时间） |
-| \`-h, --hours\` | 回溯小时数，未指定起始时间时生效（默认 24 小时） |
+| \`-H, --hours\` | 回溯小时数，未指定起始时间时生效（默认 24 小时） |
 | \`-t, --type\` | 图表类型：\`bar\`（柱状）或 \`line\`（曲线） |
 
 ### \`messageCounter.上传柱状条背景\`
@@ -798,6 +798,7 @@ export async function apply(ctx: Context, config: Config) {
   let iconCache: AssetData[] = [];
   let barBgImgCache: AssetData[] = [];
   let fontFilesCache: string[] = []; // 字体文件缓存
+  const scheduledTasks: (() => void)[] = [];
 
   // --- 数据库表定义 ---
   ctx.model.extend(
@@ -1603,7 +1604,7 @@ export async function apply(ctx: Context, config: Config) {
     )
     .option(
       "hours",
-      "-h <hours:number> 回溯的小时数（未指定起始时间时生效，默认 24 小时）"
+      "-H <hours:number> 回溯的小时数（未指定起始时间时生效，默认 24 小时）"
     )
     .option(
       "type",
@@ -2341,7 +2342,6 @@ export async function apply(ctx: Context, config: Config) {
     }
   }
 
-  const scheduledTasks: (() => void)[] = [];
   type PeriodIdentifier = "daily" | "weekly" | "monthly" | "yearly";
 
   /**
