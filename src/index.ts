@@ -81,6 +81,19 @@ export const usage = `## 📝 注意事项
 | \`--whites\` | 白名单，只显示白名单群 |
 | \`--blacks\` | 黑名单，不显示黑名单群 |
 
+### \`messageCounter.时间分布 [top]\`
+
+展示指定时间段内 Top N（默认 10）用户在不同时间段的发言量三维图（需开启 Puppeteer 与时间序列记录）。
+
+**选项:**
+
+| 参数 | 说明 |
+|------|------|
+| \`-s, --start\` | 起始时间（YYYY-MM-DD 或 YYYY-MM-DD HH:mm，北京时间） |
+| \`-e, --end\` | 结束时间（默认当前时间） |
+| \`-h, --hours\` | 回溯小时数，未指定起始时间时生效（默认 24 小时） |
+| \`-t, --type\` | 图表类型：\`bar\`（柱状）或 \`line\`（曲线） |
+
 ### \`messageCounter.上传柱状条背景\`
 
 - 为自己上传一张自定义的水平柱状条背景图片
@@ -197,6 +210,14 @@ export interface Config {
   apiBackgroundConfig: apiBackgroundConfig;
   /** 自定义背景的 CSS 代码。 */
   backgroundValue: string;
+
+  // --- 时间序列统计 ---
+  /** 是否记录时间序列数据以生成三维时间分布图。 */
+  enableTimelineTracking: boolean;
+  /** 时间序列聚合的粒度（分钟）。 */
+  timelineBucketMinutes: number;
+  /** 时序数据的保留天数（天）。设置为 0 表示不自动清理。 */
+  timelineRetentionDays: number;
 
   // --- 字体设置 ---
   /** 水平柱状图 - 标题的字体。 */
@@ -440,6 +461,23 @@ export const Config: Schema<Config> = Schema.intersect([
     ]),
   ]),
 
+  // --- 时间序列统计 ---
+  Schema.object({
+    enableTimelineTracking: Schema.boolean()
+      .default(true)
+      .description("是否记录时间序列数据，以生成三维时间分布图。"),
+    timelineBucketMinutes: Schema.number()
+      .min(5)
+      .max(180)
+      .step(5)
+      .default(60)
+      .description("时间序列聚合的粒度（分钟）。"),
+    timelineRetentionDays: Schema.number()
+      .min(0)
+      .default(60)
+      .description("时序数据的保留天数（0 表示不自动清理）。"),
+  }).description("时间序列统计"),
+
   // --- 自动推送 ---
   Schema.intersect([
     Schema.object({
@@ -543,6 +581,7 @@ declare module "koishi" {
   interface Tables {
     message_counter_records: MessageCounterRecord;
     message_counter_state: MessageCounterState;
+    message_counter_timeline: MessageCounterTimelineRecord;
   }
 }
 
@@ -570,6 +609,16 @@ interface MessageCounterRecord {
 interface MessageCounterState {
   key: string;
   value: Date;
+}
+
+interface MessageCounterTimelineRecord {
+  channelId: string;
+  channelName: string;
+  userId: string;
+  username: string;
+  bucket: string;
+  bucketTimestamp: Date;
+  count: number;
 }
 
 interface RankingData {
@@ -615,6 +664,90 @@ const periodMapping: Record<PeriodKey, { field: CountField; name: string }> = {
   year: { field: "thisYearPostCount", name: "今年" },
   total: { field: "totalPostCount", name: "总" },
 };
+
+const BEIJING_TIME_OFFSET = 8 * 60 * 60 * 1000;
+
+function pad(num: number): string {
+  return num.toString().padStart(2, "0");
+}
+
+function alignToBucketStart(
+  timestamp: number,
+  bucketMinutes: number
+): number {
+  const bucketSizeMs = bucketMinutes * 60 * 1000;
+  const shifted = timestamp + BEIJING_TIME_OFFSET;
+  const floored = Math.floor(shifted / bucketSizeMs) * bucketSizeMs;
+  return floored - BEIJING_TIME_OFFSET;
+}
+
+function formatBucketLabel(bucketStart: number): string {
+  const beijingDate = new Date(bucketStart + BEIJING_TIME_OFFSET);
+  const year = beijingDate.getUTCFullYear();
+  const month = pad(beijingDate.getUTCMonth() + 1);
+  const day = pad(beijingDate.getUTCDate());
+  const hour = pad(beijingDate.getUTCHours());
+  const minute = pad(beijingDate.getUTCMinutes());
+  return `${year}-${month}-${day} ${hour}:${minute}`;
+}
+
+function parseBucketLabel(bucketLabel: string): number {
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(bucketLabel);
+  if (!match) return Number.NaN;
+  const [, year, month, day, hour, minute] = match;
+  const utc = Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute)
+  );
+  return utc - BEIJING_TIME_OFFSET;
+}
+
+function formatBeijingDateTime(timestamp: number): string {
+  const beijingDate = new Date(timestamp + BEIJING_TIME_OFFSET);
+  const year = beijingDate.getUTCFullYear();
+  const month = pad(beijingDate.getUTCMonth() + 1);
+  const day = pad(beijingDate.getUTCDate());
+  const hour = pad(beijingDate.getUTCHours());
+  const minute = pad(beijingDate.getUTCMinutes());
+  return `${year}-${month}-${day} ${hour}:${minute}`;
+}
+
+function parseDateInputToTimestamp(input?: string): number | null {
+  if (!input) return null;
+  const normalized = input.replace("T", " ").trim();
+  const hasTimezone =
+    /([zZ])|(\+|-)\d{2}:?\d{2}$/.test(normalized) ||
+    /GMT\s*[+-]\d{4}/i.test(normalized);
+  const date = new Date(
+    hasTimezone ? normalized : `${normalized} GMT+0800`
+  );
+  const value = date.getTime();
+  return Number.isNaN(value) ? null : value;
+}
+
+function buildBucketLabels(
+  startTime: number,
+  endTime: number,
+  bucketMinutes: number
+): { labels: string[]; bucketStarts: number[] } {
+  const labels: string[] = [];
+  const bucketStarts: number[] = [];
+  const bucketSizeMs = bucketMinutes * 60 * 1000;
+  let current = alignToBucketStart(startTime, bucketMinutes);
+  const endBucket = alignToBucketStart(endTime, bucketMinutes);
+
+  while (current <= endBucket) {
+    labels.push(formatBucketLabel(current));
+    bucketStarts.push(current);
+    current += bucketSizeMs;
+  }
+
+  return { labels, bucketStarts };
+}
 
 export async function apply(ctx: Context, config: Config) {
   // cl*
@@ -695,6 +828,22 @@ export async function apply(ctx: Context, config: Config) {
       value: "timestamp",
     },
     { primary: "key" }
+  );
+
+  ctx.model.extend(
+    "message_counter_timeline",
+    {
+      channelId: "string",
+      channelName: "string",
+      userId: "string",
+      username: "string",
+      bucket: "string",
+      bucketTimestamp: "timestamp",
+      count: "unsigned",
+    },
+    {
+      primary: ["channelId", "userId", "bucket"],
+    }
   );
 
   // 限定在群组中
@@ -818,6 +967,8 @@ export async function apply(ctx: Context, config: Config) {
           "yearly"
         );
       }
+
+      await cleanupTimelineData();
     });
 
     // 将这一个统一的任务添加到待清理列表
@@ -883,6 +1034,14 @@ export async function apply(ctx: Context, config: Config) {
         ],
         ["channelId", "userId"]
       );
+
+      await recordTimelineCount({
+        channelId,
+        channelName: channelName || channelId,
+        userId,
+        username,
+        timestamp: session?.timestamp ?? Date.now(),
+      });
     } catch (error) {
       logger.error(
         "Failed to update message count for user %s in channel %s:",
@@ -933,6 +1092,14 @@ export async function apply(ctx: Context, config: Config) {
           ],
           ["channelId", "userId"]
         );
+
+        await recordTimelineCount({
+          channelId,
+          channelName: channelName || channelId,
+          userId: botUser.id,
+          username: botUser.name,
+          timestamp: session?.timestamp ?? Date.now(),
+        });
       } catch (error) {
         logger.error(
           "Failed to update bot message count in channel %s:",
@@ -1421,6 +1588,138 @@ export async function apply(ctx: Context, config: Config) {
       });
     });
 
+  guildCtx
+    .command(
+      "messageCounter.时间分布 [top:number]",
+      "生成群聊发言时间分布的三维图表"
+    )
+    .option(
+      "start",
+      "-s <start:string> 起始时间（YYYY-MM-DD 或 YYYY-MM-DD HH:mm，北京时间）"
+    )
+    .option(
+      "end",
+      "-e <end:string> 结束时间（默认当前时间，北京时间）"
+    )
+    .option(
+      "hours",
+      "-h <hours:number> 回溯的小时数（未指定起始时间时生效，默认 24 小时）"
+    )
+    .option(
+      "type",
+      "-t <type:string> 图表类型：bar 或 line（默认 bar）"
+    )
+    .action(async ({ session, options }, top) => {
+      if (!session) return;
+      if (!config.enableTimelineTracking) {
+        return "尚未开启时间序列统计，请在配置中启用后再试。";
+      }
+      if (!session.channelId) {
+        return "该指令仅支持在群聊中使用。";
+      }
+      if (!ctx.puppeteer) {
+        return "Puppeteer 服务未启用，无法生成三维时间分布图。";
+      }
+
+      const limitRaw = typeof top === "number" ? top : 10;
+      const topLimit = Math.min(Math.max(Math.round(limitRaw), 1), 20);
+
+      const chartType: "bar" | "line" =
+        (options?.type || "").toLowerCase() === "line" ? "line" : "bar";
+      const parsedEnd = parseDateInputToTimestamp(options?.end) ?? Date.now();
+      const fallbackHours =
+        typeof options?.hours === "number" && options.hours > 0
+          ? options.hours
+          : 24;
+      const parsedStart =
+        parseDateInputToTimestamp(options?.start) ??
+        parsedEnd - fallbackHours * 60 * 60 * 1000;
+
+      if (parsedStart >= parsedEnd) {
+        return "开始时间需要早于结束时间。";
+      }
+
+      const bucketMinutes = config.timelineBucketMinutes;
+      const { labels: bucketLabels } = buildBucketLabels(
+        parsedStart,
+        parsedEnd,
+        bucketMinutes
+      );
+      if (!bucketLabels.length) {
+        return "时间范围过短，无法生成图表。";
+      }
+
+      const startBucket = alignToBucketStart(parsedStart, bucketMinutes);
+      const endBucket = alignToBucketStart(parsedEnd, bucketMinutes);
+      const records = await loadTimelineRecordsForRange(
+        session.channelId,
+        startBucket,
+        endBucket
+      );
+      if (records.length === 0) {
+        return "所选时间范围内没有发言记录。";
+      }
+
+      const userTotals = new Map<string, number>();
+      const usernameMap = new Map<string, string>();
+      for (const record of records) {
+        userTotals.set(
+          record.userId,
+          (userTotals.get(record.userId) || 0) + (record.count || 0)
+        );
+        if (!usernameMap.has(record.userId)) {
+          usernameMap.set(record.userId, record.username || record.userId);
+        }
+      }
+
+      const sortedUsers = Array.from(userTotals.entries()).sort(
+        ([, a], [, b]) => b - a
+      );
+      const topUsers = sortedUsers.slice(0, topLimit);
+      if (!topUsers.length) {
+        return "所选时间范围内没有发言记录。";
+      }
+
+      const userLabels = topUsers.map(([userId]) => {
+        const displayName = usernameMap.get(userId) || userId;
+        return config.showStarInChart && userId === session.userId
+          ? `★${displayName}`
+          : displayName;
+      });
+
+      const seriesData = buildTimelineSeriesData({
+        records,
+        bucketLabels,
+        topUsers,
+        userLabels,
+      });
+
+      if (seriesData.maxValue === 0) {
+        return "所选时间范围内没有发言记录。";
+      }
+
+      const rangeLabel = `${formatBeijingDateTime(
+        parsedStart
+      )} - ${formatBeijingDateTime(parsedEnd)}`;
+
+      try {
+        const imageBuffer = await generateTimelineChartImage({
+          bucketLabels,
+          userLabels,
+          barData: seriesData.barData,
+          lineSeries: seriesData.lineSeries,
+          chartType,
+          rangeLabel,
+          maxValue: seriesData.maxValue,
+          topLimit,
+        });
+        return h.image(imageBuffer, `image/${config.imageType}`);
+      } catch (error) {
+        logger.error("生成时间分布图失败:", error);
+        return "生成时间分布图时出现问题，请稍后再试。";
+      }
+    });
+
   // 上传柱状条背景
   ctx
     .command(
@@ -1611,6 +1910,79 @@ export async function apply(ctx: Context, config: Config) {
 
   // --- 辅助函数 ---
   // hs*
+
+  async function recordTimelineCount(params: {
+    channelId: string;
+    channelName?: string;
+    userId: string;
+    username: string;
+    timestamp: number;
+  }) {
+    if (!config.enableTimelineTracking) return;
+    const bucketStart = alignToBucketStart(
+      params.timestamp,
+      config.timelineBucketMinutes
+    );
+    const bucketLabel = formatBucketLabel(bucketStart);
+
+    try {
+      await ctx.database.upsert(
+        "message_counter_timeline",
+        (row) => [
+          {
+            channelId: params.channelId,
+            channelName: params.channelName || row.channelName,
+            userId: params.userId,
+            username: params.username || row.username,
+            bucket: bucketLabel,
+            bucketTimestamp: new Date(bucketStart),
+            count: $.add(row.count, 1),
+          },
+        ],
+        ["channelId", "userId", "bucket"]
+      );
+    } catch (error) {
+      logger.warn(
+        "记录时间序列数据失败: channel %s user %s bucket %s",
+        params.channelId,
+        params.userId,
+        bucketLabel,
+        error
+      );
+    }
+  }
+
+  async function cleanupTimelineData() {
+    if (!config.enableTimelineTracking) return;
+    if (config.timelineRetentionDays <= 0) return;
+
+    const thresholdTime =
+      Date.now() - config.timelineRetentionDays * 24 * 60 * 60 * 1000;
+    const thresholdBucket = formatBucketLabel(
+      alignToBucketStart(thresholdTime, config.timelineBucketMinutes)
+    );
+
+    try {
+      await ctx.database.remove("message_counter_timeline", {
+        bucket: { $lt: thresholdBucket } as any,
+      });
+    } catch (error) {
+      logger.warn("清理过期时序数据失败:", error);
+      try {
+        const records = await ctx.database.get("message_counter_timeline", {});
+        const expired = records.filter((record) => record.bucket < thresholdBucket);
+        for (const record of expired) {
+          await ctx.database.remove("message_counter_timeline", {
+            channelId: record.channelId,
+            userId: record.userId,
+            bucket: record.bucket,
+          });
+        }
+      } catch (fallbackError) {
+        logger.warn("在回退清理时序数据时失败:", fallbackError);
+      }
+    }
+  }
 
   /**
    * 检查字体文件，如果存在不规范的 vhea 版本，则创建一个修复后的副本，并返回可用字体的路径。
@@ -2155,6 +2527,95 @@ export async function apply(ctx: Context, config: Config) {
     // 使用 toFixed(2) 保证最多两位小数，然后用 parseFloat 去掉末尾多余的 .0 和 0
     const formattedNumber = parseFloat(percentage.toFixed(2));
     return `(${formattedNumber}%)`;
+  }
+
+  async function loadTimelineRecordsForRange(
+    channelId: string,
+    startBucket: number,
+    endBucket: number
+  ): Promise<MessageCounterTimelineRecord[]> {
+    try {
+      return await ctx.database.get("message_counter_timeline", {
+        channelId,
+        bucketTimestamp: {
+          $gte: new Date(startBucket),
+          $lte: new Date(endBucket),
+        } as any,
+      });
+    } catch (error) {
+      logger.warn(
+        "按时间范围获取时序数据失败，改为在内存中过滤: %o",
+        error
+      );
+      const all = await ctx.database.get("message_counter_timeline", {
+        channelId,
+      });
+      return all.filter((record) => {
+        const tsFromDate = new Date(record.bucketTimestamp).getTime();
+        const ts =
+          Number.isNaN(tsFromDate) && record.bucket
+            ? parseBucketLabel(record.bucket)
+            : tsFromDate;
+        return ts >= startBucket && ts <= endBucket;
+      });
+    }
+  }
+
+  function buildTimelineSeriesData(params: {
+    records: MessageCounterTimelineRecord[];
+    bucketLabels: string[];
+    topUsers: [string, number][];
+    userLabels: string[];
+  }): {
+    barData: number[][];
+    lineSeries: { name: string; data: number[][] }[];
+    maxValue: number;
+  } {
+    const bucketIndexMap = new Map(
+      params.bucketLabels.map((label, index) => [label, index])
+    );
+    const userIndexMap = new Map(
+      params.topUsers.map(([userId], index) => [userId, index])
+    );
+    const matrix = params.bucketLabels.map(() =>
+      new Array(params.topUsers.length).fill(0)
+    );
+
+    let maxValue = 0;
+
+    for (const record of params.records) {
+      const xIndex = bucketIndexMap.get(record.bucket);
+      const yIndex = userIndexMap.get(record.userId);
+      if (xIndex === undefined || yIndex === undefined) continue;
+
+      const value = (matrix[xIndex][yIndex] || 0) + (record.count || 0);
+      matrix[xIndex][yIndex] = value;
+      if (value > maxValue) {
+        maxValue = value;
+      }
+    }
+
+    const barData: number[][] = [];
+    for (let i = 0; i < params.bucketLabels.length; i++) {
+      for (let j = 0; j < params.topUsers.length; j++) {
+        const value = matrix[i][j] || 0;
+        barData.push([i, j, value]);
+        if (value > maxValue) {
+          maxValue = value;
+        }
+      }
+    }
+
+    const lineSeries = params.topUsers.map(([,], userIndex) => ({
+      name: params.userLabels[userIndex],
+      data: params.bucketLabels.map((_, bucketIndex) => [
+        bucketIndex,
+        userIndex,
+        matrix[bucketIndex][userIndex] || 0,
+      ]),
+    }));
+
+    return { barData, lineSeries, maxValue };
   }
 
   /**
@@ -3138,6 +3599,208 @@ export async function apply(ctx: Context, config: Config) {
       throw error; // 将错误向上抛出，以便调用者可以处理
     } finally {
       await page.close(); // 确保页面总是被关闭
+    }
+  }
+
+  async function generateTimelineChartImage(params: {
+    bucketLabels: string[];
+    userLabels: string[];
+    barData: number[][];
+    lineSeries: { name: string; data: number[][] }[];
+    chartType: "bar" | "line";
+    rangeLabel: string;
+    maxValue: number;
+    topLimit: number;
+  }): Promise<Buffer> {
+    if (!ctx.puppeteer) {
+      throw new Error("Puppeteer 服务未启用，无法生成时间分布图。");
+    }
+    const browser = ctx.puppeteer.browser;
+    if (!browser) {
+      throw new Error("Puppeteer 浏览器实例不可用。");
+    }
+
+    const bucketCount = params.bucketLabels.length || 1;
+    const viewportWidth = Math.min(
+      2600,
+      Math.max(1200, bucketCount * 90)
+    );
+    const viewportHeight = Math.min(
+      1600,
+      Math.max(820, params.userLabels.length * 40 + 520)
+    );
+
+    const page = await browser.newPage();
+    try {
+      await page.setViewport({
+        width: viewportWidth,
+        height: viewportHeight,
+        deviceScaleFactor: config.deviceScaleFactor || 1,
+      });
+
+      const containerWidth = viewportWidth - 32;
+      const containerHeight = viewportHeight - 24;
+
+      await page.setContent(
+        `<html><head><meta charset="UTF-8" />
+          <style>
+            body { margin: 0; padding: 12px 16px; background: #f7f7fa; }
+            #chart { width: ${containerWidth}px; height: ${containerHeight}px; }
+          </style>
+        </head><body><div id="chart"></div></body></html>`,
+        { waitUntil: "load" }
+      );
+
+      const echartsPath = require.resolve("echarts/dist/echarts.min.js");
+      const echartsGLPath = require.resolve("echarts-gl/dist/echarts-gl.min.js");
+      await page.addScriptTag({ path: echartsPath });
+      await page.addScriptTag({ path: echartsGLPath });
+
+      const axisInterval = Math.max(
+        1,
+        Math.floor(params.bucketLabels.length / 8)
+      );
+
+      const baseOption = {
+        backgroundColor: "#f7f7fa",
+        title: [
+          {
+            text: "群聊发言时间分布 (3D)",
+            left: "center",
+            top: 6,
+            textStyle: { fontSize: 20, fontWeight: "bold", color: "#1f1f1f" },
+          },
+          {
+            text: `${params.rangeLabel} · Top ${params.topLimit} · ${
+              params.chartType === "line" ? "曲线" : "柱状"
+            }`,
+            left: "center",
+            top: 30,
+            textStyle: { fontSize: 12, color: "#4a4a4a" },
+          },
+        ],
+        xAxis3D: {
+          type: "category",
+          name: "时间",
+          data: params.bucketLabels,
+          axisLabel: { interval: axisInterval, rotate: -35 },
+        },
+        yAxis3D: {
+          type: "category",
+          name: "用户",
+          data: params.userLabels,
+        },
+        zAxis3D: { type: "value", name: "发言数" },
+        grid3D: {
+          boxWidth: Math.max(120, params.bucketLabels.length * 16),
+          boxDepth: Math.max(120, params.userLabels.length * 26),
+          boxHeight: Math.max(80, params.maxValue * 2),
+          light: {
+            main: { intensity: 1.2, shadow: true },
+            ambient: { intensity: 0.35 },
+          },
+          viewControl: { alpha: 24, beta: 40, distance: 220 },
+        },
+        visualMap: {
+          show: false,
+          max: Math.max(params.maxValue, 1),
+        },
+        legend:
+          params.chartType === "line"
+            ? { show: true, top: 70, textStyle: { color: "#333" } }
+            : { show: false },
+        tooltip: {},
+        series: [],
+      };
+
+      await page.evaluate(
+        ({ option, chartType, barData, lineSeries, bucketLabels, userLabels, maxValue }) => {
+          const palette = [
+            "#2a9d8f",
+            "#e76f51",
+            "#577590",
+            "#f4a261",
+            "#6a4c93",
+            "#43aa8b",
+            "#f3722c",
+            "#4d908e",
+            "#f8961e",
+            "#277da1",
+            "#c44536",
+            "#8ac926",
+          ];
+          const echartsInstance = (window as any).echarts;
+          const chart = echartsInstance.init(
+            document.getElementById("chart"),
+            undefined,
+            { renderer: "canvas" }
+          );
+          const mergedOption = { ...option };
+          mergedOption.xAxis3D.data = bucketLabels;
+          mergedOption.yAxis3D.data = userLabels;
+          mergedOption.visualMap = Object.assign({}, option.visualMap, {
+            max: Math.max(maxValue, 1),
+          });
+          mergedOption.tooltip = {
+            formatter: (params) => {
+              const value = Array.isArray(params.value)
+                ? params.value
+                : params.value?.value || [];
+              const [xIndex, yIndex, z] = value;
+              const timeLabel = bucketLabels[xIndex] || xIndex;
+              const userLabel = userLabels[yIndex] || params.seriesName;
+              return `${userLabel}<br/>${timeLabel}<br/>发言数：${z}`;
+            },
+          };
+          if (chartType === "bar") {
+            mergedOption.series = [
+              {
+                type: "bar3D",
+                shading: "lambert",
+                data: barData.map((value) => ({
+                  value,
+                  itemStyle: {
+                    color: palette[value[1] % palette.length],
+                  },
+                })),
+              },
+            ];
+          } else {
+            mergedOption.series = lineSeries.map((series, index) => ({
+              name: series.name,
+              type: "line3D",
+              data: series.data,
+              lineStyle: { width: 3 },
+              itemStyle: { color: palette[index % palette.length] },
+              emphasis: { focus: "series" },
+            }));
+            mergedOption.legend = Object.assign({}, mergedOption.legend, {
+              show: true,
+              data: userLabels,
+            });
+          }
+          chart.setOption(mergedOption);
+          window.__timelineChartReady = true;
+        },
+        {
+          option: baseOption,
+          chartType: params.chartType,
+          barData: params.barData,
+          lineSeries: params.lineSeries,
+          bucketLabels: params.bucketLabels,
+          userLabels: params.userLabels,
+          maxValue: params.maxValue,
+        }
+      );
+
+      await page.waitForFunction("window.__timelineChartReady === true");
+      const chartElement = await page.$("#chart");
+      const buffer = await chartElement!.screenshot({
+        type: config.imageType,
+      });
+      return buffer;
+    } finally {
+      await page.close();
     }
   }
 
