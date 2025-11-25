@@ -698,7 +698,7 @@ export async function apply(ctx: Context, config: Config) {
   );
 
   // 限定在群组中
-  const guildCtx = ctx.guild();
+  const channelCtx = ctx.channel();
 
   // 在插件启动完成后设置定时任务
   ctx.on("ready", async () => {
@@ -838,7 +838,7 @@ export async function apply(ctx: Context, config: Config) {
 
   // --- 核心消息监听器 ---
   // jt*
-  guildCtx.middleware(async (session, next) => {
+  channelCtx.middleware(async (session, next) => {
     // 检查此消息是否已被本插件处理过，如果是，则直接跳过
     if (session[PROCESSED]) return next();
 
@@ -853,7 +853,7 @@ export async function apply(ctx: Context, config: Config) {
 
     session[PROCESSED] = true;
 
-    const { userId, channelId, author, guildId } = session;
+    const { userId, channelId, author } = session;
     let sessionChannelName = session.event.channel.name;
     const username = author?.nick || author?.name || userId;
     const userAvatar = author?.avatar;
@@ -861,7 +861,7 @@ export async function apply(ctx: Context, config: Config) {
     try {
       const channelName =
         sessionChannelName ||
-        (guildId ? await getGuildName(session.bot, guildId) : channelId);
+        (channelId ? await getChannelName(session.bot, channelId) : channelId);
 
       await ctx.database.upsert(
         "message_counter_records",
@@ -899,9 +899,9 @@ export async function apply(ctx: Context, config: Config) {
   // 统计机器人自身消息
   if (config.isBotMessageTrackingEnabled) {
     ctx.before("send", async (session) => {
-      if (!session.channelId || !session.guildId) return;
+      if (!session.channelId) return;
 
-      const { channelId, bot, guildId } = session;
+      const { channelId, bot } = session;
       let sessionChannelName = session.event.channel.name;
       const botUser = bot.user;
       if (!botUser) {
@@ -911,7 +911,7 @@ export async function apply(ctx: Context, config: Config) {
 
       try {
         const channelName =
-          sessionChannelName || (await getGuildName(bot, guildId)) || channelId;
+          sessionChannelName || (await getChannelName(bot, channelId)) || channelId;
 
         await ctx.database.upsert(
           "message_counter_records",
@@ -1024,7 +1024,7 @@ export async function apply(ctx: Context, config: Config) {
       });
       if (targetUserRecord.length === 0) return `被查询对象无任何发言记录。`;
 
-      const guildUsers = await ctx.database.get("message_counter_records", {
+      const channelUsers = await ctx.database.get("message_counter_records", {
         channelId,
       });
       const allUsers = await ctx.database.get("message_counter_records", {});
@@ -1038,7 +1038,7 @@ export async function apply(ctx: Context, config: Config) {
         rank: number | null;
         enabled: boolean;
       }
-      const guildStats: StatRow[] = [];
+      const channelStats: StatRow[] = [];
       const acrossStats: StatRow[] = [];
 
       // 累加总数
@@ -1052,7 +1052,7 @@ export async function apply(ctx: Context, config: Config) {
           return sums;
         }, {} as Record<CountField, number>);
 
-      const guildTotals = accumulate(guildUsers);
+      const channelTotals = accumulate(channelUsers);
       const acrossTotals = accumulate(allUsers);
 
       // 获取排名
@@ -1091,46 +1091,46 @@ export async function apply(ctx: Context, config: Config) {
       };
 
       // 填充本群数据
-      guildStats.push({
+      channelStats.push({
         label: "昨日",
         count: targetUserRecord[0].yesterdayPostCount,
-        total: guildTotals.yesterdayPostCount,
-        rank: getRank(guildUsers, "yesterdayPostCount", userId),
+        total: channelTotals.yesterdayPostCount,
+        rank: getRank(channelUsers, "yesterdayPostCount", userId),
         enabled: selectedOptions.yesterday,
       });
-      guildStats.push({
+      channelStats.push({
         label: "今日",
         count: targetUserRecord[0].todayPostCount,
-        total: guildTotals.todayPostCount,
-        rank: getRank(guildUsers, "todayPostCount", userId),
+        total: channelTotals.todayPostCount,
+        rank: getRank(channelUsers, "todayPostCount", userId),
         enabled: selectedOptions.day,
       });
-      guildStats.push({
+      channelStats.push({
         label: "本周",
         count: targetUserRecord[0].thisWeekPostCount,
-        total: guildTotals.thisWeekPostCount,
-        rank: getRank(guildUsers, "thisWeekPostCount", userId),
+        total: channelTotals.thisWeekPostCount,
+        rank: getRank(channelUsers, "thisWeekPostCount", userId),
         enabled: selectedOptions.week,
       });
-      guildStats.push({
+      channelStats.push({
         label: "本月",
         count: targetUserRecord[0].thisMonthPostCount,
-        total: guildTotals.thisMonthPostCount,
-        rank: getRank(guildUsers, "thisMonthPostCount", userId),
+        total: channelTotals.thisMonthPostCount,
+        rank: getRank(channelUsers, "thisMonthPostCount", userId),
         enabled: selectedOptions.month,
       });
-      guildStats.push({
+      channelStats.push({
         label: "全年",
         count: targetUserRecord[0].thisYearPostCount,
-        total: guildTotals.thisYearPostCount,
-        rank: getRank(guildUsers, "thisYearPostCount", userId),
+        total: channelTotals.thisYearPostCount,
+        rank: getRank(channelUsers, "thisYearPostCount", userId),
         enabled: selectedOptions.year,
       });
-      guildStats.push({
+      channelStats.push({
         label: "总计",
         count: targetUserRecord[0].totalPostCount,
-        total: guildTotals.totalPostCount,
-        rank: getRank(guildUsers, "totalPostCount", userId),
+        total: channelTotals.totalPostCount,
+        rank: getRank(channelUsers, "totalPostCount", userId),
         enabled: selectedOptions.total,
       });
 
@@ -1213,10 +1213,10 @@ export async function apply(ctx: Context, config: Config) {
         return table;
       };
 
-      const guildTable = formatStatsTable("群发言", guildStats);
+      const channelTable = formatStatsTable("群发言", channelStats);
       const acrossTable = formatStatsTable("跨群发言", acrossStats);
 
-      const body = [guildTable, acrossTable].filter(Boolean).join("\n");
+      const body = [channelTable, acrossTable].filter(Boolean).join("\n");
       if (!body) return `被查询对象在指定时段内无发言记录。`;
 
       // 使用 'sv-SE' locale 可以方便地得到 YYYY-MM-DD HH:MM:SS 格式
@@ -1272,7 +1272,7 @@ export async function apply(ctx: Context, config: Config) {
       ];
 
       const period = getPeriodFromOptions(options, "today");
-      const isAcross = isAcrossGuild(options);
+      const isAcross = isAcrossChannel(options);
 
       const { field, name: periodName } = periodMapping[period];
       const scopeName = isAcross ? "跨群" : "本群";
@@ -1719,13 +1719,13 @@ export async function apply(ctx: Context, config: Config) {
     const rankTimeTitle = getCurrentBeijingTime();
 
     // 1. 优先获取所有机器人能触及的群聊列表，并建立一个 ID -> 带平台前缀ID 的映射
-    const guildIdMap = new Map<string, string>(); // key: unprefixedId, value: prefixedId
+    const channelIdMap = new Map<string, string>(); // key: unprefixedId, value: prefixedId
     try {
-      const guildListPromises = ctx.bots.map(async (bot) => {
-        if (!bot.online || !bot.getGuildList) return [];
+      const channelListPromises = ctx.bots.map(async (bot) => {
+        if (!bot.online || !bot.getChannelList) return [];
         let next: string | undefined;
         do {
-          const result = await bot.getGuildList(next);
+          const result = await bot.getChannelList(next);
           if (!result || !result.data) {
             logger.warn(
               `[自动推送] 机器人 ${bot.platform} 获取群聊列表失败，已跳过。`
@@ -1739,16 +1739,16 @@ export async function apply(ctx: Context, config: Config) {
             );
             return [];
           }
-          result.data.forEach((guild) => {
+          result.data.forEach((channel) => {
             // 避免因多个机器人同在一个群而覆盖
-            if (!guildIdMap.has(guild.id)) {
-              guildIdMap.set(guild.id, `${bot.platform}:${guild.id}`);
+            if (!channelIdMap.has(channel.id)) {
+              channelIdMap.set(channel.id, `${bot.platform}:${channel.id}`);
             }
           });
           next = result.next;
         } while (next);
       });
-      await Promise.all(guildListPromises);
+      await Promise.all(channelListPromises);
     } catch (error) {
       logger.error("[自动推送] 获取所有群聊列表时出错，任务可能不完整:", error);
     }
@@ -1761,9 +1761,9 @@ export async function apply(ctx: Context, config: Config) {
       if (channelId.includes(":")) {
         // 本身就是带前缀的 ID
         targetChannels.add(channelId);
-      } else if (guildIdMap.has(channelId)) {
+      } else if (channelIdMap.has(channelId)) {
         // 在映射表中找到了对应的带前缀 ID
-        targetChannels.add(guildIdMap.get(channelId)!);
+        targetChannels.add(channelIdMap.get(channelId)!);
       } else {
         logger.warn(
           `[自动推送] 无法在任何机器人实例中找到频道 ID: ${channelId}，已跳过。`
@@ -1773,7 +1773,7 @@ export async function apply(ctx: Context, config: Config) {
 
     // 2.2 如果开启了“向所有群聊推送”，则添加所有已知的频道
     if (config.shouldSendLeaderboardNotificationsToAllChannels) {
-      guildIdMap.forEach((prefixedId) => targetChannels.add(prefixedId));
+      channelIdMap.forEach((prefixedId) => targetChannels.add(prefixedId));
     }
 
     // 2.3 应用排除列表
@@ -2505,7 +2505,7 @@ export async function apply(ctx: Context, config: Config) {
    */
   function _getChartBaseStyles(): string {
     return `
-      html {  
+      html {
         min-height: 100%;
       }
 
@@ -2517,7 +2517,7 @@ export async function apply(ctx: Context, config: Config) {
         min-height: 100%;
         box-sizing: border-box;
       }
-      
+
     .ranking-title {
       text-align: center;
       margin-bottom: 20px;
@@ -2631,7 +2631,7 @@ export async function apply(ctx: Context, config: Config) {
 
           const canvas = document.getElementById('rankingCanvas');
           let context = canvas.getContext('2d');
-          
+
           // 根据最大计数的文本宽度动态调整画布宽度，以防数字溢出
           context.font = \`30px "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
           // 找到拥有最大发言数的条目，因为它的文本通常最长
@@ -2646,10 +2646,10 @@ export async function apply(ctx: Context, config: Config) {
 
           // 最长进度条的宽度是固定的
           const maxBarWidth = 150 + 700; // 进度条区域总宽度
-          
+
           // 计算最终画布宽度：头像(50) + 进度条(850) + 文本与进度条间距(10) + 文本宽度 + 右侧留白(20)
           // 头像左侧的空白由页面 body 的 padding 提供
-          canvas.width = 50 + maxBarWidth + 10 + maxCountTextWidth + 20; 
+          canvas.width = 50 + maxBarWidth + 10 + maxCountTextWidth + 20;
           canvas.height = canvasHeight;
 
           // 重新获取上下文，因为尺寸变化会重置状态
@@ -2682,18 +2682,18 @@ export async function apply(ctx: Context, config: Config) {
               const randomBarBgImgBase64 = userBarBgImgs[Math.floor(Math.random() * userBarBgImgs.length)];
               avgColor = await drawCustomBarBackground(context, randomBarBgImgBase64, countBarX, countBarY, countBarWidth, userAvatarSize, canvasWidth); // 传递 canvasWidth
             }
-            
+
             // 绘制剩余部分灰色背景
             const remainingBarX = countBarX + countBarWidth;
             // 确保灰色背景能填满到画布最右侧，减去文本区域
             context.fillStyle = colorWithOpacity;
             context.fillRect(remainingBarX, countBarY, canvasWidth - remainingBarX, userAvatarSize);
-            
+
             // 绘制文本和图标
             await drawTextAndIcons(context, data, index, avgColor, countBarX, countBarY, countBarWidth, userAvatarSize);
           }
         }
-        
+
         async function drawCustomBarBackground(context, base64, x, y, barWidth, barHeight, canvasWidth) { // 接收 canvasWidth
             return new Promise(async (resolve) => {
                 const barBgImg = new Image();
@@ -2732,10 +2732,10 @@ export async function apply(ctx: Context, config: Config) {
                 let percentageStr = percentage < 0.01 && percentage > 0 ? '<0.01' : percentage.toFixed(percentage < 1 ? 2 : 0);
                 countText += \` ( \${percentageStr}%)\`;
             }
-            
+
             const countTextWidth = context.measureText(countText).width;
             const countTextX = barX + barWidth + 10;
-            
+
             if (countTextX + countTextWidth > context.canvas.width - 5) {
                 context.fillStyle = chooseColorAdjustmentMethod(avgColor);
                 context.textAlign = "right";
@@ -2751,7 +2751,7 @@ export async function apply(ctx: Context, config: Config) {
             context.textAlign = "left"; // 重置对齐方式，以防被上一部分修改
 
             let nameText = data.name;
-            const maxNameWidth = barWidth - 60; 
+            const maxNameWidth = barWidth - 60;
             if (context.measureText(nameText).width > maxNameWidth) {
                 const ellipsis = "...";
                 while (context.measureText(nameText + ellipsis).width > maxNameWidth && nameText.length > 0) {
@@ -2767,7 +2767,7 @@ export async function apply(ctx: Context, config: Config) {
             if (userIcons.length > 0) {
                 await drawUserIcons(context, userIcons, {
                     nameText: data.name, // 传递原始nameText用于计算位置
-                    nameTextX: context.measureText(nameText).width + nameTextX, 
+                    nameTextX: context.measureText(nameText).width + nameTextX,
                     barX: barX,
                     barWidth: barWidth,
                     textY: textY
@@ -2777,7 +2777,7 @@ export async function apply(ctx: Context, config: Config) {
 
         async function drawUserIcons(context, icons, positions) {
             const { nameTextX, barX, barWidth, textY } = positions;
-            
+
             // 使用 Promise.all 等待所有图片加载和绘制
             await Promise.all(icons.map((iconBase64, i) => {
                 return new Promise((resolve, reject) => {
@@ -2813,7 +2813,7 @@ export async function apply(ctx: Context, config: Config) {
             });
           }
         }
-        
+
         function drawVerticalLines(context, canvasHeight, tableWidth) {
             context.fillStyle = "rgba(0, 0, 0, 0.12)";
             const verticalLineWidth = 3;
@@ -2825,7 +2825,7 @@ export async function apply(ctx: Context, config: Config) {
 
 
         // --- 辅助工具函数 ---
-        
+
         function findAssets(userId, assetList, key) {
           return assetList
             .filter(data => data.userId === userId)
@@ -2942,7 +2942,7 @@ export async function apply(ctx: Context, config: Config) {
             }
             const count = data.length / 4;
             r = ~~(r / count); g = ~~(g / count); b = ~~(b / count);
-            
+
             return \`#\${r.toString(16).padStart(2, "0")}\${g.toString(16).padStart(2, "0")}\${b.toString(16).padStart(2, "0")}\`;
         }
 
@@ -3239,15 +3239,15 @@ export async function apply(ctx: Context, config: Config) {
         let userName = "未知用户";
         try {
           if (
-            typeof session.bot?.getGuildMember === "function" &&
-            session.guildId
+            typeof session.bot?.getChannelMember === "function" &&
+            session.channelId
           ) {
-            const guildMember = await session.bot.getGuildMember(
-              session.guildId,
+            const channelMember = await session.bot.getChannelMember(
+              session.channelId,
               userId
             );
-            if (guildMember && guildMember.user && guildMember.user.name) {
-              userName = guildMember.user.name;
+            if (channelMember && channelMember.user && channelMember.user.name) {
+              userName = channelMember.user.name;
             }
           }
         } catch (error) {
@@ -3262,15 +3262,15 @@ export async function apply(ctx: Context, config: Config) {
     return content;
   }
 
-  async function getGuildName(
+  async function getChannelName(
     bot: Bot,
-    guildId: string
+    channelId: string
   ): Promise<string | undefined> {
     try {
-      const guild = await bot.getGuild(guildId);
-      return guild?.name;
+      const channel = await bot.getChannel(channelId);
+      return channel?.name;
     } catch (error) {
-      logger.warn(`Failed to get guild name for ${guildId}:`, error);
+      logger.warn(`Failed to get channelId name for ${channelId}:`, error);
       return undefined;
     }
   }
@@ -3290,7 +3290,7 @@ export async function apply(ctx: Context, config: Config) {
     return fallback;
   }
 
-  function isAcrossGuild(options: any): boolean {
+  function isAcrossChannel(options: any): boolean {
     return ["ydag", "dag", "wag", "mag", "yag", "across", "dragon"].some(
       (opt) => options?.[opt]
     );
