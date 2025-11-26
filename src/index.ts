@@ -13,14 +13,15 @@ import fallbackBase64 from "./assets/fallbackBase64.json";
 export const name = "message-counter";
 export const inject = {
   required: ["database", "cron"],
-  optional: ["markdownToImage", "puppeteer", "canvas"],
+  optional: ["markdownToImage", "puppeteer"],
 };
 
 export const usage = `## 📝 注意事项
 
-- 仅记录群聊消息
-- 初始化需要权限等级 3 级
-- 必需 database 和 cron 服务
+- 只统计群聊消息
+- 初始化需权限等级 3
+- 依赖 database 与 cron 服务
+- 生成图片时，需 puppeteer 提供 canvas 支持
 
 ## 🔍 关键指令
 
