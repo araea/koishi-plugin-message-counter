@@ -31,6 +31,13 @@
     "type": "git",
     "url": "git+https://github.com/araea/koishi-plugin-message-counter.git"
   },
+  "scripts": {
+    "build": "tsup && tsc --project tsconfig.json && node -e \"const fs=require('fs');fs.rmSync('lib/assets',{recursive:true,force:true});fs.mkdirSync('lib/assets',{recursive:true});fs.cpSync('src/assets','lib/assets',{recursive:true});\""
+  },
+  "dependencies": {
+    "echarts": "^5.4.3",
+    "echarts-gl": "^2.0.9"
+  },
   "keywords": [
     "chatbot",
     "koishi",
@@ -51,6 +58,8 @@
   "devDependencies": {
     "koishi-plugin-cron": "^3.1.0",
     "koishi-plugin-markdown-to-image-service": "^1.2.5",
-    "koishi-plugin-puppeteer": "^3.9.0"
+    "koishi-plugin-puppeteer": "^3.9.0",
+    "tsup": "^8.2.4",
+    "typescript": "^5.4.5"
   }
 }

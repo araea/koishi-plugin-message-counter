@@ -6,15 +6,13 @@
     "module": "esnext",
     "declaration": true,
     "emitDeclarationOnly": true,
-    "composite": true,
-    "incremental": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "jsx": "react-jsx",
     "jsxImportSource": "@satorijs/element",
-    "types": ["node", "yml-register/types"],
+    "types": ["node"],
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src", "src/assets/fallbackBase64.json"]
