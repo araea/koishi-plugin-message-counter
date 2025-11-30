@@ -13,7 +13,7 @@ import fallbackBase64 from "./assets/fallbackBase64.json";
 export const name = "message-counter";
 export const inject = {
   required: ["database", "cron"],
-  optional: ["markdownToImage", "puppeteer"],
+  optional: ["markdownToImage", "puppeteer", "canvas"],
 };
 
 export const usage = `## 📝 注意事项
