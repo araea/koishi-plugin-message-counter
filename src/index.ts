@@ -1717,7 +1717,7 @@ export async function apply(ctx: Context, config: Config) {
       week: { field: "thisWeekPostCount", name: "上周" },
       month: { field: "thisMonthPostCount", name: "上月" },
       year: { field: "thisYearPostCount", name: "去年" },
-    } as const; // 使用 as const 保证类型安全
+    } as const;
 
     const { field, name: periodName } = pushPeriodConfig[period];
 
@@ -1729,14 +1729,14 @@ export async function apply(ctx: Context, config: Config) {
     // 1. 优先获取所有机器人能触及的群聊列表，并建立一个 ID -> 带平台前缀ID 的映射
     const channelIdMap = new Map<string, string>(); // key: unprefixedId, value: prefixedId
 
-    // --- 修改：增强获取逻辑，防止 Adapter 报错导致任务中断 ---
+    // --- 增强获取逻辑，防止 Adapter 报错导致任务中断 ---
     try {
       const channelListPromises = ctx.bots.map(async (bot) => {
-        if (!bot.online || !bot.getChannelList) return [];
+        if (!bot.online || !bot.getGuildList) return [];
         try {
           let next: string | undefined;
           do {
-            const result = await bot.getChannelList(next);
+            const result = await bot.getGuildList(next);
             if (!result || !result.data) {
               break;
             }
@@ -1763,7 +1763,7 @@ export async function apply(ctx: Context, config: Config) {
       logger.error("[自动推送] 获取群聊列表的主流程发生错误:", error);
     }
 
-    // --- 新增：数据库回退机制 ---
+    // --- 数据库回退机制 ---
     // 如果 API 获取失败（channelIdMap 为空或不全），补充数据库中已存在的频道
     try {
       const allRecords = await ctx.database.get("message_counter_records", {}, [
@@ -1784,7 +1784,6 @@ export async function apply(ctx: Context, config: Config) {
     } catch (dbError) {
       logger.warn("[自动推送] 读取数据库记录进行回退时出错:", dbError);
     }
-    // --- 修改结束 ---
 
     // 2. 确定需要推送的频道列表（使用 Set 自动去重）
     const targetChannels = new Set<string>();
