@@ -283,7 +283,7 @@ export const Config: Schema<Config> = Schema.intersect([
       isTextToImageConversionEnabled: Schema.boolean()
         .default(false)
         .description(
-          "是否将文本排行榜转为 Markdown 图片（依赖 `markdownToImage` 服务）。"
+          "是否将文本排行榜转为 Markdown 图片（依赖 `markdownToImage` 服务）。",
         ),
       isLeaderboardToHorizontalBarChartConversionEnabled: Schema.boolean()
         .default(false)
@@ -306,7 +306,7 @@ export const Config: Schema<Config> = Schema.intersect([
             .min(1)
             .default(1080)
             .description(
-              "渲染页面的视口宽度（像素）。此值会影响图片清晰度及背景图的展示。"
+              "渲染页面的视口宽度（像素）。此值会影响图片清晰度及背景图的展示。",
             ),
           deviceScaleFactor: Schema.number()
             .min(0.1)
@@ -314,7 +314,7 @@ export const Config: Schema<Config> = Schema.intersect([
             .step(0.1)
             .default(1)
             .description(
-              "设备像素比 (DPR)。更高的值可生成更清晰的图片（如 2 倍图），但会增加文件体积。"
+              "设备像素比 (DPR)。更高的值可生成更清晰的图片（如 2 倍图），但会增加文件体积。",
             ),
           waitUntil: Schema.union([
             "load",
@@ -324,7 +324,7 @@ export const Config: Schema<Config> = Schema.intersect([
           ])
             .default("networkidle0")
             .description(
-              "页面加载等待策略，影响图片生成速度和稳定性。`networkidle0` 最稳定。"
+              "页面加载等待策略，影响图片生成速度和稳定性。`networkidle0` 最稳定。",
             ),
         }).description("渲染与性能"),
 
@@ -332,12 +332,12 @@ export const Config: Schema<Config> = Schema.intersect([
           avatarCacheTTL: Schema.number()
             .default(86400) // 24 hours
             .description(
-              "头像缓存有效期（秒）。设置为 0 则永不刷新。过短的有效期会增加网络请求。"
+              "头像缓存有效期（秒）。设置为 0 则永不刷新。过短的有效期会增加网络请求。",
             ),
           avatarFailureCacheTTL: Schema.number()
             .default(300) // 5 minutes
             .description(
-              "头像获取失败后的重试间隔（秒）。期间将使用默认头像，避免频繁请求无效链接。"
+              "头像获取失败后的重试间隔（秒）。期间将使用默认头像，避免频繁请求无效链接。",
             ),
         }).description("缓存设置"),
 
@@ -345,12 +345,12 @@ export const Config: Schema<Config> = Schema.intersect([
           shouldMoveIconToBarEndLeft: Schema.boolean()
             .default(true)
             .description(
-              "是否将自定义图标显示在进度条的末端。关闭则显示在用户名旁。"
+              "是否将自定义图标显示在进度条的末端。关闭则显示在用户名旁。",
             ),
           showStarInChart: Schema.boolean()
             .default(true)
             .description(
-              "是否在图表中对触发指令的用户/群聊名称前添加 ★ 以高亮显示。"
+              "是否在图表中对触发指令的用户/群聊名称前添加 ★ 以高亮显示。",
             ),
           horizontalBarBackgroundOpacity: Schema.number()
             .min(0)
@@ -414,10 +414,10 @@ export const Config: Schema<Config> = Schema.intersect([
               backgroundValue: Schema.string()
                 .role("textarea", { rows: [2, 4] })
                 .default(
-                  `html {\n  background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);\n}`
+                  `html {\n  background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);\n}`,
                 )
                 .description(
-                  "自定义背景的 CSS 代码。建议使用 `html` 选择器来设置背景。"
+                  "自定义背景的 CSS 代码。建议使用 `html` 选择器来设置背景。",
                 ),
             }),
             Schema.object({}),
@@ -428,12 +428,12 @@ export const Config: Schema<Config> = Schema.intersect([
           chartTitleFont: Schema.string()
             .default(FONT_OPTIONS.TITLE)
             .description(
-              `标题字体。填写 'data/messageCounter/fonts' 目录中的字体文件名（不含后缀）。`
+              `标题字体。填写 'data/messageCounter/fonts' 目录中的字体文件名（不含后缀）。`,
             ),
           chartNicknameFont: Schema.string()
             .default(FONT_OPTIONS.NICKNAME)
             .description(
-              `昵称与计数字体。填写 'data/messageCounter/fonts' 目录中的字体文件名（不含后缀），或使用通用字体名称。`
+              `昵称与计数字体。填写 'data/messageCounter/fonts' 目录中的字体文件名（不含后缀），或使用通用字体名称。`,
             ),
         }).description("字体设置"),
       ]),
@@ -467,7 +467,7 @@ export const Config: Schema<Config> = Schema.intersect([
           dailyScheduledTimers: Schema.array(String)
             .role("table")
             .description(
-              "其他定时发送今日排行榜的时间点（24小时制，如 `08:00`）。"
+              "其他定时发送今日排行榜的时间点（24小时制，如 `08:00`）。",
             ),
         }).description("推送时机"),
 
@@ -478,12 +478,12 @@ export const Config: Schema<Config> = Schema.intersect([
           shouldSendLeaderboardNotificationsToAllChannels: Schema.boolean()
             .default(false)
             .description(
-              "是否向机器人所在的所有群聊推送（可能造成打扰，请谨慎开启）。"
+              "是否向机器人所在的所有群聊推送（可能造成打扰，请谨慎开启）。",
             ),
           excludedLeaderboardChannels: Schema.array(String)
             .role("table")
             .description(
-              "当“向所有群聊推送”开启时，此处指定的频道将不会收到推送。"
+              "当“向所有群聊推送”开启时，此处指定的频道将不会收到推送。",
             ),
         }).description("推送目标"),
 
@@ -499,13 +499,13 @@ export const Config: Schema<Config> = Schema.intersect([
             .min(0)
             .default(5)
             .description(
-              "批量推送时，每个群之间的基础发送延迟（秒），以防风控。"
+              "批量推送时，每个群之间的基础发送延迟（秒），以防风控。",
             ),
           groupPushDelayRandomizationSeconds: Schema.number()
             .min(0)
             .default(10)
             .description(
-              "在基础延迟之上，增加一个随机波动范围（秒），以模拟人工操作。"
+              "在基础延迟之上，增加一个随机波动范围（秒），以模拟人工操作。",
             ),
         }).description("推送行为"),
       ]),
@@ -686,7 +686,7 @@ export async function apply(ctx: Context, config: Config) {
     },
     {
       primary: ["channelId", "userId"],
-    }
+    },
   );
 
   ctx.model.extend(
@@ -695,7 +695,7 @@ export async function apply(ctx: Context, config: Config) {
       key: "string",
       value: "timestamp",
     },
-    { primary: "key" }
+    { primary: "key" },
   );
 
   // 限定在群组中
@@ -720,7 +720,7 @@ export async function apply(ctx: Context, config: Config) {
     if (config.autoPush) {
       if (config.shouldSendDailyLeaderboardAtMidnight) {
         const task = ctx.cron("1 0 * * *", () =>
-          generateAndPushLeaderboard("yesterday")
+          generateAndPushLeaderboard("yesterday"),
         );
         scheduledTasks.push(task);
         logger.info("[自动推送] 已设置每日 00:01 推送昨日排行榜的任务。");
@@ -731,13 +731,13 @@ export async function apply(ctx: Context, config: Config) {
           const [_, hour, minute] = match;
           const cron = `${minute} ${hour} * * *`;
           const task = ctx.cron(cron, () =>
-            generateAndPushLeaderboard("today")
+            generateAndPushLeaderboard("today"),
           );
           scheduledTasks.push(task);
           logger.info(`[自动推送] 已设置每日 ${time} 推送今日排行榜的任务。`);
         } else {
           logger.warn(
-            `[自动推送] 无效的时间格式: "${time}"，已跳过。请使用 "HH:mm" 格式。`
+            `[自动推送] 无效的时间格式: "${time}"，已跳过。请使用 "HH:mm" 格式。`,
           );
         }
       });
@@ -798,7 +798,7 @@ export async function apply(ctx: Context, config: Config) {
         await resetCounter(
           "thisWeekPostCount",
           "本周发言榜已成功置空！",
-          "weekly"
+          "weekly",
         );
       }
 
@@ -807,7 +807,7 @@ export async function apply(ctx: Context, config: Config) {
         await resetCounter(
           "thisMonthPostCount",
           "本月发言榜已成功置空！",
-          "monthly"
+          "monthly",
         );
       }
 
@@ -816,7 +816,7 @@ export async function apply(ctx: Context, config: Config) {
         await resetCounter(
           "thisYearPostCount",
           "今年发言榜已成功置空！",
-          "yearly"
+          "yearly",
         );
       }
     });
@@ -882,14 +882,14 @@ export async function apply(ctx: Context, config: Config) {
             totalPostCount: $.add(row.totalPostCount, 1),
           },
         ],
-        ["channelId", "userId"]
+        ["channelId", "userId"],
       );
     } catch (error) {
       logger.error(
         "Failed to update message count for user %s in channel %s:",
         userId,
         channelId,
-        error
+        error,
       );
     }
 
@@ -912,7 +912,9 @@ export async function apply(ctx: Context, config: Config) {
 
       try {
         const channelName =
-          sessionChannelName || (await getChannelName(bot, channelId)) || channelId;
+          sessionChannelName ||
+          (await getChannelName(bot, channelId)) ||
+          channelId;
 
         await ctx.database.upsert(
           "message_counter_records",
@@ -932,13 +934,13 @@ export async function apply(ctx: Context, config: Config) {
               totalPostCount: $.add(row.totalPostCount, 1),
             },
           ],
-          ["channelId", "userId"]
+          ["channelId", "userId"],
         );
       } catch (error) {
         logger.error(
           "Failed to update bot message count in channel %s:",
           channelId,
-          error
+          error,
         );
       }
     });
@@ -963,7 +965,7 @@ export async function apply(ctx: Context, config: Config) {
   ctx
     .command(
       "messageCounter.查询 [targetUser:text]",
-      "查询指定用户的发言次数信息"
+      "查询指定用户的发言次数信息",
     )
     .userFields(["id", "name"])
     .option("yesterday", "--yd 昨日发言")
@@ -1044,14 +1046,17 @@ export async function apply(ctx: Context, config: Config) {
 
       // 累加总数
       const accumulate = (records: MessageCounterRecord[]) =>
-        records.reduce((sums, user) => {
-          for (const key in periodMapping) {
-            sums[periodMapping[key].field] =
-              (sums[periodMapping[key].field] || 0) +
-              user[periodMapping[key].field];
-          }
-          return sums;
-        }, {} as Record<CountField, number>);
+        records.reduce(
+          (sums, user) => {
+            for (const key in periodMapping) {
+              sums[periodMapping[key].field] =
+                (sums[periodMapping[key].field] || 0) +
+                user[periodMapping[key].field];
+            }
+            return sums;
+          },
+          {} as Record<CountField, number>,
+        );
 
       const channelTotals = accumulate(channelUsers);
       const acrossTotals = accumulate(allUsers);
@@ -1060,7 +1065,7 @@ export async function apply(ctx: Context, config: Config) {
       const getRank = (
         records: MessageCounterRecord[],
         field: CountField,
-        uid: string
+        uid: string,
       ) => {
         const sorted = [...records].sort((a, b) => b[field] - a[field]);
         const index = sorted.findIndex((u) => u.userId === uid);
@@ -1070,7 +1075,7 @@ export async function apply(ctx: Context, config: Config) {
       const getAcrossRank = (
         records: MessageCounterRecord[],
         field: CountField,
-        uid: string
+        uid: string,
       ) => {
         const userTotals = records.reduce((acc, cur) => {
           acc[cur.userId] = (acc[cur.userId] || 0) + cur[field];
@@ -1084,7 +1089,7 @@ export async function apply(ctx: Context, config: Config) {
       const getAcrossCount = (
         records: MessageCounterRecord[],
         field: CountField,
-        uid: string
+        uid: string,
       ) => {
         return records
           .filter((r) => r.userId === uid)
@@ -1194,7 +1199,7 @@ export async function apply(ctx: Context, config: Config) {
 
         const counts = activeStats.map((s) => String(s.count));
         const percents = activeStats.map((s) =>
-          formatPercentage(s.count, s.total)
+          formatPercentage(s.count, s.total),
         );
 
         const maxCountWidth = Math.max(0, ...counts.map((s) => s.length));
@@ -1206,7 +1211,7 @@ export async function apply(ctx: Context, config: Config) {
           const countStr = String(row.count).padStart(maxCountWidth, " ");
           const percentStr = formatPercentage(row.count, row.total).padEnd(
             maxPercentWidth,
-            " "
+            " ",
           );
           const rankStr = row.rank ? `#${row.rank}` : "#-";
           table += `${label} ${countStr}  ${percentStr}  ${rankStr}\n`;
@@ -1293,7 +1298,7 @@ export async function apply(ctx: Context, config: Config) {
         records,
         "userId",
         whites,
-        blacks
+        blacks,
       );
 
       if (filteredRecords.length === 0) {
@@ -1321,7 +1326,7 @@ export async function apply(ctx: Context, config: Config) {
       }
 
       const sortedUsers = Object.entries(userPostCounts).sort(
-        ([, a], [, b]) => b - a
+        ([, a], [, b]) => b - a,
       );
 
       const rankingData: RankingData[] = prepareRankingData(
@@ -1329,7 +1334,7 @@ export async function apply(ctx: Context, config: Config) {
         userInfo,
         totalCount,
         number,
-        session.userId
+        session.userId,
       );
 
       return renderLeaderboard({
@@ -1394,7 +1399,7 @@ export async function apply(ctx: Context, config: Config) {
         records,
         "channelId",
         whites,
-        blacks
+        blacks,
       );
 
       if (filteredRecords.length === 0) {
@@ -1404,7 +1409,7 @@ export async function apply(ctx: Context, config: Config) {
       const { channelPostCounts, channelInfo, totalCount } =
         aggregateChannelData(filteredRecords, field);
       const sortedChannels = Object.entries(channelPostCounts).sort(
-        ([, a], [, b]) => b - a
+        ([, a], [, b]) => b - a,
       );
 
       const rankingData = prepareChannelRankingData(
@@ -1412,7 +1417,7 @@ export async function apply(ctx: Context, config: Config) {
         channelInfo,
         totalCount,
         number,
-        session.channelId
+        session.channelId,
       );
 
       return renderLeaderboard({
@@ -1426,7 +1431,7 @@ export async function apply(ctx: Context, config: Config) {
   ctx
     .command(
       "messageCounter.上传柱状条背景",
-      "上传/更新自定义的水平柱状条背景图"
+      "上传/更新自定义的水平柱状条背景图",
     )
     .action(async ({ session }) => {
       if (!session || !session.userId) {
@@ -1449,11 +1454,13 @@ export async function apply(ctx: Context, config: Config) {
           const allFiles = await fs.readdir(barBgImgsPath);
           // 查找所有以 "用户ID." 开头的文件，以匹配不同后缀名
           const userFiles = allFiles.filter((file) =>
-            file.startsWith(`${userId}.`)
+            file.startsWith(`${userId}.`),
           );
           if (userFiles.length > 0) {
             await Promise.all(
-              userFiles.map((file) => fs.unlink(path.join(barBgImgsPath, file)))
+              userFiles.map((file) =>
+                fs.unlink(path.join(barBgImgsPath, file)),
+              ),
             );
           }
         } catch (error) {
@@ -1471,7 +1478,7 @@ export async function apply(ctx: Context, config: Config) {
         }
 
         const buffer = Buffer.from(
-          await ctx.http.get(imageUrl, { responseType: "arraybuffer" })
+          await ctx.http.get(imageUrl, { responseType: "arraybuffer" }),
         );
 
         // 检查文件大小
@@ -1480,7 +1487,7 @@ export async function apply(ctx: Context, config: Config) {
           throw new Error(
             `图片文件过大（${imageSizeInMB.toFixed(2)}MB），请上传小于 ${
               config.maxBarBgSize
-            }MB 的图片。`
+            }MB 的图片。`,
           );
         }
 
@@ -1495,13 +1502,13 @@ export async function apply(ctx: Context, config: Config) {
                 image.naturalHeight > config.maxBarBgHeight)
             ) {
               throw new Error(
-                `图片尺寸（${image.naturalWidth}x${image.naturalHeight}）超出限制（最大 ${config.maxBarBgWidth}x${config.maxBarBgHeight}）。\n建议尺寸为 850x50 像素。`
+                `图片尺寸（${image.naturalWidth}x${image.naturalHeight}）超出限制（最大 ${config.maxBarBgWidth}x${config.maxBarBgHeight}）。\n建议尺寸为 850x50 像素。`,
               );
             }
           } catch (error) {
             logger.error("解析图片尺寸失败:", error);
             throw new Error(
-              "无法解析图片尺寸，请尝试使用其他标准图片格式（如 PNG, JPEG）。"
+              "无法解析图片尺寸，请尝试使用其他标准图片格式（如 PNG, JPEG）。",
             );
           }
         } else {
@@ -1558,7 +1565,7 @@ export async function apply(ctx: Context, config: Config) {
     })
     .option(
       "days",
-      "-d <days:number> 清理超过指定天数未使用的缓存文件 (默认: 30)"
+      "-d <days:number> 清理超过指定天数未使用的缓存文件 (默认: 30)",
     )
     .action(async ({ session, options }) => {
       if (!session) return;
@@ -1626,7 +1633,7 @@ export async function apply(ctx: Context, config: Config) {
       logger.warn(
         `读取字体文件 "${path.basename(filePath)}" 失败，已跳过。错误: ${
           readError.message
-        }`
+        }`,
       );
       return filePath; // 返回原始路径，让后续流程处理错误
     }
@@ -1658,15 +1665,15 @@ export async function apply(ctx: Context, config: Config) {
             // 修复后的文件不存在，现在创建它。
             logger.info(
               `检测到字体 "${path.basename(
-                filePath
-              )}" 不规范，正在创建修复版本 "${patchedFilename}"...`
+                filePath,
+              )}" 不规范，正在创建修复版本 "${patchedFilename}"...`,
             );
             const CORRECT_VERSION = 0x00010000; // 65536
             buffer.writeUInt32BE(CORRECT_VERSION, tableOffset);
             try {
               await fs.writeFile(patchedFilePath, buffer);
               logger.success(
-                `已成功创建修复后的字体文件 "${patchedFilename}"。`
+                `已成功创建修复后的字体文件 "${patchedFilename}"。`,
               );
               return patchedFilePath;
             } catch (writeError) {
@@ -1721,38 +1728,63 @@ export async function apply(ctx: Context, config: Config) {
 
     // 1. 优先获取所有机器人能触及的群聊列表，并建立一个 ID -> 带平台前缀ID 的映射
     const channelIdMap = new Map<string, string>(); // key: unprefixedId, value: prefixedId
+
+    // --- 修改：增强获取逻辑，防止 Adapter 报错导致任务中断 ---
     try {
       const channelListPromises = ctx.bots.map(async (bot) => {
         if (!bot.online || !bot.getChannelList) return [];
-        let next: string | undefined;
-        do {
-          const result = await bot.getChannelList(next);
-          if (!result || !result.data) {
-            logger.warn(
-              `[自动推送] 机器人 ${bot.platform} 获取群聊列表失败，已跳过。`
-            );
-            return [];
-          }
-          // 如果 result.data 没有 forEach 方法，可能是因为它不是数组
-          if (!Array.isArray(result.data)) {
-            logger.warn(
-              `[自动推送] 机器人 ${bot.platform} 获取的群聊列表格式不正确，已跳过。`
-            );
-            return [];
-          }
-          result.data.forEach((channel) => {
-            // 避免因多个机器人同在一个群而覆盖
-            if (!channelIdMap.has(channel.id)) {
-              channelIdMap.set(channel.id, `${bot.platform}:${channel.id}`);
+        try {
+          let next: string | undefined;
+          do {
+            const result = await bot.getChannelList(next);
+            if (!result || !result.data) {
+              break;
             }
-          });
-          next = result.next;
-        } while (next);
+            // 确保 result.data 是数组
+            if (Array.isArray(result.data)) {
+              result.data.forEach((channel) => {
+                // 避免因多个机器人同在一个群而覆盖
+                if (!channelIdMap.has(channel.id)) {
+                  channelIdMap.set(channel.id, `${bot.platform}:${channel.id}`);
+                }
+              });
+            }
+            next = result.next;
+          } while (next);
+        } catch (error) {
+          // 捕获单个 Bot 获取列表时的错误（如 OneBot 的 retcode 1400），避免炸毁整个任务
+          logger.warn(
+            `[自动推送] 机器人 ${bot.platform} 获取群聊列表失败，将尝试使用数据库记录回退: ${error.message}`,
+          );
+        }
       });
       await Promise.all(channelListPromises);
     } catch (error) {
-      logger.error("[自动推送] 获取所有群聊列表时出错，任务可能不完整:", error);
+      logger.error("[自动推送] 获取群聊列表的主流程发生错误:", error);
     }
+
+    // --- 新增：数据库回退机制 ---
+    // 如果 API 获取失败（channelIdMap 为空或不全），补充数据库中已存在的频道
+    try {
+      const allRecords = await ctx.database.get("message_counter_records", {}, [
+        "channelId",
+      ]);
+      // 使用 Set 去重
+      const dbChannelIds = new Set(allRecords.map((r) => r.channelId));
+      // 找到一个在线的 bot 用于构建 ID 前缀
+      const activeBot = ctx.bots.find((b) => b.status === 1);
+
+      for (const dbCid of dbChannelIds) {
+        if (!channelIdMap.has(dbCid) && activeBot) {
+          // 如果 map 里没有这个 ID，且有在线 bot，则手动补全
+          // 即使平台不一定匹配（多 Bot 情况），ctx.broadcast 通常也能处理或忽略错误
+          channelIdMap.set(dbCid, `${activeBot.platform}:${dbCid}`);
+        }
+      }
+    } catch (dbError) {
+      logger.warn("[自动推送] 读取数据库记录进行回退时出错:", dbError);
+    }
+    // --- 修改结束 ---
 
     // 2. 确定需要推送的频道列表（使用 Set 自动去重）
     const targetChannels = new Set<string>();
@@ -1766,9 +1798,15 @@ export async function apply(ctx: Context, config: Config) {
         // 在映射表中找到了对应的带前缀 ID
         targetChannels.add(channelIdMap.get(channelId)!);
       } else {
-        logger.warn(
-          `[自动推送] 无法在任何机器人实例中找到频道 ID: ${channelId}，已跳过。`
-        );
+        // 如果映射表没找到（且之前 DB 回退也没找到），尝试用第一个在线 Bot 强行构建
+        const activeBot = ctx.bots.find((b) => b.status === 1);
+        if (activeBot) {
+          targetChannels.add(`${activeBot.platform}:${channelId}`);
+        } else {
+          logger.warn(
+            `[自动推送] 无法处理配置的频道 ID: ${channelId}，未找到在线 Bot。`,
+          );
+        }
       }
     }
 
@@ -1782,7 +1820,9 @@ export async function apply(ctx: Context, config: Config) {
     if (excluded.size > 0) {
       for (const id of Array.from(targetChannels)) {
         // 兼容带前缀和不带前缀的排除项
-        const unprefixedId = id.slice(id.indexOf(":") + 1);
+        const separatorIdx = id.indexOf(":");
+        const unprefixedId =
+          separatorIdx !== -1 ? id.substring(separatorIdx + 1) : id;
         if (excluded.has(id) || excluded.has(unprefixedId)) {
           targetChannels.delete(id);
         }
@@ -1811,7 +1851,7 @@ export async function apply(ctx: Context, config: Config) {
 
         if (records.length === 0) {
           logger.info(
-            `[自动推送] 频道 ${prefixedChannelId} 无发言记录，跳过。`
+            `[自动推送] 频道 ${prefixedChannelId} 无发言记录，跳过。`,
           );
           continue;
         }
@@ -1842,7 +1882,7 @@ export async function apply(ctx: Context, config: Config) {
 
         if (sortedUsers.length === 0) {
           logger.info(
-            `[自动推送] 频道 ${prefixedChannelId} 在 ${periodName} 榜单上无有效数据，跳过。`
+            `[自动推送] 频道 ${prefixedChannelId} 在 ${periodName} 榜单上无有效数据，跳过。`,
           );
           continue;
         }
@@ -1851,14 +1891,17 @@ export async function apply(ctx: Context, config: Config) {
           sortedUsers,
           userInfo,
           totalCount,
-          config.defaultMaxDisplayCount
+          config.defaultMaxDisplayCount,
         );
 
         if (config.isGeneratingRankingListPromptVisible) {
-          await ctx.broadcast(
-            [prefixedChannelId],
-            `正在为本群生成${periodName}发言排行榜...`
-          );
+          // 忽略发送提示消息的错误（例如禁言导致），不中断后续发送图片
+          try {
+            await ctx.broadcast(
+              [prefixedChannelId],
+              `正在为本群生成${periodName}发言排行榜...`,
+            );
+          } catch (e) {}
           await sleep(config.leaderboardGenerationWaitTime * 1000);
         }
 
@@ -1872,7 +1915,7 @@ export async function apply(ctx: Context, config: Config) {
         await ctx.broadcast([prefixedChannelId], renderedMessage);
 
         logger.success(
-          `[自动推送] 已成功向频道 ${prefixedChannelId} 推送${periodName}排行榜。`
+          `[自动推送] 已成功向频道 ${prefixedChannelId} 推送${periodName}排行榜。`,
         );
 
         const randomDelay =
@@ -1885,7 +1928,7 @@ export async function apply(ctx: Context, config: Config) {
       } catch (error) {
         logger.error(
           `[自动推送] 向频道 ${prefixedChannelId} 推送时发生错误:`,
-          error
+          error,
         );
       }
     }
@@ -1922,7 +1965,7 @@ export async function apply(ctx: Context, config: Config) {
 
         // 找出昨日发言最多的人
         const topUser = records.sort(
-          (a, b) => b.yesterdayPostCount - a.yesterdayPostCount
+          (a, b) => b.yesterdayPostCount - a.yesterdayPostCount,
         )[0];
 
         if (!topUser) continue;
@@ -1941,7 +1984,7 @@ export async function apply(ctx: Context, config: Config) {
             // 只要有一个 bot 成功，就标记成功并停止尝试
             isMuted = true;
             logger.success(
-              `[抓龙王] Bot ${bot.selfId} 已在频道 ${channelId} 将昨日龙王 ${topUser.username} (${topUser.userId}) 禁言 ${config.detentionDuration} 天。`
+              `[抓龙王] Bot ${bot.selfId} 已在频道 ${channelId} 将昨日龙王 ${topUser.username} (${topUser.userId}) 禁言 ${config.detentionDuration} 天。`,
             );
             break; // 禁言成功，跳出循环
           } catch (e) {
@@ -1956,12 +1999,12 @@ export async function apply(ctx: Context, config: Config) {
             `根据统计，昨日发言最多的是 ${h("at", {
               id: topUser.userId,
               name: topUser.username,
-            })}，现执行禁言 ${config.detentionDuration} 天。`
+            })}，现执行禁言 ${config.detentionDuration} 天。`,
           );
         } else {
           // 如果所有机器人都尝试失败了
           logger.warn(
-            `[抓龙王] 在频道 ${channelId} 执行禁言失败。可能没有任何机器人拥有该群的管理员权限，或目标用户是管理员。`
+            `[抓龙王] 在频道 ${channelId} 执行禁言失败。可能没有任何机器人拥有该群的管理员权限，或目标用户是管理员。`,
           );
         }
       } catch (error) {
@@ -2020,7 +2063,7 @@ export async function apply(ctx: Context, config: Config) {
           { key, value: baselineDate },
         ]);
         logger.info(
-          `已为 '${period}' 周期初始化重置状态，基准时间：${baselineDate.toISOString()}`
+          `已为 '${period}' 周期初始化重置状态，基准时间：${baselineDate.toISOString()}`,
         );
       }
     }
@@ -2122,7 +2165,7 @@ export async function apply(ctx: Context, config: Config) {
   async function resetCounter(
     field: CountField,
     message: string,
-    period: PeriodIdentifier
+    period: PeriodIdentifier,
   ) {
     // 当重置“今日”发言时，首先把“今日”的数据备份到“昨日”
     if (field === "todayPostCount") {
@@ -2233,7 +2276,7 @@ export async function apply(ctx: Context, config: Config) {
     } catch (error) {
       logger.warn(
         `获取或处理头像失败 (URL: ${url})，将使用默认头像并缓存失败状态:`,
-        error.message || error
+        error.message || error,
       );
       // 如果获取或处理失败，finalBase64 保持为 fallbackBase64
     }
@@ -2251,7 +2294,7 @@ export async function apply(ctx: Context, config: Config) {
     } catch (cacheError) {
       logger.error(
         `无法写入头像缓存文件 (Path: ${cacheFilePath}):`,
-        cacheError
+        cacheError,
       );
     }
 
@@ -2343,7 +2386,7 @@ export async function apply(ctx: Context, config: Config) {
     sourceDir: string,
     destDir: string,
     filename: string,
-    assetSubDir: string = "" // 用于处理打包后资源路径的变化
+    assetSubDir: string = "", // 用于处理打包后资源路径的变化
   ) {
     const destPath = path.join(destDir, filename);
     try {
@@ -2414,7 +2457,7 @@ export async function apply(ctx: Context, config: Config) {
 
   /** 缓存加载函数 */
   async function loadAssetsFromFolder(
-    folderPath: string
+    folderPath: string,
   ): Promise<AssetData[]> {
     const assetData: AssetData[] = [];
     try {
@@ -2440,7 +2483,7 @@ export async function apply(ctx: Context, config: Config) {
   /** 聚合群组数据 */
   function aggregateChannelData(
     records: MessageCounterRecord[],
-    field: CountField
+    field: CountField,
   ) {
     const channelPostCounts: Dict<number> = {};
     const channelInfo: Dict<{ channelName: string }> = {};
@@ -2466,7 +2509,7 @@ export async function apply(ctx: Context, config: Config) {
     channelInfo: Dict<{ channelName: string }>,
     totalCount: number,
     limit: number,
-    currentChannelId?: string
+    currentChannelId?: string,
   ): RankingData[] {
     const topChannels = sortedChannels.slice(0, limit);
     const isCurrentInTop =
@@ -2476,7 +2519,7 @@ export async function apply(ctx: Context, config: Config) {
     // 如果当前群聊不在榜单上，则找到它的数据并直接追加到末尾
     if (currentChannelId && !isCurrentInTop) {
       const currentChannelData = sortedChannels.find(
-        ([channelId]) => channelId === currentChannelId
+        ([channelId]) => channelId === currentChannelId,
       );
       if (currentChannelData) {
         topChannels.push(currentChannelData);
@@ -2555,7 +2598,7 @@ export async function apply(ctx: Context, config: Config) {
               typeof response === "string" ? response : response?.url;
             if (!imageUrl || typeof imageUrl !== "string") {
               throw new Error(
-                'API response for "url" type is not a valid string.'
+                'API response for "url" type is not a valid string.',
               );
             }
             backgroundImage = `url('${imageUrl}')`;
@@ -2569,7 +2612,7 @@ export async function apply(ctx: Context, config: Config) {
               typeof response === "string" ? response : response?.data;
             if (!base64Data || typeof base64Data !== "string") {
               throw new Error(
-                'API response for "base64" type is not a valid string.'
+                'API response for "base64" type is not a valid string.',
               );
             }
             // 自动检测并添加 data URI scheme
@@ -3055,7 +3098,7 @@ export async function apply(ctx: Context, config: Config) {
       barBgImgCache: AssetData[];
       fontFilesCache: string[];
       emptyHtmlPath: string;
-    }
+    },
   ): Promise<Buffer> {
     if (!ctx.puppeteer) {
       throw new Error("Puppeteer 服务未启用，无法生成图表。");
@@ -3113,7 +3156,7 @@ export async function apply(ctx: Context, config: Config) {
 
       const calculatedWidth = await page.evaluate(() => {
         const canvas = document.getElementById(
-          "rankingCanvas"
+          "rankingCanvas",
         ) as HTMLCanvasElement | null;
         const bodyPadding = 40; // 对应 body 的左右 padding (20px + 20px)
         // 如果 canvas 存在，则返回其宽度加上页面的 padding；否则返回一个默认值。
@@ -3151,7 +3194,7 @@ export async function apply(ctx: Context, config: Config) {
       | "thisMonthPostCount"
       | "thisYearPostCount"
       | "totalPostCount"
-      | "yesterdayPostCount"
+      | "yesterdayPostCount",
   ):
     | {
         acrossRank: number;
@@ -3203,11 +3246,11 @@ export async function apply(ctx: Context, config: Config) {
     }, {});
 
     const sortedUserRecords = Object.values(aggregatedUserRecords).sort(
-      (a, b) => b.postCountAll - a.postCountAll
+      (a, b) => b.postCountAll - a.postCountAll,
     );
 
     const userIndex = sortedUserRecords.findIndex(
-      (user) => user.userId === userId
+      (user) => user.userId === userId,
     );
     const userRecord = sortedUserRecords[userIndex];
     const acrossRank = userIndex + 1;
@@ -3216,7 +3259,7 @@ export async function apply(ctx: Context, config: Config) {
   }
 
   function getSortedDragons(
-    records: MessageCounterRecord[]
+    records: MessageCounterRecord[],
   ): [string, number][] {
     const dragonsMap: { [userId: string]: number } = {};
     for (const dragon of records) {
@@ -3245,9 +3288,13 @@ export async function apply(ctx: Context, config: Config) {
           ) {
             const channelMember = await session.bot.getChannelMember(
               session.channelId,
-              userId
+              userId,
             );
-            if (channelMember && channelMember.user && channelMember.user.name) {
+            if (
+              channelMember &&
+              channelMember.user &&
+              channelMember.user.name
+            ) {
               userName = channelMember.user.name;
             }
           }
@@ -3265,7 +3312,7 @@ export async function apply(ctx: Context, config: Config) {
 
   async function getChannelName(
     bot: Bot,
-    channelId: string
+    channelId: string,
   ): Promise<string | undefined> {
     try {
       const channel = await bot.getChannel(channelId);
@@ -3293,7 +3340,7 @@ export async function apply(ctx: Context, config: Config) {
 
   function isAcrossChannel(options: any): boolean {
     return ["ydag", "dag", "wag", "mag", "yag", "across", "dragon"].some(
-      (opt) => options?.[opt]
+      (opt) => options?.[opt],
     );
   }
 
@@ -3301,7 +3348,7 @@ export async function apply(ctx: Context, config: Config) {
     records: MessageCounterRecord[],
     key: "userId" | "channelId",
     whites: string[],
-    blacks: string[]
+    blacks: string[],
   ): MessageCounterRecord[] {
     let result = records;
     if (whites.length > 0) {
@@ -3318,7 +3365,7 @@ export async function apply(ctx: Context, config: Config) {
     userInfo: Dict<{ username: string; avatar: string }>,
     totalCount: number,
     limit: number,
-    requesterId?: string
+    requesterId?: string,
   ): RankingData[] {
     const topUsers = sortedUsers.slice(0, limit);
     const isRequesterInTop =
@@ -3327,7 +3374,7 @@ export async function apply(ctx: Context, config: Config) {
     // 如果指令发送者不在榜单上，则找到他的数据并直接追加到末尾
     if (requesterId && !isRequesterInTop) {
       const requesterData = sortedUsers.find(
-        ([userId]) => userId === requesterId
+        ([userId]) => userId === requesterId,
       );
       if (requesterData) {
         topUsers.push(requesterData);
@@ -3381,12 +3428,12 @@ export async function apply(ctx: Context, config: Config) {
           await Promise.all(
             chartReadyData.map(async (item) => {
               item.avatarBase64 = await getAvatarAsBase64(item.avatar);
-            })
+            }),
           );
 
           const imageBuffer = await generateRankingChart(
             { rankTimeTitle, rankTitle, data: chartReadyData },
-            { iconCache, barBgImgCache, fontFilesCache, emptyHtmlPath }
+            { iconCache, barBgImgCache, fontFilesCache, emptyHtmlPath },
           );
           return h.image(imageBuffer, `image/${config.imageType}`);
         } catch (error) {
@@ -3399,14 +3446,14 @@ export async function apply(ctx: Context, config: Config) {
     if (config.isTextToImageConversionEnabled) {
       if (!ctx.markdownToImage) {
         logger.warn(
-          "markdownToImage service is not enabled. Falling back to text."
+          "markdownToImage service is not enabled. Falling back to text.",
         );
       } else {
         const markdown = formatLeaderboardAsMarkdown(
           rankTimeTitle,
           rankTitle,
           rankingData,
-          config.isUserMessagePercentageVisible
+          config.isUserMessagePercentageVisible,
         );
         const imageBuffer = await ctx.markdownToImage.convertToImage(markdown);
         return h.image(imageBuffer, `image/${config.imageType}`);
@@ -3418,7 +3465,7 @@ export async function apply(ctx: Context, config: Config) {
       rankTimeTitle,
       rankTitle,
       rankingData,
-      config.isUserMessagePercentageVisible
+      config.isUserMessagePercentageVisible,
     );
   }
 
@@ -3426,7 +3473,7 @@ export async function apply(ctx: Context, config: Config) {
     title: string,
     subtitle: string,
     data: RankingData[],
-    showPercentage: boolean
+    showPercentage: boolean,
   ): string {
     let result = `# ${title}\n## ${subtitle}\n\n`;
     data.forEach((item, index) => {
@@ -3444,7 +3491,7 @@ export async function apply(ctx: Context, config: Config) {
     title: string,
     subtitle: string,
     data: RankingData[],
-    showPercentage: boolean
+    showPercentage: boolean,
   ): string {
     let result = `${title}\n${subtitle}\n\n`;
     data.forEach((item, index) => {
