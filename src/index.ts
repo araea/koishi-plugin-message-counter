@@ -8,7 +8,8 @@ import * as fs from "fs/promises";
 import { constants as fsConstants } from "fs";
 import * as crypto from "crypto";
 
-import fallbackBase64 from "./assets/fallbackBase64.json";
+const assetsDir = path.resolve(__dirname, "..", "assets");
+let fallbackBase64: string[] = [""];
 
 export const name = "message-counter";
 export const inject = {
@@ -654,11 +655,25 @@ export async function apply(ctx: Context, config: Config) {
     logger.info(`已创建空的渲染模板文件: emptyHtml.html`);
   }
 
+  // 加载内置回退头像 base64
+  try {
+    const fallbackJson = await fs.readFile(
+      path.join(assetsDir, "fallbackBase64.json"),
+      "utf-8",
+    );
+    fallbackBase64 = JSON.parse(fallbackJson);
+  } catch (error) {
+    logger.warn("无法加载 fallbackBase64.json，将使用空的回退头像。", error);
+  }
+
   // 拷贝内置字体
   const fontFiles = ["HarmonyOS_Sans_Medium.ttf"];
   for (const fontFile of fontFiles) {
-    // 假设字体文件在打包后的 assets/fonts 目录
-    await copyAssetIfNotExists(__dirname, fontsPath, fontFile, "assets/fonts");
+    await copyAssetIfNotExists(
+      path.join(assetsDir, "fonts"),
+      fontsPath,
+      fontFile,
+    );
   }
 
   // 缓存
@@ -1727,7 +1742,21 @@ export async function apply(ctx: Context, config: Config) {
     const rankTimeTitle = getCurrentBeijingTime();
 
     // 1. 优先获取所有机器人能触及的群聊列表，并建立一个 ID -> 带平台前缀ID 的映射
-    const channelIdMap = new Map<string, string>(); // key: unprefixedId, value: prefixedId
+    // guildChannelIdMap 仅包含真实的群聊（来自 bot.getGuildList），用于“推送到所有群”
+    // lookupChannelIdMap 在 guild 基础上叠加数据库记录，仅用于解析配置中指定的频道 ID
+    const guildChannelIdMap = new Map<string, string>();
+    const lookupChannelIdMap = new Map<string, string>();
+
+    // 判断是否为私聊频道（Koishi 约定的私聊 channelId 形如 "private:..."）
+    const isDirectChannelId = (id: string) => {
+      const sepIdx = id.indexOf(":");
+      const unprefixed = sepIdx !== -1 ? id.substring(sepIdx + 1) : id;
+      return (
+        id.startsWith("private:") ||
+        unprefixed.startsWith("private:") ||
+        unprefixed.startsWith("private_")
+      );
+    };
 
     // --- 增强获取逻辑，防止 Adapter 报错导致任务中断 ---
     try {
@@ -1743,9 +1772,13 @@ export async function apply(ctx: Context, config: Config) {
             // 确保 result.data 是数组
             if (Array.isArray(result.data)) {
               result.data.forEach((channel) => {
+                // 跳过私聊目标，避免误将私聊用户当作群聊推送
+                if (isDirectChannelId(channel.id)) return;
                 // 避免因多个机器人同在一个群而覆盖
-                if (!channelIdMap.has(channel.id)) {
-                  channelIdMap.set(channel.id, `${bot.platform}:${channel.id}`);
+                if (!guildChannelIdMap.has(channel.id)) {
+                  const prefixed = `${bot.platform}:${channel.id}`;
+                  guildChannelIdMap.set(channel.id, prefixed);
+                  lookupChannelIdMap.set(channel.id, prefixed);
                 }
               });
             }
@@ -1764,21 +1797,18 @@ export async function apply(ctx: Context, config: Config) {
     }
 
     // --- 数据库回退机制 ---
-    // 如果 API 获取失败（channelIdMap 为空或不全），补充数据库中已存在的频道
+    // 仅用于解析配置中显式指定的 pushChannelIds，不会污染“推送到所有群”的目标列表
     try {
       const allRecords = await ctx.database.get("message_counter_records", {}, [
         "channelId",
       ]);
-      // 使用 Set 去重
       const dbChannelIds = new Set(allRecords.map((r) => r.channelId));
-      // 找到一个在线的 bot 用于构建 ID 前缀
       const activeBot = ctx.bots.find((b) => b.status === 1);
 
       for (const dbCid of dbChannelIds) {
-        if (!channelIdMap.has(dbCid) && activeBot) {
-          // 如果 map 里没有这个 ID，且有在线 bot，则手动补全
-          // 即使平台不一定匹配（多 Bot 情况），ctx.broadcast 通常也能处理或忽略错误
-          channelIdMap.set(dbCid, `${activeBot.platform}:${dbCid}`);
+        if (isDirectChannelId(dbCid)) continue;
+        if (!lookupChannelIdMap.has(dbCid) && activeBot) {
+          lookupChannelIdMap.set(dbCid, `${activeBot.platform}:${dbCid}`);
         }
       }
     } catch (dbError) {
@@ -1793,9 +1823,9 @@ export async function apply(ctx: Context, config: Config) {
       if (channelId.includes(":")) {
         // 本身就是带前缀的 ID
         targetChannels.add(channelId);
-      } else if (channelIdMap.has(channelId)) {
+      } else if (lookupChannelIdMap.has(channelId)) {
         // 在映射表中找到了对应的带前缀 ID
-        targetChannels.add(channelIdMap.get(channelId)!);
+        targetChannels.add(lookupChannelIdMap.get(channelId)!);
       } else {
         // 如果映射表没找到（且之前 DB 回退也没找到），尝试用第一个在线 Bot 强行构建
         const activeBot = ctx.bots.find((b) => b.status === 1);
@@ -1809,9 +1839,9 @@ export async function apply(ctx: Context, config: Config) {
       }
     }
 
-    // 2.2 如果开启了“向所有群聊推送”，则添加所有已知的频道
+    // 2.2 如果开启了“向所有群聊推送”，仅添加来自 getGuildList 的真实群聊，避免私聊误推
     if (config.shouldSendLeaderboardNotificationsToAllChannels) {
-      channelIdMap.forEach((prefixedId) => targetChannels.add(prefixedId));
+      guildChannelIdMap.forEach((prefixedId) => targetChannels.add(prefixedId));
     }
 
     // 2.3 应用排除列表
@@ -2385,26 +2415,18 @@ export async function apply(ctx: Context, config: Config) {
     sourceDir: string,
     destDir: string,
     filename: string,
-    assetSubDir: string = "", // 用于处理打包后资源路径的变化
   ) {
     const destPath = path.join(destDir, filename);
     try {
       // 仅当目标文件不存在时才拷贝
       await fs.access(destPath, fsConstants.F_OK);
     } catch {
-      // 目标文件不存在，开始拷贝
-      let sourcePath = path.join(sourceDir, assetSubDir, filename);
+      const sourcePath = path.join(sourceDir, filename);
       try {
         await fs.access(sourcePath, fsConstants.F_OK);
       } catch {
-        // 如果在 assetSubDir 找不到，尝试在根目录找
-        sourcePath = path.join(sourceDir, filename);
-        try {
-          await fs.access(sourcePath, fsConstants.F_OK);
-        } catch {
-          logger.warn(`插件资源文件未找到，无法拷贝: ${filename}`);
-          return;
-        }
+        logger.warn(`插件资源文件未找到，无法拷贝: ${filename}`);
+        return;
       }
       await fs.copyFile(sourcePath, destPath);
       logger.info(`已拷贝资源文件 ${filename} 到 ${destDir}`);

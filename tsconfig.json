@@ -17,5 +17,5 @@
     "types": ["node", "yml-register/types"],
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src", "src/assets/fallbackBase64.json"]
+  "include": ["src"]
 }
