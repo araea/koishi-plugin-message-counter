@@ -138,6 +138,8 @@ export interface Config {
   // --- 核心功能 ---
   /** 是否统计 Bot 自己发送的消息。 */
   isBotMessageTrackingEnabled: boolean;
+  /** 是否启用跨机器人消息去重（同一群多个机器人时防止重复计数）。 */
+  enableCrossBotDeduplication: boolean;
 
   // --- 排行榜设置 ---
   /** 排行榜默认显示的人数。 */
@@ -256,6 +258,11 @@ export const Config: Schema<Config> = Schema.intersect([
     isBotMessageTrackingEnabled: Schema.boolean()
       .default(false)
       .description("是否统计 Bot 自己发送的消息。"),
+    enableCrossBotDeduplication: Schema.boolean()
+      .default(true)
+      .description(
+        "是否启用跨机器人消息去重。当同一个群内接入了多个机器人账号时，开启此项可避免同一条消息被重复计数。",
+      ),
   }).description("核心功能"),
 
   // --- 排行榜设置 ---
@@ -609,6 +616,33 @@ type CountField =
   | "thisYearPostCount"
   | "totalPostCount";
 
+/**
+ * 清洗待入库的文本（如用户名、频道名），移除可能破坏数据库驱动的非法字符。
+ *
+ * 某些平台昵称中可能混入空字节、控制字符或不成对的代理字符（乱码 / 富文本），
+ * 这些非法内容会导致 PostgreSQL 等数据库驱动报 "invalid message format" 错误。
+ * 此函数会：
+ *  - 移除空字节（NUL）与 C0/C1 控制字符；
+ *  - 移除不成对的 UTF-16 代理字符（保留正常的 emoji 等成对代理）；
+ *  - 去除首尾空白。
+ *
+ * @param text 原始文本
+ * @returns 清洗后的安全文本
+ */
+function sanitizeText(text: string | undefined | null): string {
+  if (typeof text !== "string") return text ?? "";
+  return (
+    text
+      // 移除空字节及 C0/C1 控制字符（换行、制表符等一并清除，避免破坏消息格式）
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+      // 移除高位代理但后面没有跟随低位代理的情况
+      .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
+      // 移除低位代理但前面没有高位代理的情况
+      .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "")
+      .trim()
+  );
+}
+
 const periodMapping: Record<PeriodKey, { field: CountField; name: string }> = {
   today: { field: "todayPostCount", name: "今日" },
   yesterday: { field: "yesterdayPostCount", name: "昨日" },
@@ -681,6 +715,20 @@ export async function apply(ctx: Context, config: Config) {
   let iconCache: AssetData[] = [];
   let barBgImgCache: AssetData[] = [];
   let fontFilesCache: string[] = []; // 字体文件缓存
+
+  // 跨机器人消息去重缓存：dedupKey -> 过期时间戳（毫秒）
+  // 同一群接入多个机器人时，同一条消息会被每个机器人各触发一次中间件，
+  // 通过缓存消息唯一标识在短时间窗口内去重，避免重复计数。
+  const processedMessages = new Map<string, number>();
+  const MESSAGE_DEDUP_TTL = 60 * 1000; // 去重记录的有效期（60 秒）
+
+  // 定期清理过期的去重记录，防止内存无限增长（ctx.setInterval 会在插件卸载时自动清理）
+  ctx.setInterval(() => {
+    const now = Date.now();
+    for (const [key, expiry] of processedMessages) {
+      if (expiry <= now) processedMessages.delete(key);
+    }
+  }, MESSAGE_DEDUP_TTL);
 
   // --- 数据库表定义 ---
   ctx.model.extend(
@@ -870,14 +918,26 @@ export async function apply(ctx: Context, config: Config) {
     session[PROCESSED] = true;
 
     const { userId, channelId, author } = session;
+
+    // 跨机器人去重：同一群接入多个机器人时，同一条消息会被每个机器人各触发一次。
+    // 以「平台:频道:消息ID」为唯一键，在短时间窗口内只统计一次，避免重复计数。
+    if (config.enableCrossBotDeduplication && session.messageId) {
+      const dedupKey = `${session.platform}:${channelId}:${session.messageId}`;
+      if (processedMessages.has(dedupKey)) {
+        return next();
+      }
+      processedMessages.set(dedupKey, Date.now() + MESSAGE_DEDUP_TTL);
+    }
+
     let sessionChannelName = session.event.channel.name;
-    const username = author?.nick || author?.name || userId;
+    const username = sanitizeText(author?.nick || author?.name) || userId;
     const userAvatar = author?.avatar;
 
     try {
-      const channelName =
+      const channelName = sanitizeText(
         sessionChannelName ||
-        (channelId ? await getChannelName(session.bot, channelId) : channelId);
+          (channelId ? await getChannelName(session.bot, channelId) : channelId),
+      );
 
       await ctx.database.upsert(
         "message_counter_records",
@@ -926,10 +986,11 @@ export async function apply(ctx: Context, config: Config) {
       }
 
       try {
-        const channelName =
+        const channelName = sanitizeText(
           sessionChannelName ||
-          (await getChannelName(bot, channelId)) ||
-          channelId;
+            (await getChannelName(bot, channelId)) ||
+            channelId,
+        );
 
         await ctx.database.upsert(
           "message_counter_records",
@@ -938,7 +999,7 @@ export async function apply(ctx: Context, config: Config) {
               channelId,
               userId: botUser.id,
 
-              username: botUser.name,
+              username: sanitizeText(botUser.name) || botUser.id,
               userAvatar: botUser.avatar,
               channelName: channelName || row.channelName,
 
