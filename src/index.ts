@@ -2642,14 +2642,44 @@ export async function apply(ctx: Context, config: Config) {
         width: 100%;
         min-height: 100%;
         box-sizing: border-box;
+        -webkit-font-smoothing: antialiased;
       }
 
-    .ranking-title {
-      text-align: center;
-      margin-bottom: 20px;
-      color: #333;
-      font-style: normal;
-    }
+      /* 页眉：标题为主，统计时间退居其次 */
+      .ranking-header {
+        text-align: center;
+        margin: 6px 0 22px;
+      }
+
+      .ranking-title {
+        margin: 0;
+        font-size: 32px;
+        font-weight: 600;
+        line-height: 1.3;
+        letter-spacing: 0.01em;
+        color: #2c333c;
+        font-style: normal;
+      }
+
+      /* 标题下的一小段细线，收住整个页眉 */
+      .ranking-rule {
+        width: 52px;
+        height: 2px;
+        margin: 12px auto 10px;
+        border-radius: 2px;
+        background: rgba(44, 51, 60, 0.28);
+      }
+
+      .ranking-time {
+        font-size: 14px;
+        line-height: 1;
+        letter-spacing: 0.04em;
+        color: #8b95a1;
+      }
+
+      #rankingCanvas {
+        display: block;
+      }
 
       /* 预加载字体用，不显示 */
       .font-preload {
@@ -2747,6 +2777,14 @@ export async function apply(ctx: Context, config: Config) {
     // 使用 IIFE (async (...) => { ... }) 格式，以便在 HTML 中清晰地传递参数。
     return `
       async ({ rankingData, iconData, barBgImgs, config }) => {
+        // 位图按 SCALE 倍绘制、CSS 尺寸保持逻辑像素，文字与边缘因此始终锐利
+        const SCALE = 2;
+        const NICK_SIZE = 30;   // 昵称与发言数字号
+        const PCT_SIZE = 20;    // 占比字号（比发言数小一号，降低存在感）
+        const PCT_GAP = 9;      // 发言数与占比之间的间距
+        const INK = '#2c333c';  // 正文墨色，比纯黑柔和
+        const FAMILY = '"' + config.chartNicknameFont + '", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif';
+
         // --- 主绘制函数 ---
         async function drawRanking() {
           const maxCount = rankingData.reduce((max, item) => Math.max(max, item.count), 0) || 1;
@@ -2758,38 +2796,64 @@ export async function apply(ctx: Context, config: Config) {
           const canvas = document.getElementById('rankingCanvas');
           let context = canvas.getContext('2d');
 
-          // 根据最大计数的文本宽度动态调整画布宽度，以防数字溢出
-          context.font = \`30px "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
-          // 找到拥有最大发言数的条目，因为它的文本通常最长
-          const maxCountData = rankingData.find(d => d.count === maxCount) || rankingData[0] || { count: 1, percentage: 0 };
-          let maxCountText = maxCount.toString();
-          if (config.isUserMessagePercentageVisible && maxCountData) {
-              const percentage = maxCountData.percentage;
-              let percentageStr = percentage < 0.01 && percentage > 0 ? '<0.01' : percentage.toFixed(percentage < 1 ? 2 : 0);
-              maxCountText += \` ( \${percentageStr}%)\`;
+          // 根据最长的一行文本动态调整画布宽度，以防数字溢出
+          let maxCountTextWidth = 0;
+          for (const data of rankingData) {
+            maxCountTextWidth = Math.max(maxCountTextWidth, measureCountText(context, data));
           }
-          const maxCountTextWidth = context.measureText(maxCountText).width;
 
           // 最长进度条的宽度是固定的
           const maxBarWidth = 150 + 700; // 进度条区域总宽度
 
           // 计算最终画布宽度：头像(50) + 进度条(850) + 文本与进度条间距(10) + 文本宽度 + 右侧留白(20)
           // 头像左侧的空白由页面 body 的 padding 提供
-          canvas.width = 50 + maxBarWidth + 10 + maxCountTextWidth + 20;
-          canvas.height = canvasHeight;
+          const width = Math.ceil(50 + maxBarWidth + 10 + maxCountTextWidth + 20);
+          canvas.width = width * SCALE;
+          canvas.height = canvasHeight * SCALE;
+          canvas.style.width = width + 'px';
+          canvas.style.height = canvasHeight + 'px';
 
           // 重新获取上下文，因为尺寸变化会重置状态
           context = canvas.getContext('2d');
+          context.scale(SCALE, SCALE);
+          context.textBaseline = 'middle';
 
-          // 按顺序绘制图层
-          await drawRankingBars(context, maxCount, userAvatarSize, tableWidth); // 传递动态的 canvas.width
+          // 按顺序绘制图层：色块 → 分隔线与刻度 → 头像 → 文字
+          // （刻度线压在文字下方，文字才不会被切断）
+          const rows = await drawRankingBars(context, maxCount, userAvatarSize, tableWidth);
+          drawRowSeparators(context, userNum, userAvatarSize, tableWidth);
+          drawVerticalLines(context, canvasHeight, tableWidth);
           await drawAvatars(context, userAvatarSize);
-          drawVerticalLines(context, canvas.height, tableWidth); // 竖线仍然可以按旧的固定宽度绘制，不影响主体
+          for (const row of rows) {
+            await drawTextAndIcons(context, row.data, row.index, row.avgColor, row.barX, row.barY, row.barWidth, userAvatarSize, width);
+          }
+
+          return { width: width, height: canvasHeight };
+        }
+
+        // 一行右侧文本（发言数 + 占比）的整体宽度
+        function measureCountText(context, data) {
+          context.font = NICK_SIZE + 'px ' + FAMILY;
+          let total = context.measureText(data.count.toString()).width;
+          if (config.isUserMessagePercentageVisible) {
+            context.font = PCT_SIZE + 'px ' + FAMILY;
+            total += PCT_GAP + context.measureText(formatPercent(data.percentage)).width;
+          }
+          return total;
+        }
+
+        function formatPercent(percentage) {
+          const value = Number(percentage) || 0;
+          if (value > 0 && value < 0.01) return '<0.01%';
+          if (value < 1) return value.toFixed(2) + '%';
+          if (value < 10) return value.toFixed(1) + '%';
+          return Math.round(value) + '%';
         }
 
         // --- 核心绘图逻辑 ---
 
         async function drawRankingBars(context, maxCount, userAvatarSize, canvasWidth) { // 接收 canvasWidth
+          const rows = [];
           for (const [index, data] of rankingData.entries()) {
             const countBarWidth = 150 + (700 * data.count) / maxCount;
             const countBarX = 50; // 头像宽度
@@ -2815,8 +2879,20 @@ export async function apply(ctx: Context, config: Config) {
             context.fillStyle = colorWithOpacity;
             context.fillRect(remainingBarX, countBarY, canvasWidth - remainingBarX, userAvatarSize);
 
-            // 绘制文本和图标
-            await drawTextAndIcons(context, data, index, avgColor, countBarX, countBarY, countBarWidth, userAvatarSize);
+            // 进度条末端一道竖线，让色块的分界更利落
+            context.fillStyle = 'rgba(255, 255, 255, 0.34)';
+            context.fillRect(remainingBarX - 1, countBarY, 1, userAvatarSize);
+
+            rows.push({ data, index, avgColor, barX: countBarX, barY: countBarY, barWidth: countBarWidth });
+          }
+          return rows;
+        }
+
+        // 行与行之间的发丝线，避免相邻色块糊成一片
+        function drawRowSeparators(context, userNum, userAvatarSize, tableWidth) {
+          context.fillStyle = 'rgba(255, 255, 255, 0.3)';
+          for (let i = 1; i < userNum; i++) {
+            context.fillRect(0, userAvatarSize * i, tableWidth, 1);
           }
         }
 
@@ -2845,41 +2921,59 @@ export async function apply(ctx: Context, config: Config) {
             });
         }
 
-        async function drawTextAndIcons(context, data, index, avgColor, barX, barY, barWidth, barHeight) {
+        async function drawTextAndIcons(context, data, index, avgColor, barX, barY, barWidth, barHeight, canvasWidth) {
             // 字体栈包含了用户选择的字体、插件内置字体和通用字体，以确保兼容性。
-            context.font = \`30px "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
-            const textY = barY + barHeight / 2 + 10.5;
+            const textY = barY + barHeight / 2 + 1;
+            const contrastColor = chooseColorAdjustmentMethod(avgColor);
 
-
-            // 绘制发言次数和百分比
-            let countText = data.count.toString();
-            if (config.isUserMessagePercentageVisible) {
-                const percentage = data.percentage;
-                let percentageStr = percentage < 0.01 && percentage > 0 ? '<0.01' : percentage.toFixed(percentage < 1 ? 2 : 0);
-                countText += \` ( \${percentageStr}%)\`;
-            }
-
-            const countTextWidth = context.measureText(countText).width;
+            // 绘制发言次数与占比：占比不加括号，只用更小的字号和更淡的颜色，
+            // 让视线先落在次数上，占比作为补充信息存在。
+            const countText = data.count.toString();
+            const percentText = config.isUserMessagePercentageVisible ? formatPercent(data.percentage) : '';
+            context.font = NICK_SIZE + 'px ' + FAMILY;
+            const countWidth = context.measureText(countText).width;
             const countTextX = barX + barWidth + 10;
+            const totalWidth = measureCountText(context, data);
+            const insideBar = countTextX + totalWidth > canvasWidth - 20;
 
-            if (countTextX + countTextWidth > context.canvas.width - 5) {
-                context.fillStyle = chooseColorAdjustmentMethod(avgColor);
-                context.textAlign = "right";
-                context.fillText(countText, barX + barWidth - 10, textY);
+            context.textAlign = "left";
+            if (insideBar) {
+                // 条太长，数字放不下了：改为压在条内右端，用对比色书写
+                const startX = barX + barWidth - 10 - totalWidth;
+                context.font = NICK_SIZE + 'px ' + FAMILY;
+                context.fillStyle = contrastColor;
+                context.fillText(countText, startX, textY);
+                if (percentText) {
+                    context.font = PCT_SIZE + 'px ' + FAMILY;
+                    context.globalAlpha = 0.62;
+                    context.fillText(percentText, startX + countWidth + PCT_GAP, textY);
+                    context.globalAlpha = 1;
+                }
             } else {
-                context.fillStyle = "rgba(0, 0, 0, 1)";
-                context.textAlign = "left";
+                context.font = NICK_SIZE + 'px ' + FAMILY;
+                context.fillStyle = INK;
                 context.fillText(countText, countTextX, textY);
+                if (percentText) {
+                    context.font = PCT_SIZE + 'px ' + FAMILY;
+                    context.fillStyle = "rgba(0, 0, 0, 0.4)";
+                    context.fillText(percentText, countTextX + countWidth + PCT_GAP, textY);
+                }
             }
 
             // 绘制用户名（带截断）
-            context.fillStyle = chooseColorAdjustmentMethod(avgColor);
+            const userIcons = findAssets(data.userId, iconData, 'iconBase64');
+            context.font = NICK_SIZE + 'px ' + FAMILY;
+            context.fillStyle = contrastColor;
             context.textAlign = "left"; // 重置对齐方式，以防被上一部分修改
 
             let nameText = data.name;
-            const maxNameWidth = barWidth - 60;
+            // 只在真的有图标时才为图标留出位置，没有图标的行可以多显示几个字
+            const iconReserve = userIcons.length > 0
+                ? (config.shouldMoveIconToBarEndLeft ? userIcons.length * 40 + 10 : 45)
+                : 0;
+            const maxNameWidth = barWidth - 20 - iconReserve;
             if (context.measureText(nameText).width > maxNameWidth) {
-                const ellipsis = "...";
+                const ellipsis = "…";
                 while (context.measureText(nameText + ellipsis).width > maxNameWidth && nameText.length > 0) {
                     nameText = nameText.slice(0, -1);
                 }
@@ -2889,7 +2983,6 @@ export async function apply(ctx: Context, config: Config) {
             context.fillText(nameText, nameTextX, textY);
 
             // 绘制用户自定义图标
-            const userIcons = findAssets(data.userId, iconData, 'iconBase64');
             if (userIcons.length > 0) {
                 await drawUserIcons(context, userIcons, {
                     nameText: data.name, // 传递原始nameText用于计算位置
@@ -2911,7 +3004,7 @@ export async function apply(ctx: Context, config: Config) {
                     icon.src = "data:image/png;base64," + iconBase64;
                     icon.onload = () => {
                         const iconSize = 40;
-                        const iconY = textY - 30;
+                        const iconY = textY - iconSize / 2 - 1; // 与文字保持同一条中线
                         let iconX = config.shouldMoveIconToBarEndLeft
                             ? barX + barWidth - (iconSize * (i + 1))
                             : nameTextX + (iconSize * i) + 5;
@@ -2941,8 +3034,9 @@ export async function apply(ctx: Context, config: Config) {
         }
 
         function drawVerticalLines(context, canvasHeight, tableWidth) {
-            context.fillStyle = "rgba(0, 0, 0, 0.12)";
-            const verticalLineWidth = 3;
+            // 刻度线收细、压淡：保留标尺的节奏感，但不再压过昵称
+            context.fillStyle = "rgba(0, 0, 0, 0.09)";
+            const verticalLineWidth = 2;
             const firstLineX = 200;
             for (let i = 0; i < 8; i++) {
                 context.fillRect(firstLineX + 100 * i, 0, verticalLineWidth, canvasHeight);
@@ -2966,11 +3060,25 @@ export async function apply(ctx: Context, config: Config) {
         function chooseColorAdjustmentMethod(hexcolor) {
             const rgb = hexToRgb(hexcolor)
             const yiqBrightness = calculateYiqBrightness(rgb)
-            if (yiqBrightness > 0.2 && yiqBrightness < 0.8) {
-                return adjustColorHsl(hexcolor)
-            } else {
-                return adjustColorYiq(hexcolor)
+            const color = (yiqBrightness > 0.2 && yiqBrightness < 0.8)
+                ? adjustColorHsl(hexcolor)
+                : adjustColorYiq(hexcolor)
+            // 同色系的对比色更好看，但对比度不够时退回黑白，保证任何底色下都读得清
+            return contrastRatio(color, hexcolor) >= 3 ? color : adjustColorYiq(hexcolor)
+        }
+
+        function contrastRatio(colorA, colorB) {
+            const a = relativeLuminance(hexToRgb(colorA))
+            const b = relativeLuminance(hexToRgb(colorB))
+            return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+        }
+
+        function relativeLuminance(rgb) {
+            const channel = (c) => {
+                const v = c / 255
+                return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
             }
+            return 0.2126 * channel(rgb.r) + 0.7152 * channel(rgb.g) + 0.0722 * channel(rgb.b)
         }
 
         function calculateYiqBrightness(rgb) {
@@ -3073,9 +3181,31 @@ export async function apply(ctx: Context, config: Config) {
         }
 
         // --- 启动绘制 ---
-        await drawRanking();
+        try {
+          await drawRanking();
+        } finally {
+          // 无论成败都置位，截图端据此判断绘制已经结束
+          window.__rankChartReady = true;
+        }
       }
     `;
+  }
+
+  /**
+   * 把本地化时间字符串整理成排版更整齐的形式（补零、去掉秒）。
+   * @param raw 原始时间字符串。
+   * @returns 形如 `2024-05-01 08:30` 的字符串；无法识别时原样返回。
+   */
+  function _formatRankTime(raw: string): string {
+    const matched =
+      /^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})[\sT]+(\d{1,2}):(\d{2})/.exec(
+        String(raw).trim(),
+      );
+    if (!matched) return raw;
+    const pad = (value: string) => value.padStart(2, "0");
+    return `${matched[1]}-${pad(matched[2])}-${pad(matched[3])} ${pad(
+      matched[4],
+    )}:${matched[5]}`;
   }
 
   /**
@@ -3122,21 +3252,24 @@ export async function apply(ctx: Context, config: Config) {
       <!DOCTYPE html>
       <html lang="zh-CN">
       <head>
-          <meta charset="UTF--8">
+          <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>排行榜</title>
           <style>${_getChartBaseStyles()}</style>
           <style>${backgroundStyle}</style>
           <style>${fontFacesCSS}</style>
           <style>
-            .ranking-title { font-family: "${
+            .ranking-title, .ranking-time { font-family: "${
               chartConfig.chartTitleFont
             }", "Microsoft YaHei", sans-serif; }
           </style>
       </head>
       <body>
-          <h1 class="ranking-title">${rankTimeTitle}</h1>
-          <h1 class="ranking-title">${rankTitle}</h1>
+          <header class="ranking-header">
+            <h1 class="ranking-title">${rankTitle}</h1>
+            <div class="ranking-rule"></div>
+            <div class="ranking-time">${_formatRankTime(rankTimeTitle)}</div>
+          </header>
           <div class="font-preload">
             <span style="font-family: '${
               chartConfig.chartNicknameFont
@@ -3236,13 +3369,25 @@ export async function apply(ctx: Context, config: Config) {
         waitUntil: config.waitUntil,
       });
 
+      // 绘制是异步的（需要等待头像等图片解码），等它明确完成后再量尺寸
+      try {
+        await page.waitForFunction(
+          () => (window as any).__rankChartReady === true,
+          { timeout: 15000 },
+        );
+      } catch {
+        logger.warn("等待图表绘制完成超时，将按当前状态截图。");
+      }
+
       const calculatedWidth = await page.evaluate(() => {
         const canvas = document.getElementById(
           "rankingCanvas",
         ) as HTMLCanvasElement | null;
         const bodyPadding = 40; // 对应 body 的左右 padding (20px + 20px)
-        // 如果 canvas 存在，则返回其宽度加上页面的 padding；否则返回一个默认值。
-        return canvas ? canvas.width + bodyPadding : 1080;
+        // 画布位图是 2 倍尺寸，这里要用 CSS 宽度（逻辑像素）来算页面宽度。
+        return canvas
+          ? Math.ceil(canvas.getBoundingClientRect().width) + bodyPadding
+          : 1080;
       });
 
       await page.setViewport({
@@ -3551,6 +3696,19 @@ export async function apply(ctx: Context, config: Config) {
     );
   }
 
+  /**
+   * 格式化占比：数值越小保留的小数越多，避免小号选手一律显示为 0%。
+   * @param percentage 百分比数值（0 - 100）。
+   * @returns 形如 `27%`、`8.9%`、`0.93%` 的字符串。
+   */
+  function formatPercentage(percentage: number): string {
+    const value = Number(percentage) || 0;
+    if (value > 0 && value < 0.01) return "<0.01%";
+    if (value < 1) return `${value.toFixed(2)}%`;
+    if (value < 10) return `${value.toFixed(1)}%`;
+    return `${Math.round(value)}%`;
+  }
+
   function formatLeaderboardAsMarkdown(
     title: string,
     subtitle: string,
@@ -3560,7 +3718,7 @@ export async function apply(ctx: Context, config: Config) {
     let result = `# ${title}\n## ${subtitle}\n\n`;
     data.forEach((item, index) => {
       const percentageStr = showPercentage
-        ? ` (${Math.round(item.percentage)}%)`
+        ? ` · ${formatPercentage(item.percentage)}`
         : "";
       result += `${index + 1}. **${item.name}**: ${
         item.count
@@ -3578,7 +3736,7 @@ export async function apply(ctx: Context, config: Config) {
     let result = `${title}\n${subtitle}\n\n`;
     data.forEach((item, index) => {
       const percentageStr = showPercentage
-        ? ` (${Math.round(item.percentage)}%)`
+        ? ` · ${formatPercentage(item.percentage)}`
         : "";
       result += `${index + 1}. ${item.name}：${
         item.count
