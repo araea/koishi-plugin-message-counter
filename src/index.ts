@@ -7,6 +7,14 @@ import {} from "@koishijs/canvas";
 import * as fs from "fs/promises";
 import { constants as fsConstants } from "fs";
 import * as crypto from "crypto";
+import {
+  lookup,
+  rankChannels,
+  rankUsers,
+  statOf,
+  summarize,
+  type Summary,
+} from "./ranking";
 
 const assetsDir = path.resolve(__dirname, "..", "assets");
 let fallbackBase64: string[] = [""];
@@ -1103,10 +1111,12 @@ export async function apply(ctx: Context, config: Config) {
       });
       if (targetUserRecord.length === 0) return `被查询对象无任何发言记录。`;
 
-      const channelUsers = await ctx.database.get("message_counter_records", {
-        channelId,
-      });
-      const allUsers = await ctx.database.get("message_counter_records", {});
+      // 求和交给数据库：每人一行，而不是每人每群一行
+      const [channelSummary, acrossSummary]: [Summary[], Summary[]] =
+        await Promise.all([
+          summarize(ctx, { channelId }),
+          summarize(ctx, {}),
+        ]);
 
       // -- 3. 数据处理与结构化 --
       // 定义数据行接口
@@ -1120,145 +1130,30 @@ export async function apply(ctx: Context, config: Config) {
       const channelStats: StatRow[] = [];
       const acrossStats: StatRow[] = [];
 
-      // 累加总数
-      const accumulate = (records: MessageCounterRecord[]) =>
-        records.reduce(
-          (sums, user) => {
-            for (const key in periodMapping) {
-              sums[periodMapping[key].field] =
-                (sums[periodMapping[key].field] || 0) +
-                user[periodMapping[key].field];
-            }
-            return sums;
-          },
-          {} as Record<CountField, number>,
-        );
-
-      const channelTotals = accumulate(channelUsers);
-      const acrossTotals = accumulate(allUsers);
-
-      // 获取排名
-      const getRank = (
-        records: MessageCounterRecord[],
-        field: CountField,
-        uid: string,
+      const push = (
+        target: StatRow[],
+        rows: Summary[],
+        period: "yesterday" | "today" | "week" | "month" | "year" | "total",
+        label: string,
+        enabled: boolean,
       ) => {
-        const sorted = [...records].sort((a, b) => b[field] - a[field]);
-        const index = sorted.findIndex((u) => u.userId === uid);
-        return index !== -1 ? index + 1 : null;
+        const { count, total, rank } = statOf(rows, userId, period);
+        target.push({ label, count, total, rank, enabled });
       };
 
-      const getAcrossRank = (
-        records: MessageCounterRecord[],
-        field: CountField,
-        uid: string,
-      ) => {
-        const userTotals = records.reduce((acc, cur) => {
-          acc[cur.userId] = (acc[cur.userId] || 0) + cur[field];
-          return acc;
-        }, {} as Dict<number>);
-        const sorted = Object.entries(userTotals).sort(([, a], [, b]) => b - a);
-        const index = sorted.findIndex(([id]) => id === uid);
-        return index !== -1 ? index + 1 : null;
-      };
+      push(channelStats, channelSummary, "yesterday", "昨日", selectedOptions.yesterday);
+      push(channelStats, channelSummary, "today", "今日", selectedOptions.day);
+      push(channelStats, channelSummary, "week", "本周", selectedOptions.week);
+      push(channelStats, channelSummary, "month", "本月", selectedOptions.month);
+      push(channelStats, channelSummary, "year", "全年", selectedOptions.year);
+      push(channelStats, channelSummary, "total", "总计", selectedOptions.total);
 
-      const getAcrossCount = (
-        records: MessageCounterRecord[],
-        field: CountField,
-        uid: string,
-      ) => {
-        return records
-          .filter((r) => r.userId === uid)
-          .reduce((sum, r) => sum + r[field], 0);
-      };
-
-      // 填充本群数据
-      channelStats.push({
-        label: "昨日",
-        count: targetUserRecord[0].yesterdayPostCount,
-        total: channelTotals.yesterdayPostCount,
-        rank: getRank(channelUsers, "yesterdayPostCount", userId),
-        enabled: selectedOptions.yesterday,
-      });
-      channelStats.push({
-        label: "今日",
-        count: targetUserRecord[0].todayPostCount,
-        total: channelTotals.todayPostCount,
-        rank: getRank(channelUsers, "todayPostCount", userId),
-        enabled: selectedOptions.day,
-      });
-      channelStats.push({
-        label: "本周",
-        count: targetUserRecord[0].thisWeekPostCount,
-        total: channelTotals.thisWeekPostCount,
-        rank: getRank(channelUsers, "thisWeekPostCount", userId),
-        enabled: selectedOptions.week,
-      });
-      channelStats.push({
-        label: "本月",
-        count: targetUserRecord[0].thisMonthPostCount,
-        total: channelTotals.thisMonthPostCount,
-        rank: getRank(channelUsers, "thisMonthPostCount", userId),
-        enabled: selectedOptions.month,
-      });
-      channelStats.push({
-        label: "全年",
-        count: targetUserRecord[0].thisYearPostCount,
-        total: channelTotals.thisYearPostCount,
-        rank: getRank(channelUsers, "thisYearPostCount", userId),
-        enabled: selectedOptions.year,
-      });
-      channelStats.push({
-        label: "总计",
-        count: targetUserRecord[0].totalPostCount,
-        total: channelTotals.totalPostCount,
-        rank: getRank(channelUsers, "totalPostCount", userId),
-        enabled: selectedOptions.total,
-      });
-
-      // 填充跨群数据
-      acrossStats.push({
-        label: "昨日",
-        count: getAcrossCount(allUsers, "yesterdayPostCount", userId),
-        total: acrossTotals.yesterdayPostCount,
-        rank: getAcrossRank(allUsers, "yesterdayPostCount", userId),
-        enabled: selectedOptions.ydag,
-      });
-      acrossStats.push({
-        label: "今日",
-        count: getAcrossCount(allUsers, "todayPostCount", userId),
-        total: acrossTotals.todayPostCount,
-        rank: getAcrossRank(allUsers, "todayPostCount", userId),
-        enabled: selectedOptions.dag,
-      });
-      acrossStats.push({
-        label: "本周",
-        count: getAcrossCount(allUsers, "thisWeekPostCount", userId),
-        total: acrossTotals.thisWeekPostCount,
-        rank: getAcrossRank(allUsers, "thisWeekPostCount", userId),
-        enabled: selectedOptions.wag,
-      });
-      acrossStats.push({
-        label: "本月",
-        count: getAcrossCount(allUsers, "thisMonthPostCount", userId),
-        total: acrossTotals.thisMonthPostCount,
-        rank: getAcrossRank(allUsers, "thisMonthPostCount", userId),
-        enabled: selectedOptions.mag,
-      });
-      acrossStats.push({
-        label: "全年",
-        count: getAcrossCount(allUsers, "thisYearPostCount", userId),
-        total: acrossTotals.thisYearPostCount,
-        rank: getAcrossRank(allUsers, "thisYearPostCount", userId),
-        enabled: selectedOptions.yag,
-      });
-      acrossStats.push({
-        label: "总计",
-        count: getAcrossCount(allUsers, "totalPostCount", userId),
-        total: acrossTotals.totalPostCount,
-        rank: getAcrossRank(allUsers, "totalPostCount", userId),
-        enabled: selectedOptions.across,
-      });
+      push(acrossStats, acrossSummary, "yesterday", "昨日", selectedOptions.ydag);
+      push(acrossStats, acrossSummary, "today", "今日", selectedOptions.dag);
+      push(acrossStats, acrossSummary, "week", "本周", selectedOptions.wag);
+      push(acrossStats, acrossSummary, "month", "本月", selectedOptions.mag);
+      push(acrossStats, acrossSummary, "year", "全年", selectedOptions.yag);
+      push(acrossStats, acrossSummary, "total", "总计", selectedOptions.across);
 
       // -- 4. 格式化与输出 --
       const formatPercentage = (count: number, total: number): string => {
@@ -1361,57 +1256,26 @@ export async function apply(ctx: Context, config: Config) {
       const rankTitle = `${scopeName}${periodName}发言排行榜`;
       const rankTimeTitle = getCurrentBeijingTime();
 
-      let records;
-      if (isAcross) {
-        records = await ctx.database.get("message_counter_records", {});
-      } else {
-        records = await ctx.database.get("message_counter_records", {
-          channelId: session.channelId,
-        });
-      }
-
-      const filteredRecords = filterRecordsByWhitesAndBlacks(
-        records,
-        "userId",
+      const { rows, total: totalCount } = await rankUsers(ctx, {
+        field,
+        channelId: isAcross ? undefined : session.channelId,
         whites,
         blacks,
-      );
+        limit: number,
+        pin: session.userId,
+      });
 
-      if (filteredRecords.length === 0) {
+      if (rows.length === 0) {
         return "当前范围内暂无发言记录。";
       }
 
-      // 聚合数据
-      const userPostCounts: Dict<number> = {};
-      const userInfo: Dict<{ username: string; avatar: string }> = {};
-      let totalCount = 0;
-
-      for (const record of filteredRecords) {
-        const count = record[field] as number;
-        userPostCounts[record.userId] =
-          (userPostCounts[record.userId] || 0) + count;
-        if (!userInfo[record.userId]) {
-          userInfo[record.userId] = {
-            username: record.username,
-            avatar:
-              record.userAvatar ||
-              `https://q1.qlogo.cn/g?b=qq&nk=${record.userId}&s=640`,
-          };
-        }
-        totalCount += count;
-      }
-
-      const sortedUsers = Object.entries(userPostCounts).sort(
-        ([, a], [, b]) => b - a,
-      );
-
-      const rankingData: RankingData[] = prepareRankingData(
-        sortedUsers,
-        userInfo,
-        totalCount,
-        number,
-        session.userId,
-      );
+      const rankingData: RankingData[] = rows.map((row) => ({
+        name: (row.key === session.userId ? "★" : "") + row.name,
+        userId: row.key,
+        avatar: row.avatar,
+        count: row.count,
+        percentage: calculatePercentage(row.count, totalCount),
+      }));
 
       return renderLeaderboard({
         rankTimeTitle,
@@ -1447,54 +1311,44 @@ export async function apply(ctx: Context, config: Config) {
       const period = getPeriodFromOptions(options, "today");
       const { field, name: periodName } = periodMapping[period];
 
-      let records: MessageCounterRecord[];
       let rankTitle: string;
+      let userId: string | undefined;
       const rankTimeTitle = getCurrentBeijingTime();
 
       if (options?.specificUser) {
         const at = h.select(options.specificUser, "at");
-        const userId = at.length ? at[0].attrs.id : options.specificUser;
+        userId = at.length ? at[0].attrs.id : options.specificUser;
 
-        const userRecords = await ctx.database.get("message_counter_records", {
-          userId,
-          channelId: session.channelId,
-        });
-        const username =
-          userRecords.length > 0
-            ? userRecords[0].username || `用户${userId}`
-            : `用户${userId}`;
-
-        rankTitle = `${username}的${periodName}群发言排行榜`;
-        records = await ctx.database.get("message_counter_records", { userId });
+        const [record] = await ctx.database.get(
+          "message_counter_records",
+          { userId, channelId: session.channelId },
+          ["username"],
+        );
+        rankTitle = `${record?.username || `用户${userId}`}的${periodName}群发言排行榜`;
       } else {
         rankTitle = `全群${periodName}发言排行榜`;
-        records = await ctx.database.get("message_counter_records", {});
       }
 
-      const filteredRecords = filterRecordsByWhitesAndBlacks(
-        records,
-        "channelId",
+      const { rows, total: totalCount } = await rankChannels(ctx, {
+        field,
+        userId,
         whites,
         blacks,
-      );
+        limit: number,
+        pin: session.channelId,
+      });
 
-      if (filteredRecords.length === 0) {
+      if (rows.length === 0) {
         return `在当前条件下找不到任何群聊发言记录。`;
       }
 
-      const { channelPostCounts, channelInfo, totalCount } =
-        aggregateChannelData(filteredRecords, field);
-      const sortedChannels = Object.entries(channelPostCounts).sort(
-        ([, a], [, b]) => b - a,
-      );
-
-      const rankingData = prepareChannelRankingData(
-        sortedChannels,
-        channelInfo,
-        totalCount,
-        number,
-        session.channelId,
-      );
+      const rankingData: RankingData[] = rows.map((row) => ({
+        name: (row.key === session.channelId ? "★" : "") + row.name,
+        userId: row.key,
+        avatar: row.avatar,
+        count: row.count,
+        percentage: calculatePercentage(row.count, totalCount),
+      }));
 
       return renderLeaderboard({
         rankTimeTitle,
@@ -1935,54 +1789,28 @@ export async function apply(ctx: Context, config: Config) {
             ? prefixedChannelId
             : prefixedChannelId.substring(platformSeparatorIndex + 1);
 
-        const records = await ctx.database.get("message_counter_records", {
+        const { rows, total: totalCount } = await rankUsers(ctx, {
+          field,
           channelId,
+          blacks: config.hiddenUserIdsInLeaderboard,
+          limit: config.defaultMaxDisplayCount,
         });
 
-        if (records.length === 0) {
-          logger.info(
-            `[自动推送] 频道 ${prefixedChannelId} 无发言记录，跳过。`,
-          );
-          continue;
-        }
-
-        // 聚合数据时，使用我们动态选择的 `field`
-        const userPostCounts: Dict<number> = {};
-        const userInfo: Dict<{ username: string; avatar: string }> = {};
-        let totalCount = 0;
-
-        for (const record of records) {
-          const count = (record[field] as number) || 0; // 读取正确的周期数据
-          userPostCounts[record.userId] =
-            (userPostCounts[record.userId] || 0) + count;
-          if (!userInfo[record.userId]) {
-            userInfo[record.userId] = {
-              username: record.username,
-              avatar:
-                record.userAvatar ||
-                `https://q1.qlogo.cn/g?b=qq&nk=${record.userId}&s=640`,
-            };
-          }
-          totalCount += count;
-        }
-
-        const sortedUsers = Object.entries(userPostCounts)
-          .filter(([, count]) => count > 0)
-          .sort(([, a], [, b]) => b - a);
-
-        if (sortedUsers.length === 0) {
+        const ranked = rows.filter((row) => row.count > 0);
+        if (ranked.length === 0) {
           logger.info(
             `[自动推送] 频道 ${prefixedChannelId} 在 ${periodName} 榜单上无有效数据，跳过。`,
           );
           continue;
         }
 
-        const rankingData = prepareRankingData(
-          sortedUsers,
-          userInfo,
-          totalCount,
-          config.defaultMaxDisplayCount,
-        );
+        const rankingData: RankingData[] = ranked.map((row) => ({
+          name: row.name,
+          userId: row.key,
+          avatar: row.avatar,
+          count: row.count,
+          percentage: calculatePercentage(row.count, totalCount),
+        }));
 
         if (config.isGeneratingRankingListPromptVisible) {
           // 忽略发送提示消息的错误（例如禁言导致），不中断后续发送图片
@@ -2043,22 +1871,18 @@ export async function apply(ctx: Context, config: Config) {
 
     for (const channelId of config.muteChannelIds) {
       try {
-        const records = await ctx.database.get("message_counter_records", {
-          channelId,
-          yesterdayPostCount: { $gt: 0 }, // 只查找昨日有发言的
-        });
+        // 只要昨日发言最多的那一位，排序与截断都交给数据库
+        const [topUser] = await ctx.database
+          .select("message_counter_records")
+          .where({ channelId, yesterdayPostCount: { $gt: 0 } })
+          .orderBy("yesterdayPostCount", "desc")
+          .limit(1)
+          .execute();
 
-        if (records.length === 0) {
+        if (!topUser) {
           logger.info(`[抓龙王] 频道 ${channelId} 昨日无人发言，跳过。`);
           continue;
         }
-
-        // 找出昨日发言最多的人
-        const topUser = records.sort(
-          (a, b) => b.yesterdayPostCount - a.yesterdayPostCount,
-        )[0];
-
-        if (!topUser) continue;
 
         const durationInMs = config.detentionDuration * 24 * 60 * 60 * 1000;
         let isMuted = false;
@@ -2560,67 +2384,6 @@ export async function apply(ctx: Context, config: Config) {
       logger.warn(`Error accessing asset folder ${folderPath}:`, err);
     }
     return assetData;
-  }
-
-  /** 聚合群组数据 */
-  function aggregateChannelData(
-    records: MessageCounterRecord[],
-    field: CountField,
-  ) {
-    const channelPostCounts: Dict<number> = {};
-    const channelInfo: Dict<{ channelName: string }> = {};
-    let totalCount = 0;
-
-    for (const record of records) {
-      const count = (record[field] as number) || 0;
-      channelPostCounts[record.channelId] =
-        (channelPostCounts[record.channelId] || 0) + count;
-      if (!channelInfo[record.channelId]) {
-        channelInfo[record.channelId] = {
-          channelName: record.channelName || `群聊${record.channelId}`,
-        };
-      }
-      totalCount += count;
-    }
-    return { channelPostCounts, channelInfo, totalCount };
-  }
-
-  /** 为群组排行榜准备 RankingData，并确保当前群在榜单中 */
-  function prepareChannelRankingData(
-    sortedChannels: [string, number][],
-    channelInfo: Dict<{ channelName: string }>,
-    totalCount: number,
-    limit: number,
-    currentChannelId?: string,
-  ): RankingData[] {
-    const topChannels = sortedChannels.slice(0, limit);
-    const isCurrentInTop =
-      currentChannelId &&
-      topChannels.some(([channelId]) => channelId === currentChannelId);
-
-    // 如果当前群聊不在榜单上，则找到它的数据并直接追加到末尾
-    if (currentChannelId && !isCurrentInTop) {
-      const currentChannelData = sortedChannels.find(
-        ([channelId]) => channelId === currentChannelId,
-      );
-      if (currentChannelData) {
-        topChannels.push(currentChannelData);
-      }
-    }
-
-    return topChannels.map(([channelId, count]) => ({
-      // 增加★高亮当前群聊
-      name:
-        (channelId === currentChannelId ? "★" : "") +
-        (channelInfo[channelId]?.channelName || `群聊${channelId}`),
-      // 使用 channelId 作为 RankingData 的 userId 和头像源
-      userId: channelId,
-      avatar: `https://p.qlogo.cn/gh/${
-        channelId === "#" ? "426230045" : channelId
-      }/${channelId === "#" ? "426230045" : channelId}/100`, // QQ群头像URL格式
-      count,
-      percentage: calculatePercentage(count, totalCount),
-    }));
   }
 
   // --- 辅助函数：图表生成 ---
@@ -3267,92 +3030,6 @@ export async function apply(ctx: Context, config: Config) {
     }
   }
 
-  function getUserRankAndRecord(
-    getDragons: MessageCounterRecord[],
-    userId: string,
-    postCountType:
-      | "todayPostCount"
-      | "thisWeekPostCount"
-      | "thisMonthPostCount"
-      | "thisYearPostCount"
-      | "totalPostCount"
-      | "yesterdayPostCount",
-  ):
-    | {
-        acrossRank: number;
-        userRecord: UserRecord;
-      }
-    | undefined {
-    if (getDragons.length === 0) {
-      return;
-    }
-
-    const aggregatedUserRecords = getDragons.reduce<{
-      [key: string]: UserRecord;
-    }>((acc, user) => {
-      if (!acc[user.userId]) {
-        acc[user.userId] = {
-          userId: user.userId,
-          postCountAll: 0,
-          username: user.username,
-        };
-      }
-
-      let postCount = 0;
-      switch (postCountType) {
-        case "todayPostCount":
-          postCount = user.todayPostCount;
-          break;
-        case "thisWeekPostCount":
-          postCount = user.thisWeekPostCount;
-          break;
-        case "thisMonthPostCount":
-          postCount = user.thisMonthPostCount;
-          break;
-        case "thisYearPostCount":
-          postCount = user.thisYearPostCount;
-          break;
-        case "totalPostCount":
-          postCount = user.totalPostCount;
-          break;
-        case "yesterdayPostCount":
-          postCount = user.yesterdayPostCount;
-          break;
-        default:
-          postCount = user.todayPostCount;
-          break;
-      }
-
-      acc[user.userId].postCountAll += postCount;
-      return acc;
-    }, {});
-
-    const sortedUserRecords = Object.values(aggregatedUserRecords).sort(
-      (a, b) => b.postCountAll - a.postCountAll,
-    );
-
-    const userIndex = sortedUserRecords.findIndex(
-      (user) => user.userId === userId,
-    );
-    const userRecord = sortedUserRecords[userIndex];
-    const acrossRank = userIndex + 1;
-
-    return { acrossRank, userRecord };
-  }
-
-  function getSortedDragons(
-    records: MessageCounterRecord[],
-  ): [string, number][] {
-    const dragonsMap: { [userId: string]: number } = {};
-    for (const dragon of records) {
-      const { userId, totalPostCount } = dragon;
-      const key = `${userId}`;
-      dragonsMap[key] = (dragonsMap[key] || 0) + totalPostCount;
-    }
-
-    return Object.entries(dragonsMap).sort((a, b) => b[1] - a[1]);
-  }
-
   async function replaceAtTags(session: any, content: string): Promise<string> {
     const atRegex = /<at id="(\d+)"(?: name="([^"]*)")?\/>/g;
 
@@ -3424,53 +3101,6 @@ export async function apply(ctx: Context, config: Config) {
     return ["ydag", "dag", "wag", "mag", "yag", "across", "dragon"].some(
       (opt) => options?.[opt],
     );
-  }
-
-  function filterRecordsByWhitesAndBlacks(
-    records: MessageCounterRecord[],
-    key: "userId" | "channelId",
-    whites: string[],
-    blacks: string[],
-  ): MessageCounterRecord[] {
-    let result = records;
-    if (whites.length > 0) {
-      result = result.filter((r) => whites.includes(r[key]));
-    }
-    if (blacks.length > 0) {
-      result = result.filter((r) => !blacks.includes(r[key]));
-    }
-    return result;
-  }
-
-  function prepareRankingData(
-    sortedUsers: [string, number][],
-    userInfo: Dict<{ username: string; avatar: string }>,
-    totalCount: number,
-    limit: number,
-    requesterId?: string,
-  ): RankingData[] {
-    const topUsers = sortedUsers.slice(0, limit);
-    const isRequesterInTop =
-      requesterId && topUsers.some(([userId]) => userId === requesterId);
-
-    // 如果指令发送者不在榜单上，则找到他的数据并直接追加到末尾
-    if (requesterId && !isRequesterInTop) {
-      const requesterData = sortedUsers.find(
-        ([userId]) => userId === requesterId,
-      );
-      if (requesterData) {
-        topUsers.push(requesterData);
-      }
-    }
-
-    return topUsers.map(([userId, count]) => ({
-      // 增加★高亮指令发送者
-      name: (userId === requesterId ? "★" : "") + userInfo[userId].username,
-      userId: userId,
-      avatar: userInfo[userId].avatar,
-      count,
-      percentage: calculatePercentage(count, totalCount),
-    }));
   }
 
   function calculatePercentage(number: number, total: number): number {
