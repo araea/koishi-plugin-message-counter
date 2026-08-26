@@ -128,6 +128,20 @@ export const usage = `## 📝 注意事项
 - 插件启动时，会自动将内置字体 \`HarmonyOS_Sans_Medium.ttf\` 拷贝到 \`data/messageCounter/fonts/\` 目录下。
 - 您可以将自己喜爱的字体文件放入此文件夹，并在配置项的“字体设置”中填入该字体的文件名称（不带后缀）。
 
+### 4. 头像形状
+
+- 配置项「样式定制 → 头像形状」可在 **圆形**（默认）、**圆角方形**、**方形** 之间切换。
+
+### 5. 图片背景
+
+- 配置项「背景设置 → 背景类型」提供了几种开箱即用的方式：
+  - **默认背景**：简洁灰白渐变，什么都不用填。
+  - **渐变色**：内置「云白 / 晨曦 / 海洋 / 樱花 / 薄荷 / 奶油」六套配色，也可以选「自定义」自己挑两个颜色与渐变角度。
+  - **纯色**：只填一个颜色。
+  - **图片**：填网络链接（http/https）或本地图片路径（相对路径基于 Koishi 根目录），可再调「模糊程度」和「白色蒙版浓度」，背景越淡文字越清楚。
+  - **随机图**：由 API 每次返回一张，同样支持模糊与蒙版。
+  - **自定义 CSS**：高级玩法，直接写 \`html { ... }\`。
+
 ---
 
 ## 💬 QQ 群
@@ -191,6 +205,8 @@ export interface Config {
   shouldMoveIconToBarEndLeft: boolean;
   /** 是否在生成水平柱状图时，在当前用户/群聊名称前显示★以高亮。 */
   showStarInChart: boolean;
+  /** 排行榜中头像的形状。 */
+  avatarShape: "circle" | "rounded" | "square";
   /** 自定义背景图在进度条区域的不透明度。 */
   horizontalBarBackgroundOpacity: number;
   /** 自定义背景图在整行背景的不透明度。 */
@@ -205,6 +221,24 @@ export interface Config {
   // -- 柱状图背景设置 --
   /** 图片整体背景的类型。 */
   backgroundType: string;
+  /** 渐变背景的配色预设。 */
+  gradientPreset: string;
+  /** 自定义渐变的起始颜色。 */
+  gradientStartColor: string;
+  /** 自定义渐变的结束颜色。 */
+  gradientEndColor: string;
+  /** 自定义渐变的角度（度）。 */
+  gradientAngle: number;
+  /** 纯色背景的颜色。 */
+  solidColor: string;
+  /** 图片背景的地址（网络链接或本地文件路径）。 */
+  backgroundImageSource: string;
+  /** 图片背景的填充方式。 */
+  backgroundImageFit: "cover" | "contain" | "stretch" | "repeat";
+  /** 图片背景的模糊半径（像素）。 */
+  backgroundBlur: number;
+  /** 图片背景上的白色蒙版不透明度，用于提升文字可读性。 */
+  backgroundMaskOpacity: number;
   /** API 背景配置。 */
   apiBackgroundConfig: apiBackgroundConfig;
   /** 自定义背景的 CSS 代码。 */
@@ -368,6 +402,13 @@ export const Config: Schema<Config> = Schema.intersect([
             .description(
               "是否在图表中对触发指令的用户/群聊名称前添加 ★ 以高亮显示。",
             ),
+          avatarShape: Schema.union([
+            Schema.const("circle").description("圆形（推荐）"),
+            Schema.const("rounded").description("圆角方形"),
+            Schema.const("square").description("方形"),
+          ])
+            .default("circle")
+            .description("排行榜中头像的形状。"),
           horizontalBarBackgroundOpacity: Schema.number()
             .min(0)
             .max(1)
@@ -401,14 +442,86 @@ export const Config: Schema<Config> = Schema.intersect([
         Schema.intersect([
           Schema.object({
             backgroundType: Schema.union([
-              Schema.const("none").description("默认渐变"),
-              Schema.const("api").description("API 获取"),
-              Schema.const("css").description("自定义 CSS"),
+              Schema.const("none").description("默认背景 —— 简洁灰白渐变"),
+              Schema.const("gradient").description("渐变色 —— 内置配色或自选双色"),
+              Schema.const("solid").description("纯色 —— 只用一种颜色"),
+              Schema.const("image").description("图片 —— 网络链接或本地图片"),
+              Schema.const("api").description("随机图 —— 由 API 每次返回一张"),
+              Schema.const("css").description("自定义 CSS —— 高级玩法"),
             ])
               .default("none")
-              .description("图片整体背景类型。"),
+              .description(
+                "排行榜图片的整体背景。默认背景最省心；想换风格建议先试「渐变色」里的内置配色。",
+              ),
           }),
           Schema.union([
+            Schema.object({
+              backgroundType: Schema.const("gradient").required(),
+              gradientPreset: Schema.union([
+                Schema.const("cloud").description("云白 —— 淡雅灰白"),
+                Schema.const("sunrise").description("晨曦 —— 暖橙"),
+                Schema.const("ocean").description("海洋 —— 清透蓝"),
+                Schema.const("sakura").description("樱花 —— 粉紫"),
+                Schema.const("mint").description("薄荷 —— 清新绿"),
+                Schema.const("cream").description("奶油 —— 米白"),
+                Schema.const("custom").description("自定义 —— 用下面的两种颜色"),
+              ])
+                .default("cloud")
+                .description("内置配色。选「自定义」后才会使用下面填的颜色。"),
+              gradientStartColor: Schema.string()
+                .role("color")
+                .default("#f6f8f9")
+                .description("自定义渐变的起始颜色。"),
+              gradientEndColor: Schema.string()
+                .role("color")
+                .default("#e5ebee")
+                .description("自定义渐变的结束颜色。"),
+              gradientAngle: Schema.number()
+                .min(0)
+                .max(360)
+                .step(15)
+                .default(135)
+                .description(
+                  "渐变方向（角度）。0 = 自下而上，90 = 自左向右，135 = 左上到右下。",
+                ),
+            }),
+            Schema.object({
+              backgroundType: Schema.const("solid").required(),
+              solidColor: Schema.string()
+                .role("color")
+                .default("#f2f4f7")
+                .description("背景颜色。建议选浅色，否则文字会看不清。"),
+            }),
+            Schema.object({
+              backgroundType: Schema.const("image").required(),
+              backgroundImageSource: Schema.string()
+                .default("")
+                .description(
+                  "图片地址：可填网络链接（http/https），也可填本地图片路径（相对路径基于 Koishi 根目录，如 `data/messageCounter/bg.png`）。留空则回退为默认背景。",
+                ),
+              backgroundImageFit: Schema.union([
+                Schema.const("cover").description("铺满（裁掉多余部分，推荐）"),
+                Schema.const("contain").description("完整显示（可能留白边）"),
+                Schema.const("stretch").description("拉伸填满（可能变形）"),
+                Schema.const("repeat").description("平铺（适合小图案）"),
+              ])
+                .default("cover")
+                .description("图片的填充方式。"),
+              backgroundBlur: Schema.number()
+                .min(0)
+                .max(40)
+                .step(1)
+                .default(0)
+                .description("背景模糊程度（像素）。图片太花时调大一点更好看。"),
+              backgroundMaskOpacity: Schema.number()
+                .min(0)
+                .max(1)
+                .step(0.05)
+                .default(0.15)
+                .description(
+                  "背景上叠加的白色蒙版浓度。数值越大背景越淡、文字越清楚。",
+                ),
+            }),
             Schema.object({
               backgroundType: Schema.const("api").required(),
               apiBackgroundConfig: Schema.object({
@@ -418,12 +531,36 @@ export const Config: Schema<Config> = Schema.intersect([
                 apiKey: Schema.string()
                   .role("secret")
                   .description("API 的访问凭证（可选）。"),
-                responseType: Schema.union(["binary", "url", "base64"])
+                responseType: Schema.union([
+                  Schema.const("binary").description("直接返回图片文件"),
+                  Schema.const("url").description("返回图片链接"),
+                  Schema.const("base64").description("返回 Base64 字符串"),
+                ])
                   .default("binary")
-                  .description("API 返回的数据类型。"),
-              })
-                .description("API 背景配置")
-                .collapse(),
+                  .description("API 返回的数据类型。不确定就先用「直接返回图片文件」。"),
+              }).description("API 背景配置"),
+              backgroundImageFit: Schema.union([
+                Schema.const("cover").description("铺满（裁掉多余部分，推荐）"),
+                Schema.const("contain").description("完整显示（可能留白边）"),
+                Schema.const("stretch").description("拉伸填满（可能变形）"),
+                Schema.const("repeat").description("平铺（适合小图案）"),
+              ])
+                .default("cover")
+                .description("图片的填充方式。"),
+              backgroundBlur: Schema.number()
+                .min(0)
+                .max(40)
+                .step(1)
+                .default(0)
+                .description("背景模糊程度（像素）。图片太花时调大一点更好看。"),
+              backgroundMaskOpacity: Schema.number()
+                .min(0)
+                .max(1)
+                .step(0.05)
+                .default(0.15)
+                .description(
+                  "背景上叠加的白色蒙版浓度。数值越大背景越淡、文字越清楚。",
+                ),
             }),
             Schema.object({
               backgroundType: Schema.const("css").required(),
@@ -2388,6 +2525,11 @@ export async function apply(ctx: Context, config: Config) {
 
   // --- 辅助函数：图表生成 ---
 
+  /** 页面左右留白（像素），同时用于计算截图宽度。 */
+  const CHART_PAGE_PADDING_X = 28;
+  /** 页面上下留白（像素）。 */
+  const CHART_PAGE_PADDING_Y = 32;
+
   /**
    * 生成图表的静态 CSS 样式。
    * @returns 包含基本元素样式的 CSS 字符串。
@@ -2401,24 +2543,199 @@ export async function apply(ctx: Context, config: Config) {
       body {
         font-family: sans-serif;
         margin: 0;
-        padding: 20px;
+        padding: ${CHART_PAGE_PADDING_Y}px ${CHART_PAGE_PADDING_X}px ${
+          CHART_PAGE_PADDING_Y + 8
+        }px;
         width: 100%;
         min-height: 100%;
         box-sizing: border-box;
+        position: relative;
       }
 
-    .ranking-title {
-      text-align: center;
-      margin-bottom: 20px;
-      color: #333;
-      font-style: normal;
-    }
+      /* 背景图层：承载模糊与蒙版，位于内容之下 */
+      .bg-layer {
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+      }
+
+      .chart-header {
+        text-align: center;
+        margin: 0 0 30px;
+      }
+
+      .ranking-title {
+        margin: 0;
+        font-size: 34px;
+        line-height: 1.3;
+        font-weight: 600;
+        letter-spacing: 1px;
+        color: #2c3038;
+        font-style: normal;
+      }
+
+      .ranking-subtitle {
+        margin: 12px 0 0;
+        font-size: 16px;
+        font-weight: 400;
+        letter-spacing: 0.6px;
+        color: rgba(60, 64, 72, 0.55);
+      }
+
+      #rankingCanvas {
+        display: block;
+        margin: 0 auto;
+      }
 
       /* 预加载字体用，不显示 */
       .font-preload {
         display: none;
       }
     `;
+  }
+
+  /** 内置渐变配色：预设名 -> [起始色, 结束色]。 */
+  const GRADIENT_PRESETS: Record<string, [string, string]> = {
+    cloud: ["#f6f8f9", "#e5ebee"],
+    sunrise: ["#ffecd2", "#fcb69f"],
+    ocean: ["#e3f2fd", "#c5dcf5"],
+    sakura: ["#fde2f3", "#e9d5ff"],
+    mint: ["#e2f7ef", "#c7ecdc"],
+    cream: ["#fdfcfb", "#f3e7d9"],
+  };
+
+  /** 未配置或配置无效时使用的默认背景。 */
+  const DEFAULT_BACKGROUND_CSS = `html {
+      background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
+    }`;
+
+  /** 图片背景的尺寸与平铺方式对应的 CSS 片段。 */
+  function _backgroundSizingCss(fit: string): string {
+    if (fit === "repeat") {
+      return "background-size: auto; background-repeat: repeat;";
+    }
+    const size =
+      fit === "stretch" ? "100% 100%" : fit === "contain" ? "contain" : "cover";
+    return `background-size: ${size}; background-repeat: no-repeat;`;
+  }
+
+  /**
+   * 生成图片类背景（本地图片 / 网络图片 / API 随机图）的 CSS。
+   * 清晰的原图铺在 `html` 上，模糊与白色蒙版叠加在 `.bg-layer` 上，避免影响正文。
+   */
+  function _imageBackgroundCss(imageUrl: string, config: Config): string {
+    const sizing = _backgroundSizingCss(config.backgroundImageFit || "cover");
+    const blur = Math.max(0, Number(config.backgroundBlur) || 0);
+    const mask = Math.min(
+      1,
+      Math.max(0, Number(config.backgroundMaskOpacity) || 0),
+    );
+
+    let css = `html {
+      background-color: #eef1f4;
+      background-image: ${imageUrl};
+      background-position: center;
+      ${sizing}
+    }`;
+
+    if (blur > 0) {
+      css += `
+    .bg-layer {
+      background-image: ${imageUrl};
+      background-position: center;
+      ${sizing}
+      filter: blur(${blur}px);
+    }`;
+    }
+
+    if (mask > 0) {
+      css += `
+    .bg-layer::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: rgba(255, 255, 255, ${mask});
+    }`;
+    }
+
+    return css;
+  }
+
+  /** 把背景图地址转成可直接用于 CSS 的 url()：本地文件读成 data URI，链接原样使用。 */
+  async function _resolveBackgroundImageUrl(
+    source: string,
+  ): Promise<string | null> {
+    const src = (source || "").trim();
+    if (!src) return null;
+    if (/^(https?:)?\/\//i.test(src) || src.startsWith("data:")) {
+      return `url('${src}')`;
+    }
+    try {
+      const filePath = path.isAbsolute(src)
+        ? src
+        : path.resolve(ctx.baseDir, src);
+      const buffer = await fs.readFile(filePath);
+      const ext = path.extname(filePath).toLowerCase().slice(1);
+      const mime =
+        ext === "jpg" ? "jpeg" : ext === "svg" ? "svg+xml" : ext || "png";
+      return `url('data:image/${mime};base64,${buffer.toString("base64")}')`;
+    } catch (error) {
+      logger.error(`读取本地背景图片失败（${src}），将使用默认背景：`, error);
+      return null;
+    }
+  }
+
+  /** 从 API 获取一张背景图，返回可用于 CSS 的 url()。 */
+  async function _fetchApiBackgroundUrl(config: Config): Promise<string | null> {
+    try {
+      const { apiUrl, apiKey, responseType } = config.apiBackgroundConfig;
+      const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+
+      switch (responseType) {
+        case "url": {
+          // API 返回一个包含图片 URL 的 JSON 或纯文本
+          const response = await ctx.http.get(apiUrl, { headers });
+          const imageUrl =
+            typeof response === "string" ? response : response?.url;
+          if (!imageUrl || typeof imageUrl !== "string") {
+            throw new Error('API response for "url" type is not a valid string.');
+          }
+          return `url('${imageUrl}')`;
+        }
+
+        case "base64": {
+          // API 返回一个包含 Base64 数据的 JSON 或纯文本
+          const response = await ctx.http.get(apiUrl, { headers });
+          const base64Data =
+            typeof response === "string" ? response : response?.data;
+          if (!base64Data || typeof base64Data !== "string") {
+            throw new Error(
+              'API response for "base64" type is not a valid string.',
+            );
+          }
+          // 自动检测并添加 data URI scheme
+          const prefix = base64Data.startsWith("data:image")
+            ? ""
+            : "data:image/png;base64,";
+          return `url('${prefix}${base64Data}')`;
+        }
+
+        case "binary":
+        default: {
+          // API 返回原始图片数据（二进制）
+          const responseBuffer = await ctx.http.get<ArrayBuffer>(apiUrl, {
+            headers,
+            responseType: "arraybuffer",
+          });
+          const base64 = Buffer.from(responseBuffer).toString("base64");
+          return `url('data:image/png;base64,${base64}')`;
+        }
+      }
+    } catch (error) {
+      logger.error("获取 API 背景图失败，将使用默认背景:", error);
+      return null;
+    }
   }
 
   /**
@@ -2429,76 +2746,49 @@ export async function apply(ctx: Context, config: Config) {
    * @returns 一个包含背景样式的 CSS 字符串。
    */
   async function _prepareBackgroundStyle(config: Config): Promise<string> {
-    if (config.backgroundType === "api" && config.apiBackgroundConfig?.apiUrl) {
-      try {
-        const { apiUrl, apiKey, responseType } = config.apiBackgroundConfig;
-        const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
-        let backgroundImage: string;
-
-        switch (responseType) {
-          case "url": {
-            // API 返回一个包含图片 URL 的 JSON 或纯文本
-            const response = await ctx.http.get(apiUrl, { headers });
-            const imageUrl =
-              typeof response === "string" ? response : response?.url;
-            if (!imageUrl || typeof imageUrl !== "string") {
-              throw new Error(
-                'API response for "url" type is not a valid string.',
-              );
-            }
-            backgroundImage = `url('${imageUrl}')`;
-            break;
-          }
-
-          case "base64": {
-            // API 返回一个包含 Base64 数据的 JSON 或纯文本
-            const response = await ctx.http.get(apiUrl, { headers });
-            const base64Data =
-              typeof response === "string" ? response : response?.data;
-            if (!base64Data || typeof base64Data !== "string") {
-              throw new Error(
-                'API response for "base64" type is not a valid string.',
-              );
-            }
-            // 自动检测并添加 data URI scheme
-            const prefix = base64Data.startsWith("data:image")
-              ? ""
-              : "data:image/png;base64,";
-            backgroundImage = `url('${prefix}${base64Data}')`;
-            break;
-          }
-
-          case "binary":
-          default: {
-            // API 返回原始图片数据（二进制）
-            const responseBuffer = await ctx.http.get<ArrayBuffer>(apiUrl, {
-              headers,
-              responseType: "arraybuffer",
-            });
-            const base64 = Buffer.from(responseBuffer).toString("base64");
-            backgroundImage = `url('data:image/png;base64,${base64}')`;
-            break;
-          }
-        }
-
+    switch (config.backgroundType) {
+      case "gradient": {
+        const preset = GRADIENT_PRESETS[config.gradientPreset];
+        const from = preset?.[0] ?? config.gradientStartColor ?? "#f6f8f9";
+        const to = preset?.[1] ?? config.gradientEndColor ?? "#e5ebee";
+        const angle = Number.isFinite(config.gradientAngle)
+          ? config.gradientAngle
+          : 135;
         return `html {
-          background-image: ${backgroundImage};
-          background-size: cover;
-          background-position: center;
-          background-repeat: no-repeat;
-        }`;
-      } catch (error) {
-        logger.error("获取 API 背景图失败，将使用默认背景:", error);
+      background: linear-gradient(${angle}deg, ${from} 0%, ${to} 100%);
+    }`;
+      }
+
+      case "solid": {
+        const color = (config.solidColor || "").trim();
+        if (!color) break;
+        return `html {
+      background: ${color};
+    }`;
+      }
+
+      case "image": {
+        const imageUrl = await _resolveBackgroundImageUrl(
+          config.backgroundImageSource,
+        );
+        if (!imageUrl) break;
+        return _imageBackgroundCss(imageUrl, config);
+      }
+
+      case "api": {
+        if (!config.apiBackgroundConfig?.apiUrl) break;
+        const imageUrl = await _fetchApiBackgroundUrl(config);
+        if (!imageUrl) break;
+        return _imageBackgroundCss(imageUrl, config);
+      }
+
+      case "css": {
+        if (config.backgroundValue) return config.backgroundValue;
+        break;
       }
     }
 
-    if (config.backgroundType === "css" && config.backgroundValue) {
-      return config.backgroundValue;
-    }
-
-    return `html {
-      background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
-    }`;
+    return DEFAULT_BACKGROUND_CSS;
   }
 
   /**
@@ -2510,80 +2800,93 @@ export async function apply(ctx: Context, config: Config) {
     // 使用 IIFE (async (...) => { ... }) 格式，以便在 HTML 中清晰地传递参数。
     return `
       async ({ rankingData, iconData, barBgImgs, config }) => {
+        // --- 版式常量：集中控制头像、柱状条与文字的尺寸和留白 ---
+        const LAYOUT = {
+          avatarSize: 52,       // 头像边长，也是每一行的高度
+          rowGap: 10,           // 行与行之间的空隙
+          avatarGap: 14,        // 头像与柱状条之间的空隙
+          barMinWidth: 150,     // 柱状条的最小长度
+          barSpan: 700,         // 柱状条随发言数增长的最大长度
+          barRadius: 12,        // 柱状条圆角
+          avatarRadius: 12,     // 「圆角方形」头像的圆角
+          textGap: 16,          // 柱状条末端与发言数之间的空隙
+          textEndPad: 16,       // 发言数距轨道右端的最小留白
+          rightPad: 26,         // 画布右侧留白
+          namePad: 18,          // 名称距柱状条左端的距离
+          countFontSize: 30,    // 发言数字号
+          percentFontSize: 19,  // 百分比字号，比发言数小一号
+          percentGap: 9,        // 发言数与百分比之间的空隙
+        };
+        const ROW_HEIGHT = LAYOUT.avatarSize + LAYOUT.rowGap;
+        const BAR_X = LAYOUT.avatarSize + LAYOUT.avatarGap;
+
+        const chartFont = (size) => \`\${size}px "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
+
         // --- 主绘制函数 ---
         async function drawRanking() {
           const maxCount = rankingData.reduce((max, item) => Math.max(max, item.count), 0) || 1;
-          const userNum = rankingData.length;
-          const userAvatarSize = 50;
-          const tableWidth = 200 + 7 * 100; // 固定宽度
-          const canvasHeight = 50 * userNum;
-
           const canvas = document.getElementById('rankingCanvas');
           let context = canvas.getContext('2d');
 
-          // 根据最大计数的文本宽度动态调整画布宽度，以防数字溢出
-          context.font = \`30px "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
-          // 找到拥有最大发言数的条目，因为它的文本通常最长
-          const maxCountData = rankingData.find(d => d.count === maxCount) || rankingData[0] || { count: 1, percentage: 0 };
-          let maxCountText = maxCount.toString();
-          if (config.isUserMessagePercentageVisible && maxCountData) {
-              const percentage = maxCountData.percentage;
-              let percentageStr = percentage < 0.01 && percentage > 0 ? '<0.01' : percentage.toFixed(percentage < 1 ? 2 : 0);
-              maxCountText += \` ( \${percentageStr}%)\`;
+          // 逐行量一遍右侧文字，用最宽的一行决定画布宽度，避免数字被裁掉
+          let maxTextWidth = 0;
+          for (const data of rankingData) {
+            maxTextWidth = Math.max(maxTextWidth, measureCountBlock(context, data).width);
           }
-          const maxCountTextWidth = context.measureText(maxCountText).width;
 
-          // 最长进度条的宽度是固定的
-          const maxBarWidth = 150 + 700; // 进度条区域总宽度
-
-          // 计算最终画布宽度：头像(50) + 进度条(850) + 文本与进度条间距(10) + 文本宽度 + 右侧留白(20)
-          // 头像左侧的空白由页面 body 的 padding 提供
-          canvas.width = 50 + maxBarWidth + 10 + maxCountTextWidth + 20;
-          canvas.height = canvasHeight;
+          const barEndX = BAR_X + LAYOUT.barMinWidth + LAYOUT.barSpan;
+          canvas.width = Math.ceil(barEndX + LAYOUT.textGap + maxTextWidth + LAYOUT.textEndPad + LAYOUT.rightPad);
+          canvas.height = ROW_HEIGHT * rankingData.length - LAYOUT.rowGap;
 
           // 重新获取上下文，因为尺寸变化会重置状态
           context = canvas.getContext('2d');
+          context.textBaseline = "alphabetic";
+
+          // 轨道（整行底色）的宽度：右侧留出一点空白，不顶到画布边缘
+          const trackWidth = canvas.width - BAR_X - LAYOUT.rightPad;
 
           // 按顺序绘制图层
-          await drawRankingBars(context, maxCount, userAvatarSize, tableWidth); // 传递动态的 canvas.width
-          await drawAvatars(context, userAvatarSize);
-          drawVerticalLines(context, canvas.height, tableWidth); // 竖线仍然可以按旧的固定宽度绘制，不影响主体
+          await drawRankingBars(context, maxCount, trackWidth);
+          await drawAvatars(context);
+          drawGridLines(context, trackWidth);
         }
 
         // --- 核心绘图逻辑 ---
 
-        async function drawRankingBars(context, maxCount, userAvatarSize, canvasWidth) { // 接收 canvasWidth
+        async function drawRankingBars(context, maxCount, trackWidth) {
           for (const [index, data] of rankingData.entries()) {
-            const countBarWidth = 150 + (700 * data.count) / maxCount;
-            const countBarX = 50; // 头像宽度
-            const countBarY = 50 * index;
+            const barY = ROW_HEIGHT * index;
+            const barHeight = LAYOUT.avatarSize;
+            const barWidth = LAYOUT.barMinWidth + (LAYOUT.barSpan * data.count) / maxCount;
 
             let avgColor = await getAverageColor(data.avatarBase64);
-            const colorWithOpacity = addOpacityToColor(avgColor, 0.5);
+            const trackColor = addOpacityToColor(avgColor, 0.34);
 
-            // 绘制底色进度条
+            context.save();
+            // 整行轨道：圆角矩形，同时作为进度条与背景图的裁剪区域
+            traceRoundRect(context, BAR_X, barY, trackWidth, barHeight, LAYOUT.barRadius);
+            context.fillStyle = trackColor;
+            context.fill();
+            context.clip();
+
+            // 已达成部分
             context.fillStyle = avgColor;
-            context.fillRect(countBarX, countBarY, countBarWidth, userAvatarSize);
+            context.fillRect(BAR_X, barY, barWidth, barHeight);
 
             // 绘制自定义背景图
             const userBarBgImgs = findAssets(data.userId, barBgImgs, 'barBgImgBase64');
             if (userBarBgImgs.length > 0) {
               const randomBarBgImgBase64 = userBarBgImgs[Math.floor(Math.random() * userBarBgImgs.length)];
-              avgColor = await drawCustomBarBackground(context, randomBarBgImgBase64, countBarX, countBarY, countBarWidth, userAvatarSize, canvasWidth); // 传递 canvasWidth
+              avgColor = await drawCustomBarBackground(context, randomBarBgImgBase64, BAR_X, barY, barWidth, barHeight, trackWidth);
             }
-
-            // 绘制剩余部分灰色背景
-            const remainingBarX = countBarX + countBarWidth;
-            // 确保灰色背景能填满到画布最右侧，减去文本区域
-            context.fillStyle = colorWithOpacity;
-            context.fillRect(remainingBarX, countBarY, canvasWidth - remainingBarX, userAvatarSize);
+            context.restore();
 
             // 绘制文本和图标
-            await drawTextAndIcons(context, data, index, avgColor, countBarX, countBarY, countBarWidth, userAvatarSize);
+            await drawTextAndIcons(context, data, avgColor, barY, barWidth, barHeight, trackWidth);
           }
         }
 
-        async function drawCustomBarBackground(context, base64, x, y, barWidth, barHeight, canvasWidth) { // 接收 canvasWidth
+        async function drawCustomBarBackground(context, base64, x, y, barWidth, barHeight, trackWidth) {
             return new Promise(async (resolve) => {
                 const barBgImg = new Image();
                 barBgImg.src = "data:image/png;base64," + base64;
@@ -2592,7 +2895,7 @@ export async function apply(ctx: Context, config: Config) {
                     // 绘制整行背景（如果透明度 > 0）
                     if (config.horizontalBarBackgroundFullOpacity > 0) {
                         context.globalAlpha = config.horizontalBarBackgroundFullOpacity;
-                        context.drawImage(barBgImg, x, y, canvasWidth - x, barHeight); // 填充到画布右侧
+                        context.drawImage(barBgImg, x, y, trackWidth, barHeight); // 铺满整条轨道
                     }
                     // 绘制进度条区域背景
                     context.globalAlpha = config.horizontalBarBackgroundOpacity;
@@ -2608,39 +2911,66 @@ export async function apply(ctx: Context, config: Config) {
             });
         }
 
-        async function drawTextAndIcons(context, data, index, avgColor, barX, barY, barWidth, barHeight) {
-            // 字体栈包含了用户选择的字体、插件内置字体和通用字体，以确保兼容性。
-            context.font = \`30px "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
-            const textY = barY + barHeight / 2 + 10.5;
+        /** 量出「发言数 + 百分比」整块文字的尺寸，用于排版与画布宽度计算。 */
+        function measureCountBlock(context, data) {
+            context.font = chartFont(LAYOUT.countFontSize);
+            const countText = data.count.toString();
+            const countWidth = context.measureText(countText).width;
 
-
-            // 绘制发言次数和百分比
-            let countText = data.count.toString();
-            if (config.isUserMessagePercentageVisible) {
-                const percentage = data.percentage;
-                let percentageStr = percentage < 0.01 && percentage > 0 ? '<0.01' : percentage.toFixed(percentage < 1 ? 2 : 0);
-                countText += \` ( \${percentageStr}%)\`;
+            const percentText = formatPercent(data.percentage);
+            let percentWidth = 0;
+            if (percentText) {
+                context.font = chartFont(LAYOUT.percentFontSize);
+                percentWidth = context.measureText(percentText).width;
             }
 
-            const countTextWidth = context.measureText(countText).width;
-            const countTextX = barX + barWidth + 10;
+            return {
+                countText,
+                countWidth,
+                percentText,
+                percentWidth,
+                width: countWidth + (percentText ? LAYOUT.percentGap + percentWidth : 0),
+            };
+        }
 
-            if (countTextX + countTextWidth > context.canvas.width - 5) {
-                context.fillStyle = chooseColorAdjustmentMethod(avgColor);
-                context.textAlign = "right";
-                context.fillText(countText, barX + barWidth - 10, textY);
-            } else {
-                context.fillStyle = "rgba(0, 0, 0, 1)";
-                context.textAlign = "left";
-                context.fillText(countText, countTextX, textY);
+        /** 百分比文案：不带括号，交给字号与颜色来体现主次。 */
+        function formatPercent(percentage) {
+            if (!config.isUserMessagePercentageVisible) return '';
+            const value = Number(percentage) || 0;
+            if (value > 0 && value < 0.01) return '<0.01%';
+            return value.toFixed(value < 1 ? 2 : 0) + '%';
+        }
+
+        async function drawTextAndIcons(context, data, avgColor, barY, barWidth, barHeight, trackWidth) {
+            const baselineY = barY + barHeight / 2 + LAYOUT.countFontSize * 0.35;
+            const trackRight = BAR_X + trackWidth;
+            const block = measureCountBlock(context, data);
+
+            // --- 发言次数与百分比 ---
+            let textX = BAR_X + barWidth + LAYOUT.textGap;
+            if (textX + block.width > trackRight - LAYOUT.textEndPad) {
+                // 放不下时贴着轨道右端绘制，避免溢出画布
+                textX = Math.max(BAR_X + LAYOUT.namePad, trackRight - LAYOUT.textEndPad - block.width);
             }
 
-            // 绘制用户名（带截断）
+            context.textAlign = "left";
+            context.font = chartFont(LAYOUT.countFontSize);
+            context.fillStyle = "rgba(0, 0, 0, 0.82)";
+            context.fillText(block.countText, textX, baselineY);
+
+            // 百分比小一号并用灰色，作为发言数的附注
+            if (block.percentText) {
+                context.font = chartFont(LAYOUT.percentFontSize);
+                context.fillStyle = "rgba(0, 0, 0, 0.42)";
+                context.fillText(block.percentText, textX + block.countWidth + LAYOUT.percentGap, baselineY);
+            }
+
+            // --- 用户名（带截断） ---
+            context.font = chartFont(LAYOUT.countFontSize);
             context.fillStyle = chooseColorAdjustmentMethod(avgColor);
-            context.textAlign = "left"; // 重置对齐方式，以防被上一部分修改
 
             let nameText = data.name;
-            const maxNameWidth = barWidth - 60;
+            const maxNameWidth = barWidth - LAYOUT.namePad - 44;
             if (context.measureText(nameText).width > maxNameWidth) {
                 const ellipsis = "...";
                 while (context.measureText(nameText + ellipsis).width > maxNameWidth && nameText.length > 0) {
@@ -2648,18 +2978,17 @@ export async function apply(ctx: Context, config: Config) {
                 }
                 nameText += ellipsis;
             }
-            const nameTextX = barX + 10;
-            context.fillText(nameText, nameTextX, textY);
+            const nameTextX = BAR_X + LAYOUT.namePad;
+            context.fillText(nameText, nameTextX, baselineY);
 
             // 绘制用户自定义图标
             const userIcons = findAssets(data.userId, iconData, 'iconBase64');
             if (userIcons.length > 0) {
                 await drawUserIcons(context, userIcons, {
-                    nameText: data.name, // 传递原始nameText用于计算位置
                     nameTextX: context.measureText(nameText).width + nameTextX,
-                    barX: barX,
+                    barX: BAR_X,
                     barWidth: barWidth,
-                    textY: textY
+                    textY: baselineY
                 });
             }
         }
@@ -2676,8 +3005,8 @@ export async function apply(ctx: Context, config: Config) {
                         const iconSize = 40;
                         const iconY = textY - 30;
                         let iconX = config.shouldMoveIconToBarEndLeft
-                            ? barX + barWidth - (iconSize * (i + 1))
-                            : nameTextX + (iconSize * i) + 5;
+                            ? barX + barWidth - (iconSize * (i + 1)) - 6
+                            : nameTextX + (iconSize * i) + 8;
                         context.drawImage(icon, iconX, iconY, iconSize, iconSize);
                         resolve(); // 图片绘制成功
                     };
@@ -2688,32 +3017,92 @@ export async function apply(ctx: Context, config: Config) {
             }));
         }
 
-        async function drawAvatars(context, userAvatarSize) {
+        async function drawAvatars(context) {
+          const size = LAYOUT.avatarSize;
+          const shape = config.avatarShape || 'circle';
+
           for (const [index, data] of rankingData.entries()) {
+            const y = ROW_HEIGHT * index;
             const image = new Image();
             image.src = "data:image/png;base64," + data.avatarBase64;
-            // onload不是必需的，因为图片已是base64，但为了健壮性可以保留
             await new Promise(resolve => {
-                image.onload = () => {
-                    context.drawImage(image, 0, 50 * index, userAvatarSize, userAvatarSize);
-                    resolve();
-                };
+                image.onload = resolve;
                 image.onerror = resolve; // 即使加载失败也继续
             });
+            if (!image.width) continue;
+
+            context.save();
+            traceAvatarShape(context, 0, y, size, shape);
+            context.clip();
+            context.drawImage(image, 0, y, size, size);
+            context.restore();
+
+            // 极浅的描边，让头像与背景之间有一点分隔
+            context.save();
+            traceAvatarShape(context, 0.5, y + 0.5, size - 1, shape);
+            context.strokeStyle = "rgba(0, 0, 0, 0.08)";
+            context.lineWidth = 1;
+            context.stroke();
+            context.restore();
           }
         }
 
-        function drawVerticalLines(context, canvasHeight, tableWidth) {
-            context.fillStyle = "rgba(0, 0, 0, 0.12)";
-            const verticalLineWidth = 3;
-            const firstLineX = 200;
-            for (let i = 0; i < 8; i++) {
-                context.fillRect(firstLineX + 100 * i, 0, verticalLineWidth, canvasHeight);
+        /** 按配置勾勒头像轮廓：圆形 / 圆角方形 / 方形。 */
+        function traceAvatarShape(context, x, y, size, shape) {
+            if (shape === 'circle') {
+                context.beginPath();
+                context.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
+                context.closePath();
+            } else if (shape === 'rounded') {
+                traceRoundRect(context, x, y, size, size, LAYOUT.avatarRadius);
+            } else {
+                context.beginPath();
+                context.rect(x, y, size, size);
+                context.closePath();
             }
         }
 
+        /** 刻度线：只画在轨道内部，行间空隙保持干净。 */
+        function drawGridLines(context, trackWidth) {
+            const firstLineX = BAR_X + LAYOUT.barMinWidth;
+            const step = LAYOUT.barSpan / 7;
+
+            context.save();
+            context.fillStyle = "rgba(0, 0, 0, 0.06)";
+            for (let row = 0; row < rankingData.length; row++) {
+                const y = ROW_HEIGHT * row;
+                context.save();
+                traceRoundRect(context, BAR_X, y, trackWidth, LAYOUT.avatarSize, LAYOUT.barRadius);
+                context.clip();
+                for (let i = 0; i < 8; i++) {
+                    context.fillRect(firstLineX + step * i, y, 2, LAYOUT.avatarSize);
+                }
+                context.restore();
+            }
+            context.restore();
+        }
 
         // --- 辅助工具函数 ---
+
+        /** 勾勒圆角矩形路径（不填充），兼容不支持 roundRect 的环境。 */
+        function traceRoundRect(context, x, y, width, height, radius) {
+          const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+          context.beginPath();
+          if (typeof context.roundRect === 'function') {
+            context.roundRect(x, y, width, height, r);
+          } else {
+            context.moveTo(x + r, y);
+            context.lineTo(x + width - r, y);
+            context.quadraticCurveTo(x + width, y, x + width, y + r);
+            context.lineTo(x + width, y + height - r);
+            context.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+            context.lineTo(x + r, y + height);
+            context.quadraticCurveTo(x, y + height, x, y + height - r);
+            context.lineTo(x, y + r);
+            context.quadraticCurveTo(x, y, x + r, y);
+          }
+          context.closePath();
+        }
 
         function findAssets(userId, assetList, key) {
           return assetList
@@ -2885,21 +3274,28 @@ export async function apply(ctx: Context, config: Config) {
       <!DOCTYPE html>
       <html lang="zh-CN">
       <head>
-          <meta charset="UTF--8">
+          <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>排行榜</title>
           <style>${_getChartBaseStyles()}</style>
           <style>${backgroundStyle}</style>
           <style>${fontFacesCSS}</style>
           <style>
-            .ranking-title { font-family: "${
+            .ranking-title, .ranking-subtitle { font-family: "${
               chartConfig.chartTitleFont
             }", "Microsoft YaHei", sans-serif; }
           </style>
       </head>
       <body>
-          <h1 class="ranking-title">${rankTimeTitle}</h1>
-          <h1 class="ranking-title">${rankTitle}</h1>
+          <div class="bg-layer"></div>
+          <header class="chart-header">
+            <h1 class="ranking-title">${rankTitle}</h1>
+            ${
+              config.isTimeInfoSupplementEnabled
+                ? `<p class="ranking-subtitle">${rankTimeTitle}</p>`
+                : ""
+            }
+          </header>
           <div class="font-preload">
             <span style="font-family: '${
               chartConfig.chartNicknameFont
@@ -2964,6 +3360,7 @@ export async function apply(ctx: Context, config: Config) {
         horizontalBarBackgroundFullOpacity:
           config.horizontalBarBackgroundFullOpacity,
         isUserMessagePercentageVisible: config.isUserMessagePercentageVisible,
+        avatarShape: config.avatarShape,
         chartTitleFont: config.chartTitleFont,
         chartNicknameFont: config.chartNicknameFont,
       };
@@ -2999,14 +3396,13 @@ export async function apply(ctx: Context, config: Config) {
         waitUntil: config.waitUntil,
       });
 
-      const calculatedWidth = await page.evaluate(() => {
+      const calculatedWidth = await page.evaluate((bodyPadding: number) => {
         const canvas = document.getElementById(
           "rankingCanvas",
         ) as HTMLCanvasElement | null;
-        const bodyPadding = 40; // 对应 body 的左右 padding (20px + 20px)
-        // 如果 canvas 存在，则返回其宽度加上页面的 padding；否则返回一个默认值。
+        // 如果 canvas 存在，则返回其宽度加上页面的左右 padding；否则返回一个默认值。
         return canvas ? canvas.width + bodyPadding : 1080;
-      });
+      }, CHART_PAGE_PADDING_X * 2);
 
       await page.setViewport({
         // 使用客户端计算出的宽度，但确保不小于用户在配置中设定的值
