@@ -1178,9 +1178,9 @@ export async function apply(ctx: Context, config: Config) {
     .command("messageCounter.初始化", "初始化", { authority: 3 })
     .action(async ({ session }) => {
       if (!session) return;
-      await session.send("正在清空所有发言记录，请稍候...");
+      await session.send("⏳ 正在清空所有发言记录...");
       await ctx.database.remove("message_counter_records", {});
-      await session.send("所有发言记录已清空！");
+      await session.send("✅ 所有发言记录已清空。");
     });
 
   // 查询指令
@@ -1247,7 +1247,7 @@ export async function apply(ctx: Context, config: Config) {
         channelId,
         userId,
       });
-      if (targetUserRecord.length === 0) return `被查询对象无任何发言记录。`;
+      if (targetUserRecord.length === 0) return `⚠️ 被查询对象没有任何发言记录。`;
 
       // 求和交给数据库：每人一行，而不是每人每群一行
       const [channelSummary, acrossSummary]: [Summary[], Summary[]] =
@@ -1332,7 +1332,7 @@ export async function apply(ctx: Context, config: Config) {
       const acrossTable = formatStatsTable("跨群发言", acrossStats);
 
       const body = [channelTable, acrossTable].filter(Boolean).join("\n");
-      if (!body) return `被查询对象在指定时段内无发言记录。`;
+      if (!body) return `⚠️ 被查询对象在指定时段内没有发言记录。`;
 
       // 使用 'sv-SE' locale 可以方便地得到 YYYY-MM-DD HH:MM:SS 格式
       const timestamp = new Date().toLocaleString("sv-SE", {
@@ -1377,7 +1377,7 @@ export async function apply(ctx: Context, config: Config) {
 
       const number = limit ?? config.defaultMaxDisplayCount;
       if (typeof number !== "number" || isNaN(number) || number < 0) {
-        return "请输入大于等于 0 的数字作为排行榜显示人数。";
+        return "⚠️ 请输入不小于 0 的数字作为排行榜显示人数。";
       }
 
       const whites = parseList(options?.whites);
@@ -1404,7 +1404,7 @@ export async function apply(ctx: Context, config: Config) {
       });
 
       if (rows.length === 0) {
-        return "当前范围内暂无发言记录。";
+        return "⚠️ 当前范围内暂无发言记录。";
       }
 
       const rankingData: RankingData[] = rows.map((row) => ({
@@ -1438,7 +1438,7 @@ export async function apply(ctx: Context, config: Config) {
 
       const number = limit ?? config.defaultMaxDisplayCount;
       if (typeof number !== "number" || isNaN(number) || number < 0) {
-        return "请输入大于等于 0 的数字作为排行榜显示人数。";
+        return "⚠️ 请输入不小于 0 的数字作为排行榜显示人数。";
       }
 
       const whites = parseList(options?.whites);
@@ -1477,7 +1477,7 @@ export async function apply(ctx: Context, config: Config) {
       });
 
       if (rows.length === 0) {
-        return `在当前条件下找不到任何群聊发言记录。`;
+        return `⚠️ 在当前条件下找不到任何群聊发言记录。`;
       }
 
       const rankingData: RankingData[] = rows.map((row) => ({
@@ -1503,15 +1503,15 @@ export async function apply(ctx: Context, config: Config) {
     )
     .action(async ({ session }) => {
       if (!session || !session.userId) {
-        return "无法获取用户信息，请稍后再试。";
+        return "❌ 无法获取用户信息，请稍后再试。";
       }
       if (!session.content) {
-        return "请在发送指令的同时附带一张图片。新图片将会覆盖旧的背景。";
+        return "⚠️ 请在发送指令时附带一张图片。新图片会覆盖旧背景。";
       }
 
       const imageElements = h.select(session.content, "img");
       if (imageElements.length === 0) {
-        return "请在发送指令的同时附带一张图片。新图片将会覆盖旧的背景。";
+        return "⚠️ 请在发送指令时附带一张图片。新图片会覆盖旧背景。";
       }
 
       const { userId } = session;
@@ -1593,7 +1593,7 @@ export async function apply(ctx: Context, config: Config) {
         await fs.writeFile(newFilePath, buffer);
         await reloadBarBgImgCache();
 
-        return "您的自定义柱状条背景已成功更新！";
+        return "✅ 自定义柱状条背景已更新。";
       } catch (error) {
         logger.error(`为用户 ${userId} 上传背景图失败:`, error);
 
@@ -1605,7 +1605,7 @@ export async function apply(ctx: Context, config: Config) {
           error instanceof Error
             ? error.message
             : "图片保存时发生未知错误，请联系管理员。";
-        return `图片上传失败: ${userMessage}\n您之前的自定义背景（如有）已被移除。`;
+        return `❌ 图片上传失败：${userMessage}\n之前的自定义背景（如有）已被移除。`;
       }
     });
 
@@ -1617,13 +1617,13 @@ export async function apply(ctx: Context, config: Config) {
     .action(async ({ session }) => {
       if (!session) return;
 
-      await session.send("正在重新加载用户图标、背景图片和字体文件缓存...");
+      await session.send("⏳ 正在重新加载用户图标、背景图片和字体文件缓存...");
 
       await reloadIconCache();
       await reloadBarBgImgCache();
       await reloadFontCache(); // 调用字体缓存重载
 
-      return `资源重载完毕！\n- 已加载 ${iconCache.length} 个用户图标。\n- 已加载 ${barBgImgCache.length} 个柱状条背景图片。\n- 已加载 ${fontFilesCache.length} 个字体文件。`;
+      return `✅ 资源重载完毕。\n- 已加载 ${iconCache.length} 个用户图标。\n- 已加载 ${barBgImgCache.length} 个柱状条背景图片。\n- 已加载 ${fontFilesCache.length} 个字体文件。`;
     });
 
   // 清理缓存
@@ -1640,10 +1640,10 @@ export async function apply(ctx: Context, config: Config) {
 
       const days = options.days ?? 30;
       if (typeof days !== "number" || days < 0) {
-        return "请输入一个有效的天数（大于等于0）。";
+        return "⚠️ 请输入有效的天数（不小于 0）。";
       }
 
-      await session.send(`正在开始清理 ${days} 天前的头像缓存，请稍候...`);
+      await session.send(`⏳ 正在清理 ${days} 天前的头像缓存...`);
 
       const cacheDir = avatarsPath; // 使用已定义的头像缓存路径
       let deletedCount = 0;
@@ -1675,13 +1675,13 @@ export async function apply(ctx: Context, config: Config) {
         }
 
         const freedSizeFormatted = formatBytes(totalFreedSize);
-        return `缓存清理完成！\n- 共删除 ${deletedCount} 个过期缓存文件。\n- 释放磁盘空间约 ${freedSizeFormatted}。`;
+        return `✅ 缓存清理完成。\n- 共删除 ${deletedCount} 个过期缓存文件。\n- 释放磁盘空间约 ${freedSizeFormatted}。`;
       } catch (error) {
         if (error.code === "ENOENT") {
-          return "头像缓存目录不存在，无需清理。";
+          return "⚠️ 头像缓存目录不存在，无需清理。";
         }
         logger.error("清理头像缓存时发生未知错误:", error);
-        return "清理过程中发生错误，请查看控制台日志。";
+        return "❌ 清理过程中发生错误，请查看控制台日志。";
       }
     });
 
@@ -1955,7 +1955,7 @@ export async function apply(ctx: Context, config: Config) {
           try {
             await ctx.broadcast(
               [prefixedChannelId],
-              `正在为本群生成${periodName}发言排行榜...`,
+              `⏳ 正在为本群生成${periodName}发言排行榜...`,
             );
           } catch (e) {}
           await sleep(config.leaderboardGenerationWaitTime * 1000);
