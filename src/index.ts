@@ -3,6 +3,7 @@ import {} from "koishi-plugin-markdown-to-image-service";
 import {} from "koishi-plugin-cron";
 import {} from "koishi-plugin-puppeteer";
 import path from "path";
+import { pathToFileURL } from "url";
 import {} from "@koishijs/canvas";
 import * as fs from "fs/promises";
 import { constants as fsConstants } from "fs";
@@ -3344,12 +3345,8 @@ export async function apply(ctx: Context, config: Config) {
     if (!ctx.puppeteer) {
       throw new Error("Puppeteer 服务未启用，无法生成图表。");
     }
-    const browser = ctx.puppeteer.browser;
-    if (!browser) {
-      throw new Error("Puppeteer 浏览器实例不可用。");
-    }
 
-    const page = await browser.newPage();
+    const page = await ctx.puppeteer.page();
     try {
       const fontFaces = generateFontFacesCSS(fontFilesCache);
       const backgroundStyle = await _prepareBackgroundStyle(config);
@@ -3376,24 +3373,14 @@ export async function apply(ctx: Context, config: Config) {
         chartConfig: chartConfigForClient,
       });
 
-      // 加载本地空 HTML 文件作为起点
-      const pageUrl = emptyHtmlPath.includes(":")
-        ? `file:///${emptyHtmlPath}`
-        : `file://${emptyHtmlPath}`;
-      await page.goto(pageUrl, { waitUntil: "load" });
-
-      // 调试：将 html 内容保存到文件中
-      // const debugHtmlPath = path.join(
-      //   ctx.baseDir,
-      //   "data",
-      //   "messageCounter",
-      //   "debug-ranking-chart.html"
-      // );
-      // await fs.writeFile(debugHtmlPath, htmlContent, "utf-8");
-      // logger.info(`排行榜 HTML 已保存到 ${debugHtmlPath}`);
+      // 字体是相对路径 `fonts/...`，先落到数据目录下的空白页才读得到。
+      await page.goto(pathToFileURL(emptyHtmlPath).href, { waitUntil: "load" });
 
       await page.setContent(h.unescape(htmlContent), {
         waitUntil: config.waitUntil,
+      });
+      await page.evaluate(async () => {
+        await (document as any).fonts?.ready;
       });
 
       const calculatedWidth = await page.evaluate((bodyPadding: number) => {
@@ -3422,7 +3409,7 @@ export async function apply(ctx: Context, config: Config) {
       logger.error("生成排行榜图表时发生错误:", error);
       throw error; // 将错误向上抛出，以便调用者可以处理
     } finally {
-      await page.close(); // 确保页面总是被关闭
+      await page.close();
     }
   }
 
