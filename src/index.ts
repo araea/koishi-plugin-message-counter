@@ -722,7 +722,7 @@ export async function apply(ctx: Context, config: Config) {
   } catch {
     // 文件不存在，则创建一个空文件
     await fs.writeFile(emptyHtmlPath, "");
-    logger.info(`已创建空的渲染模板文件: emptyHtml.html`);
+    logger.debug(`已创建空的渲染模板文件: emptyHtml.html`);
   }
 
   // 加载内置回退头像 base64
@@ -751,6 +751,18 @@ export async function apply(ctx: Context, config: Config) {
   let iconCache: AssetData[] = [];
   let barBgImgCache: AssetData[] = [];
   let fontFilesCache: string[] = []; // 字体文件缓存
+
+  // 同类问题只在首次出现时 warn，之后降级为 debug。
+  // 渲染、消息事件都是高频路径，重复提示同一件事只会淹没真正有用的日志。
+  const warnedOnceKeys = new Set<string>();
+  function warnOnce(key: string, message: any, ...args: any[]) {
+    if (warnedOnceKeys.has(key)) {
+      logger.debug(message, ...args);
+      return;
+    }
+    warnedOnceKeys.add(key);
+    logger.warn(message, ...args);
+  }
 
   // 跨机器人消息去重缓存：dedupKey -> 过期时间戳（毫秒）
   // 同一群接入多个机器人时，同一条消息会被每个机器人各触发一次中间件，
@@ -839,7 +851,7 @@ export async function apply(ctx: Context, config: Config) {
           generateAndPushLeaderboard("yesterday"),
         );
         scheduledTasks.push(task);
-        logger.info("[自动推送] 已设置每日 00:01 推送昨日排行榜的任务。");
+        logger.debug("[自动推送] 已设置每日 00:01 推送昨日排行榜的任务。");
       }
       (config.dailyScheduledTimers || []).forEach((time) => {
         const match = /^([0-1]?[0-9]|2[0-3]):([0-5]?[0-9])$/.exec(time);
@@ -850,7 +862,7 @@ export async function apply(ctx: Context, config: Config) {
             generateAndPushLeaderboard("today"),
           );
           scheduledTasks.push(task);
-          logger.info(`[自动推送] 已设置每日 ${time} 推送今日排行榜的任务。`);
+          logger.debug(`[自动推送] 已设置每日 ${time} 推送今日排行榜的任务。`);
         } else {
           logger.warn(
             `[自动推送] 无效的时间格式: "${time}"，已跳过。请使用 "HH:mm" 格式。`,
@@ -863,7 +875,7 @@ export async function apply(ctx: Context, config: Config) {
     if (config.enableMostActiveUserMuting) {
       const task = ctx.cron("1 0 * * *", () => performDragonKingMuting());
       scheduledTasks.push(task);
-      logger.info("[抓龙王] 已设置每日 00:01 执行的禁言任务。");
+      logger.debug("[抓龙王] 已设置每日 00:01 执行的禁言任务。");
     }
 
     // 3. 统一的推送与数据库重置定时任务
@@ -939,7 +951,7 @@ export async function apply(ctx: Context, config: Config) {
 
     // 将这一个统一的任务添加到待清理列表
     scheduledTasks.push(resetTask);
-    logger.info("已设置统一的推送与数据重置任务（每日、周、月、年）。");
+    logger.debug("已设置统一的推送与数据重置任务（每日、周、月、年）。");
   });
 
   // --- 资源清理 ---
@@ -951,7 +963,8 @@ export async function apply(ctx: Context, config: Config) {
     iconCache = [];
     barBgImgCache = [];
     fontFilesCache = [];
-    logger.info("所有已安排的任务和缓存都已清除。");
+    warnedOnceKeys.clear();
+    logger.debug("所有已安排的任务和缓存都已清除。");
   });
 
   // --- 核心消息监听器 ---
@@ -1037,7 +1050,10 @@ export async function apply(ctx: Context, config: Config) {
       let sessionChannelName = session.event.channel.name;
       const botUser = bot.user;
       if (!botUser) {
-        logger.warn("Bot user is undefined, skipping bot message tracking.");
+        warnOnce(
+          `bot-user-undefined:${bot.platform}`,
+          "Bot user is undefined, skipping bot message tracking.",
+        );
         return;
       }
 
@@ -1483,7 +1499,7 @@ export async function apply(ctx: Context, config: Config) {
             );
           }
         } else {
-          logger.warn("Canvas 服务未启用，跳过背景图尺寸检查。");
+          warnOnce("canvas-missing", "Canvas 服务未启用，跳过背景图尺寸检查。");
         }
 
         // 所有检查通过，先清理旧图，再保存新图
@@ -1634,7 +1650,7 @@ export async function apply(ctx: Context, config: Config) {
             return patchedFilePath;
           } catch (e) {
             // 修复后的文件不存在，现在创建它。
-            logger.info(
+            logger.debug(
               `检测到字体 "${path.basename(
                 filePath,
               )}" 不规范，正在创建修复版本 "${patchedFilename}"...`,
@@ -1643,9 +1659,7 @@ export async function apply(ctx: Context, config: Config) {
             buffer.writeUInt32BE(CORRECT_VERSION, tableOffset);
             try {
               await fs.writeFile(patchedFilePath, buffer);
-              logger.success(
-                `已成功创建修复后的字体文件 "${patchedFilename}"。`,
-              );
+              logger.info(`已修复不规范的字体文件 "${patchedFilename}"。`);
               return patchedFilePath;
             } catch (writeError) {
               logger.warn(`创建修复字体副本失败: ${writeError.message}`);
@@ -1692,7 +1706,7 @@ export async function apply(ctx: Context, config: Config) {
 
     const { field, name: periodName } = pushPeriodConfig[period];
 
-    logger.info(`[自动推送] 开始执行 ${periodName} 发言排行榜推送任务。`);
+    logger.debug(`[自动推送] 开始执行 ${periodName} 发言排行榜推送任务。`);
 
     const scopeName = "本群"; // 自动推送总是基于单个群聊的视角
     const rankTimeTitle = getCurrentBeijingTime();
@@ -1815,11 +1829,14 @@ export async function apply(ctx: Context, config: Config) {
     }
 
     if (targetChannels.size === 0) {
-      logger.info("[自动推送] 没有配置任何需要推送的频道，任务结束。");
+      logger.debug("[自动推送] 没有配置任何需要推送的频道，任务结束。");
       return;
     }
 
-    logger.info(`[自动推送] 将向 ${targetChannels.size} 个频道进行推送。`);
+    logger.debug(`[自动推送] 将向 ${targetChannels.size} 个频道进行推送。`);
+
+    let pushedCount = 0;
+    let failedCount = 0;
 
     // 3. 遍历频道并推送 (修改点在于 field 和 periodName 已被通用化)
     for (const prefixedChannelId of targetChannels) {
@@ -1839,7 +1856,7 @@ export async function apply(ctx: Context, config: Config) {
 
         const ranked = rows.filter((row) => row.count > 0);
         if (ranked.length === 0) {
-          logger.info(
+          logger.debug(
             `[自动推送] 频道 ${prefixedChannelId} 在 ${periodName} 榜单上无有效数据，跳过。`,
           );
           continue;
@@ -1873,7 +1890,8 @@ export async function apply(ctx: Context, config: Config) {
         });
         await ctx.broadcast([prefixedChannelId], renderedMessage);
 
-        logger.success(
+        pushedCount++;
+        logger.debug(
           `[自动推送] 已成功向频道 ${prefixedChannelId} 推送${periodName}排行榜。`,
         );
 
@@ -1885,13 +1903,24 @@ export async function apply(ctx: Context, config: Config) {
           await sleep(delay);
         }
       } catch (error) {
+        failedCount++;
         logger.error(
           `[自动推送] 向频道 ${prefixedChannelId} 推送时发生错误:`,
           error,
         );
       }
     }
-    logger.info(`[自动推送] 所有推送任务执行完毕。`);
+
+    // 真正推送出去（或出错）时才汇总一行；空转的任务不必打扰控制台。
+    if (pushedCount > 0 || failedCount > 0) {
+      logger.info(
+        `[自动推送] ${periodName}排行榜推送完成：成功 ${pushedCount} 个频道${
+          failedCount > 0 ? `，失败 ${failedCount} 个` : ""
+        }。`,
+      );
+    } else {
+      logger.debug(`[自动推送] ${periodName}排行榜没有需要推送的频道。`);
+    }
   }
 
   /**
@@ -1905,7 +1934,7 @@ export async function apply(ctx: Context, config: Config) {
     ) {
       return;
     }
-    logger.info("[抓龙王] 开始执行禁言任务。");
+    logger.debug("[抓龙王] 开始执行禁言任务。");
 
     // 等待设定的延迟时间
     await sleep(config.dragonKingDetainmentTime * 1000);
@@ -1921,7 +1950,7 @@ export async function apply(ctx: Context, config: Config) {
           .execute();
 
         if (!topUser) {
-          logger.info(`[抓龙王] 频道 ${channelId} 昨日无人发言，跳过。`);
+          logger.debug(`[抓龙王] 频道 ${channelId} 昨日无人发言，跳过。`);
           continue;
         }
 
@@ -1976,8 +2005,9 @@ export async function apply(ctx: Context, config: Config) {
    * 此函数会在插件启动时运行，为每个周期检查并创建基准重置时间记录。
    */
   async function initializeResetStates() {
-    logger.info("正在初始化并验证发言计数器的重置状态...");
+    logger.debug("正在初始化并验证发言计数器的重置状态...");
     const now = new Date();
+    const initializedPeriods: PeriodIdentifier[] = [];
     const state = await ctx.database.get("message_counter_state", {});
     const stateMap = new Map(state.map((s) => [s.key, s.value]));
 
@@ -2017,12 +2047,20 @@ export async function apply(ctx: Context, config: Config) {
         await ctx.database.upsert("message_counter_state", [
           { key, value: baselineDate },
         ]);
-        logger.info(
+        initializedPeriods.push(period);
+        logger.debug(
           `已为 '${period}' 周期初始化重置状态，基准时间：${baselineDate.toISOString()}`,
         );
       }
     }
-    logger.info("所有周期的重置状态已验证完毕。");
+    // 只有首次安装或数据被清空时才会真正写入基准时间，这时才值得提示一次。
+    if (initializedPeriods.length) {
+      logger.info(
+        `已初始化 ${initializedPeriods.join("、")} 周期的重置基准时间。`,
+      );
+    } else {
+      logger.debug("所有周期的重置状态已验证完毕。");
+    }
   }
 
   /**
@@ -2071,7 +2109,7 @@ export async function apply(ctx: Context, config: Config) {
    * 现在将使用 isResetDue() 来判断是否需要补上任务。
    */
   async function checkForMissedResets() {
-    logger.info("正在检查错过的计数器重置任务...");
+    logger.debug("正在检查错过的计数器重置任务...");
 
     // 定义任务，以便循环处理
     const jobDefinitions: {
@@ -2103,12 +2141,12 @@ export async function apply(ctx: Context, config: Config) {
 
     for (const job of jobDefinitions) {
       if (await isResetDue(job.period)) {
-        logger.info(`检测到错过的 ${job.period} 重置任务，正在执行...`);
+        logger.debug(`检测到错过的 ${job.period} 重置任务，正在执行...`);
         await resetCounter(job.field, job.message, job.period);
       }
     }
 
-    logger.info("错过的计数器重置任务检查完毕。");
+    logger.debug("错过的计数器重置任务检查完毕。");
   }
 
   /**
@@ -2124,11 +2162,11 @@ export async function apply(ctx: Context, config: Config) {
   ) {
     // 当重置“今日”发言时，首先把“今日”的数据备份到“昨日”
     if (field === "todayPostCount") {
-      logger.info("正在更新昨日发言数...");
+      logger.debug("正在更新昨日发言数...");
       await ctx.database.set("message_counter_records", {}, (row) => ({
         yesterdayPostCount: row.todayPostCount,
       }));
-      logger.success("更新昨日发言数完成。");
+      logger.debug("更新昨日发言数完成。");
     }
 
     // 然后将相应的字段置零
@@ -2142,7 +2180,7 @@ export async function apply(ctx: Context, config: Config) {
         value: new Date(),
       },
     ]);
-    logger.success(`已更新 ${period} 周期的最后重置时间。`);
+    logger.debug(`已更新 ${period} 周期的最后重置时间。`);
   }
 
   // 将数字格式化为保留两位小数的百分比字符串，例如 "12.34%"
@@ -2229,7 +2267,8 @@ export async function apply(ctx: Context, config: Config) {
       context.drawImage(image, 0, 0, 50, 50);
       finalBase64 = (await canvas.toBuffer("image/png")).toString("base64");
     } catch (error) {
-      logger.warn(
+      warnOnce(
+        `avatar-fetch-failed:${error?.message ?? error}`,
         `获取或处理头像失败 (URL: ${url})，将使用默认头像并缓存失败状态:`,
         error.message || error,
       );
@@ -2258,12 +2297,12 @@ export async function apply(ctx: Context, config: Config) {
 
   async function reloadIconCache() {
     iconCache = await loadAssetsFromFolder(iconsPath);
-    logger.info(`已加载 ${iconCache.length} 个用户图标。`);
+    logger.debug(`已加载 ${iconCache.length} 个用户图标。`);
   }
 
   async function reloadBarBgImgCache() {
     barBgImgCache = await loadAssetsFromFolder(barBgImgsPath);
-    logger.info(`已加载 ${barBgImgCache.length} 个柱状图背景图片。`);
+    logger.debug(`已加载 ${barBgImgCache.length} 个柱状图背景图片。`);
   }
 
   /**
@@ -2300,7 +2339,7 @@ export async function apply(ctx: Context, config: Config) {
 
       // 将 Set 转换为数组，更新缓存
       fontFilesCache = [...usableFontBasenames];
-      logger.info(`已加载 ${fontFilesCache.length} 个可用字体文件。`);
+      logger.debug(`已加载 ${fontFilesCache.length} 个可用字体文件。`);
     } catch (error) {
       logger.warn(`无法读取或重载字体目录 ${fontsPath}:`, error);
       fontFilesCache = [];
@@ -2311,7 +2350,7 @@ export async function apply(ctx: Context, config: Config) {
   async function migrateFolder(oldPath: string, newPath: string) {
     try {
       await fs.access(oldPath, fsConstants.F_OK); // 检查旧文件夹是否存在
-      logger.info(`检测到旧资源文件夹: ${oldPath}，将迁移至: ${newPath}`);
+      logger.debug(`检测到旧资源文件夹: ${oldPath}，将迁移至: ${newPath}`);
       const files = await fs.readdir(oldPath);
       for (const file of files) {
         const oldFile = path.join(oldPath, file);
@@ -2355,7 +2394,7 @@ export async function apply(ctx: Context, config: Config) {
         return;
       }
       await fs.copyFile(sourcePath, destPath);
-      logger.info(`已拷贝资源文件 ${filename} 到 ${destDir}`);
+      logger.debug(`已拷贝资源文件 ${filename} 到 ${destDir}`);
     }
   }
 
@@ -3410,7 +3449,10 @@ export async function apply(ctx: Context, config: Config) {
     // 渲染为水平柱状图
     if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
       if (!ctx.puppeteer) {
-        logger.warn("Puppeteer service is not enabled. Falling back to text.");
+        warnOnce(
+          "puppeteer-missing",
+          "Puppeteer service is not enabled. Falling back to text.",
+        );
       } else {
         try {
           const chartReadyData = rankingData.map((item) => {
