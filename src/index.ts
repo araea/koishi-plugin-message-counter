@@ -766,6 +766,23 @@ export async function apply(ctx: Context, config: Config) {
   const processedMessages = new Map<string, number>();
   const MESSAGE_DEDUP_TTL = 60 * 1000; // 去重记录的有效期（60 秒）
 
+  // Minato 的函数式 upsert 会先读取旧行再写入；同一用户的并发消息可能同时
+  // 判断为“尚无记录”，最终撞上复合主键。按计数主键串行化写入，既保留
+  // 表达式增量更新，也不会阻塞其他用户或频道。
+  const counterUpdateQueues = new Map<string, Promise<void>>();
+  async function serializeCounterUpdate(key: string, update: () => Promise<void>) {
+    const previous = counterUpdateQueues.get(key) ?? Promise.resolve();
+    const current = previous.catch(() => {}).then(update);
+    counterUpdateQueues.set(key, current);
+    try {
+      await current;
+    } finally {
+      if (counterUpdateQueues.get(key) === current) {
+        counterUpdateQueues.delete(key);
+      }
+    }
+  }
+
   // 定期清理过期的去重记录，防止内存无限增长（ctx.setInterval 会在插件卸载时自动清理）
   ctx.setInterval(() => {
     const now = Date.now();
@@ -938,6 +955,7 @@ export async function apply(ctx: Context, config: Config) {
     // 调用 disposer 函数来取消定时任务
     scheduledTasks.forEach((task) => task());
     avatarCache.clear();
+    counterUpdateQueues.clear();
     iconCache = [];
     barBgImgCache = [];
     fontFilesCache = [];
@@ -983,26 +1001,28 @@ export async function apply(ctx: Context, config: Config) {
           (channelId ? await getChannelName(session.bot, channelId) : channelId),
       );
 
-      await ctx.database.upsert(
-        "message_counter_records",
-        (row) => [
-          {
-            channelId,
-            userId,
+      await serializeCounterUpdate(`${channelId}\n${userId}`, async () => {
+        await ctx.database.upsert(
+          "message_counter_records",
+          (row) => [
+            {
+              channelId,
+              userId,
 
-            username,
-            userAvatar: userAvatar || row.userAvatar,
-            channelName: channelName || row.channelName,
+              username,
+              userAvatar: userAvatar || row.userAvatar,
+              channelName: channelName || row.channelName,
 
-            todayPostCount: $.add(row.todayPostCount, 1),
-            thisWeekPostCount: $.add(row.thisWeekPostCount, 1),
-            thisMonthPostCount: $.add(row.thisMonthPostCount, 1),
-            thisYearPostCount: $.add(row.thisYearPostCount, 1),
-            totalPostCount: $.add(row.totalPostCount, 1),
-          },
-        ],
-        ["channelId", "userId"],
-      );
+              todayPostCount: $.add(row.todayPostCount, 1),
+              thisWeekPostCount: $.add(row.thisWeekPostCount, 1),
+              thisMonthPostCount: $.add(row.thisMonthPostCount, 1),
+              thisYearPostCount: $.add(row.thisYearPostCount, 1),
+              totalPostCount: $.add(row.totalPostCount, 1),
+            },
+          ],
+          ["channelId", "userId"],
+        );
+      });
     } catch (error) {
       logger.error(
         "Failed to update message count for user %s in channel %s:",
@@ -1036,26 +1056,28 @@ export async function apply(ctx: Context, config: Config) {
             channelId,
         );
 
-        await ctx.database.upsert(
-          "message_counter_records",
-          (row) => [
-            {
-              channelId,
-              userId: botUser.id,
+        await serializeCounterUpdate(`${channelId}\n${botUser.id}`, async () => {
+          await ctx.database.upsert(
+            "message_counter_records",
+            (row) => [
+              {
+                channelId,
+                userId: botUser.id,
 
-              username: sanitizeText(botUser.name) || botUser.id,
-              userAvatar: botUser.avatar,
-              channelName: channelName || row.channelName,
+                username: sanitizeText(botUser.name) || botUser.id,
+                userAvatar: botUser.avatar,
+                channelName: channelName || row.channelName,
 
-              todayPostCount: $.add(row.todayPostCount, 1),
-              thisWeekPostCount: $.add(row.thisWeekPostCount, 1),
-              thisMonthPostCount: $.add(row.thisMonthPostCount, 1),
-              thisYearPostCount: $.add(row.thisYearPostCount, 1),
-              totalPostCount: $.add(row.totalPostCount, 1),
-            },
-          ],
-          ["channelId", "userId"],
-        );
+                todayPostCount: $.add(row.todayPostCount, 1),
+                thisWeekPostCount: $.add(row.thisWeekPostCount, 1),
+                thisMonthPostCount: $.add(row.thisMonthPostCount, 1),
+                thisYearPostCount: $.add(row.thisYearPostCount, 1),
+                totalPostCount: $.add(row.totalPostCount, 1),
+              },
+            ],
+            ["channelId", "userId"],
+          );
+        });
       } catch (error) {
         logger.error(
           "Failed to update bot message count in channel %s:",
