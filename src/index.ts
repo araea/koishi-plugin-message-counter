@@ -1,5 +1,4 @@
 import { Context, h, Logger, Schema, sleep, Bot, Dict, $ } from "koishi";
-import {} from "koishi-plugin-markdown-to-image-service";
 import {} from "koishi-plugin-cron";
 import {} from "koishi-plugin-puppeteer";
 import path from "path";
@@ -23,7 +22,7 @@ let fallbackBase64: string[] = [""];
 export const name = "message-counter";
 export const inject = {
   required: ["database", "cron"],
-  optional: ["markdownToImage", "puppeteer", "canvas"],
+  optional: ["puppeteer", "canvas"],
 };
 
 export const usage = `## 使用
@@ -75,8 +74,6 @@ export interface Config {
   hiddenChannelIdsInLeaderboard: string[];
 
   // --- 图片生成 ---
-  /** 是否将文本排行榜转为 Markdown 图片。 */
-  isTextToImageConversionEnabled: boolean;
   /** 是否将排行榜渲染为水平柱状图。 */
   isLeaderboardToHorizontalBarChartConversionEnabled: boolean;
 
@@ -229,11 +226,6 @@ export const Config: Schema<Config> = Schema.intersect([
   // --- 图片生成 ---
   Schema.intersect([
     Schema.object({
-      isTextToImageConversionEnabled: Schema.boolean()
-        .default(false)
-        .description(
-          "是否将文本排行榜转为 Markdown 图片（依赖 `markdownToImage` 服务）。",
-        ),
       isLeaderboardToHorizontalBarChartConversionEnabled: Schema.boolean()
         .default(false)
         .description("是否将排行榜渲染为水平柱状图（依赖 `puppeteer` 服务）。"),
@@ -271,9 +263,9 @@ export const Config: Schema<Config> = Schema.intersect([
             "networkidle0",
             "networkidle2",
           ])
-            .default("networkidle0")
+            .default("load")
             .description(
-              "页面加载等待策略，影响图片生成速度和稳定性。`networkidle0` 最稳定。",
+              "页面加载等待策略，影响图片生成速度和稳定性。`load` 在速度与稳定性之间较为均衡。",
             ),
         }).description("渲染与性能"),
 
@@ -1262,16 +1254,6 @@ export async function apply(ctx: Context, config: Config) {
       const header = `${timestamp}\n${targetUserRecord[0].username}\n\n`;
       const message = header + body;
 
-      // -- 5. 图片转换 --
-      if (config.isTextToImageConversionEnabled && ctx.markdownToImage) {
-        try {
-          const imageBuffer = await ctx.markdownToImage.convertToImage(message);
-          return h.image(imageBuffer, `image/${config.imageType}`);
-        } catch (error) {
-          logger.warn("生成图片失败，将回退到文本输出:", error);
-        }
-      }
-      // -- 6. 文本输出 (如果图片转换失败，或者未开启图片转换) --
       return message;
     });
 
@@ -3458,24 +3440,6 @@ export async function apply(ctx: Context, config: Config) {
       }
     }
 
-    // 渲染为 Markdown 图片
-    if (config.isTextToImageConversionEnabled) {
-      if (!ctx.markdownToImage) {
-        logger.warn(
-          "markdownToImage service is not enabled. Falling back to text.",
-        );
-      } else {
-        const markdown = formatLeaderboardAsMarkdown(
-          rankTimeTitle,
-          rankTitle,
-          rankingData,
-          config.isUserMessagePercentageVisible,
-        );
-        const imageBuffer = await ctx.markdownToImage.convertToImage(markdown);
-        return h.image(imageBuffer, `image/${config.imageType}`);
-      }
-    }
-
     // 默认渲染为纯文本
     return formatLeaderboardAsText(
       rankTimeTitle,
@@ -3483,24 +3447,6 @@ export async function apply(ctx: Context, config: Config) {
       rankingData,
       config.isUserMessagePercentageVisible,
     );
-  }
-
-  function formatLeaderboardAsMarkdown(
-    title: string,
-    subtitle: string,
-    data: RankingData[],
-    showPercentage: boolean,
-  ): string {
-    let result = `# ${title}\n## ${subtitle}\n\n`;
-    data.forEach((item, index) => {
-      const percentageStr = showPercentage
-        ? ` (${Math.round(item.percentage)}%)`
-        : "";
-      result += `${index + 1}. **${item.name}**: ${
-        item.count
-      } 次${percentageStr}\n`;
-    });
-    return result;
   }
 
   function formatLeaderboardAsText(

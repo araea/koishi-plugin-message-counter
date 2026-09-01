@@ -27,6 +27,11 @@ Koishi 的发言排行榜插件。
 
 样式资源目录：`data/messageCounter/icons/`、`barBgImgs/`、`fonts/`。
 
+## 依赖
+
+- 必选：`database`、`cron`
+- 可选：`puppeteer`（水平柱状图排行榜）、`canvas`（上传柱状条背景时校验尺寸）
+
 ## QQ 群
 
 956758505
