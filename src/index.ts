@@ -34,14 +34,14 @@ export const usage = `## 使用
 
 | 指令 | 说明 |
 | --- | --- |
-| \`messageCounter\` | 查看帮助 |
-| \`messageCounter.查询 [用户]\` | 发言次数与排名 |
-| \`messageCounter.排行榜 [人数]\` | 发言榜 |
-| \`messageCounter.群排行榜 [人数]\` | 各群发言榜 |
-| \`messageCounter.上传柱状条背景\` | 上传个人柱状条底图 |
-| \`messageCounter.重载资源\` | 重载图标与字体（权限 2） |
-| \`messageCounter.清理缓存\` | 清理头像缓存（权限 3） |
-| \`messageCounter.初始化\` | 清空发言记录（权限 3） |
+| \`msgcount\` | 查看帮助 |
+| \`msgcount.查询 [用户]\` | 发言次数与排名 |
+| \`msgcount.排行榜 [人数]\` | 发言榜 |
+| \`msgcount.群排行榜 [人数]\` | 各群发言榜 |
+| \`msgcount.上传柱状条背景\` | 上传个人柱状条底图 |
+| \`msgcount.重载资源\` | 重载图标与字体（权限 2） |
+| \`msgcount.清理缓存\` | 清理头像缓存（权限 3） |
+| \`msgcount.初始化\` | 清空发言记录（权限 3） |
 
 时段选项：\`-d\` 今日、\`--yd\` 昨日、\`-w\` 本周、\`-m\` 本月、\`-y\` 今年、\`-t\` 总计。
 
@@ -1069,11 +1069,12 @@ export async function apply(ctx: Context, config: Config) {
   // --- 指令定义 ---
   // zl*
   ctx
-    .command("messageCounter", "查看messageCounter帮助")
-    .action(({ session }) => session?.execute(`help messageCounter`));
+    .command("msgcount", "查看发言计数器帮助")
+    .alias("messageCounter")
+    .action(({ session }) => session?.execute(`help msgcount`));
 
   ctx
-    .command("messageCounter.初始化", "初始化", { authority: 3 })
+    .command("msgcount.初始化", "初始化", { authority: 3 })
     .action(async ({ session }) => {
       if (!session) return;
       await session.send("⏳ 正在清空所有发言记录...");
@@ -1084,7 +1085,7 @@ export async function apply(ctx: Context, config: Config) {
   // 查询指令
   ctx
     .command(
-      "messageCounter.查询 [targetUser:text]",
+      "msgcount.查询 [targetUser:text]",
       "查询指定用户的发言次数信息",
     )
     .userFields(["id", "name"])
@@ -1254,7 +1255,7 @@ export async function apply(ctx: Context, config: Config) {
 
   // 排行榜指令
   ctx
-    .command("messageCounter.排行榜 [limit:number]", "用户发言排行榜")
+    .command("msgcount.排行榜 [limit:number]", "用户发言排行榜")
     .userFields(["id", "name"])
     .option("whites", "<users:text> 白名单，用空格、逗号等分隔")
     .option("blacks", "<users:text> 黑名单，用空格、逗号等分隔")
@@ -1321,7 +1322,7 @@ export async function apply(ctx: Context, config: Config) {
     });
 
   ctx
-    .command("messageCounter.群排行榜 [limit:number]", "群发言排行榜")
+    .command("msgcount.群排行榜 [limit:number]", "群发言排行榜")
     .option("specificUser", "-s <user:text> 特定用户的群发言榜")
     .option("whites", "<channels:text> 白名单群号")
     .option("blacks", "<channels:text> 黑名单群号")
@@ -1396,7 +1397,7 @@ export async function apply(ctx: Context, config: Config) {
   // 上传柱状条背景
   ctx
     .command(
-      "messageCounter.上传柱状条背景",
+      "msgcount.上传柱状条背景",
       "上传/更新自定义的水平柱状条背景图",
     )
     .action(async ({ session }) => {
@@ -1509,7 +1510,7 @@ export async function apply(ctx: Context, config: Config) {
 
   // 重载资源
   ctx
-    .command("messageCounter.重载资源", "重载图标、背景和字体资源", {
+    .command("msgcount.重载资源", "重载图标、背景和字体资源", {
       authority: 2,
     })
     .action(async ({ session }) => {
@@ -1526,7 +1527,7 @@ export async function apply(ctx: Context, config: Config) {
 
   // 清理缓存
   ctx
-    .command("messageCounter.清理缓存", "清理过期的头像缓存文件", {
+    .command("msgcount.清理缓存", "清理过期的头像缓存文件", {
       authority: 3,
     })
     .option(
