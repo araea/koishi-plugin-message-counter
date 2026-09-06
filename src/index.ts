@@ -60,6 +60,8 @@ export interface Config {
   isBotMessageTrackingEnabled: boolean;
   /** 是否启用跨机器人消息去重（同一群多个机器人时防止重复计数）。 */
   enableCrossBotDeduplication: boolean;
+  /** 是否统计昨日发言。 */
+  enableYesterdayRanking: boolean;
 
   // --- 排行榜设置 ---
   /** 排行榜默认显示的人数。 */
@@ -200,6 +202,11 @@ export const Config: Schema<Config> = Schema.intersect([
       .default(true)
       .description(
         "是否启用跨机器人消息去重。当同一个群内接入了多个机器人账号时，开启此项可避免同一条消息被重复计数。",
+      ),
+    enableYesterdayRanking: Schema.boolean()
+      .default(true)
+      .description(
+        "是否统计昨日发言。零点重置时需要把今日数据结转到昨日，长期运行、记录数极多的实例可关闭此项来缩短零点的处理时间。关闭后 `--yd` 昨日榜、跨群昨日榜与“抓龙王”都将不可用（相关选项会从指令中隐藏）；重新开启后需等到下一个零点才会重新有昨日数据。",
       ),
   }).description("核心功能"),
 
@@ -847,11 +854,17 @@ export async function apply(ctx: Context, config: Config) {
     // 1. 自动推送排行榜的定时任务
     if (config.autoPush) {
       if (config.shouldSendDailyLeaderboardAtMidnight) {
-        const task = ctx.cron("1 0 * * *", () =>
-          generateAndPushLeaderboard("yesterday"),
-        );
-        scheduledTasks.push(task);
-        logger.debug("[自动推送] 已设置每日 00:01 推送昨日排行榜的任务。");
+        if (config.enableYesterdayRanking) {
+          const task = ctx.cron("1 0 * * *", () =>
+            generateAndPushLeaderboard("yesterday"),
+          );
+          scheduledTasks.push(task);
+          logger.debug("[自动推送] 已设置每日 00:01 推送昨日排行榜的任务。");
+        } else {
+          logger.warn(
+            "[自动推送] 昨日发言统计已关闭，每日 00:01 的昨日排行榜推送不会执行。",
+          );
+        }
       }
       (config.dailyScheduledTimers || []).forEach((time) => {
         const match = /^([0-1]?[0-9]|2[0-3]):([0-5]?[0-9])$/.exec(time);
@@ -873,9 +886,17 @@ export async function apply(ctx: Context, config: Config) {
 
     // 2. 抓龙王（禁言）的定时任务
     if (config.enableMostActiveUserMuting) {
-      const task = ctx.cron("1 0 * * *", () => performDragonKingMuting());
-      scheduledTasks.push(task);
-      logger.debug("[抓龙王] 已设置每日 00:01 执行的禁言任务。");
+      if (config.enableYesterdayRanking) {
+        const task = ctx.cron("1 0 * * *", () => performDragonKingMuting());
+        scheduledTasks.push(task);
+        logger.debug("[抓龙王] 已设置每日 00:01 执行的禁言任务。");
+      } else {
+        // 抓龙王依据的就是昨日发言数，统计关闭后只会读到不再更新的陈旧数据，
+        // 必须一并停用，否则会每天禁言同一个人。
+        logger.warn(
+          "[抓龙王] 昨日发言统计已关闭，禁言任务不会执行。如需使用请重新开启昨日发言统计。",
+        );
+      }
     }
 
     // 3. 统一的推送与数据库重置定时任务
@@ -1122,19 +1143,30 @@ export async function apply(ctx: Context, config: Config) {
     });
 
   // 查询指令
-  ctx
+  const queryCommand = ctx
     .command(
       "msgcount.查询 [targetUser:text]",
       "查询指定用户的发言次数信息",
     )
-    .userFields(["id", "name"])
-    .option("yesterday", "--yd 昨日发言")
+    .userFields(["id", "name"]);
+
+  // 关闭昨日发言统计时，相关选项不再注册，帮助文本与实际行为保持一致
+  if (config.enableYesterdayRanking) {
+    queryCommand.option("yesterday", "--yd 昨日发言");
+  }
+
+  queryCommand
     .option("day", "-d 今日发言")
     .option("week", "-w 本周发言")
     .option("month", "-m 本月发言")
     .option("year", "-y 今年发言")
-    .option("total", "-t 总发言")
-    .option("ydag", "跨群昨日发言")
+    .option("total", "-t 总发言");
+
+  if (config.enableYesterdayRanking) {
+    queryCommand.option("ydag", "跨群昨日发言");
+  }
+
+  queryCommand
     .option("dag", "跨群今日发言")
     .option("wag", "跨群本周发言")
     .option("mag", "跨群本月发言")
@@ -1148,13 +1180,14 @@ export async function apply(ctx: Context, config: Config) {
         "month",
         "year",
         "total",
-        "yesterday",
         "dag",
         "wag",
         "mag",
         "yag",
-        "ydag",
         "across",
+        // 关闭昨日统计后必须从这里剔除：不带任何选项时会把 optionKeys 全部置为
+        // 选中，否则残留的 yesterdayPostCount 仍会被展示出来。
+        ...(config.enableYesterdayRanking ? ["yesterday", "ydag"] : []),
       ];
       const selectedOptions: Dict<boolean> = {};
       let noOptionSelected = true;
@@ -1217,14 +1250,18 @@ export async function apply(ctx: Context, config: Config) {
         target.push({ label, count, total, rank, enabled });
       };
 
-      push(channelStats, channelSummary, "yesterday", "昨日", selectedOptions.yesterday);
+      if (config.enableYesterdayRanking) {
+        push(channelStats, channelSummary, "yesterday", "昨日", selectedOptions.yesterday);
+      }
       push(channelStats, channelSummary, "today", "今日", selectedOptions.day);
       push(channelStats, channelSummary, "week", "本周", selectedOptions.week);
       push(channelStats, channelSummary, "month", "本月", selectedOptions.month);
       push(channelStats, channelSummary, "year", "全年", selectedOptions.year);
       push(channelStats, channelSummary, "total", "总计", selectedOptions.total);
 
-      push(acrossStats, acrossSummary, "yesterday", "昨日", selectedOptions.ydag);
+      if (config.enableYesterdayRanking) {
+        push(acrossStats, acrossSummary, "yesterday", "昨日", selectedOptions.ydag);
+      }
       push(acrossStats, acrossSummary, "today", "今日", selectedOptions.dag);
       push(acrossStats, acrossSummary, "week", "本周", selectedOptions.wag);
       push(acrossStats, acrossSummary, "month", "本月", selectedOptions.mag);
@@ -1283,18 +1320,29 @@ export async function apply(ctx: Context, config: Config) {
     });
 
   // 排行榜指令
-  ctx
+  const rankCommand = ctx
     .command("msgcount.排行榜 [limit:number]", "用户发言排行榜")
     .userFields(["id", "name"])
     .option("whites", "<users:text> 白名单，用空格、逗号等分隔")
-    .option("blacks", "<users:text> 黑名单，用空格、逗号等分隔")
-    .option("yesterday", "--yd")
+    .option("blacks", "<users:text> 黑名单，用空格、逗号等分隔");
+
+  // 关闭昨日发言统计时，相关选项不再注册，帮助文本与实际行为保持一致
+  if (config.enableYesterdayRanking) {
+    rankCommand.option("yesterday", "--yd");
+  }
+
+  rankCommand
     .option("day", "-d")
     .option("week", "-w")
     .option("month", "-m")
     .option("year", "-y")
-    .option("total", "-t")
-    .option("ydag", "跨群昨日")
+    .option("total", "-t");
+
+  if (config.enableYesterdayRanking) {
+    rankCommand.option("ydag", "跨群昨日");
+  }
+
+  rankCommand
     .option("dag", "跨群今日")
     .option("wag", "跨群本周")
     .option("mag", "跨群本月")
@@ -1350,12 +1398,18 @@ export async function apply(ctx: Context, config: Config) {
       });
     });
 
-  ctx
+  const channelRankCommand = ctx
     .command("msgcount.群排行榜 [limit:number]", "群发言排行榜")
     .option("specificUser", "-s <user:text> 特定用户的群发言榜")
     .option("whites", "<channels:text> 白名单群号")
-    .option("blacks", "<channels:text> 黑名单群号")
-    .option("yesterday", "--yd")
+    .option("blacks", "<channels:text> 黑名单群号");
+
+  // 关闭昨日发言统计时，相关选项不再注册，帮助文本与实际行为保持一致
+  if (config.enableYesterdayRanking) {
+    channelRankCommand.option("yesterday", "--yd");
+  }
+
+  channelRankCommand
     .option("day", "-d")
     .option("week", "-w")
     .option("month", "-m")
@@ -2201,7 +2255,7 @@ export async function apply(ctx: Context, config: Config) {
     database: typeof ctx.database,
     { field, period }: ResetJob,
   ) {
-    if (field === "todayPostCount") {
+    if (field === "todayPostCount" && config.enableYesterdayRanking) {
       // 把“昨日 = 今日”与“今日 = 0”合并为一次更新，并且只触及今日或昨日有发言的行。
       // 绝大多数历史记录当天并没有发言，原先的整表两次重写正是零点卡顿的根源；
       // 这里的开销只与当日活跃人数有关，与累积的历史数据量无关。
@@ -2220,6 +2274,9 @@ export async function apply(ctx: Context, config: Config) {
         }),
       );
     } else {
+      // 关闭昨日统计后，todayPostCount 走的就是这条普通清零路径：不再结转、
+      // 也不必扫昨日有发言的那批行，零点要动的行数与写入量都进一步减少。
+      // 残留的 yesterdayPostCount 不再更新，但所有读取入口都已同步关闭。
       // 其余周期同理：非零的行才需要清零，已经是 0 的行没有任何写入的必要。
       await database.set(
         "message_counter_records",
