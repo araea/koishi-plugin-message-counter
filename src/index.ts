@@ -2160,17 +2160,32 @@ export async function apply(ctx: Context, config: Config) {
     message: string,
     period: PeriodIdentifier,
   ) {
-    // 当重置“今日”发言时，首先把“今日”的数据备份到“昨日”
     if (field === "todayPostCount") {
-      logger.debug("正在更新昨日发言数...");
-      await ctx.database.set("message_counter_records", {}, (row) => ({
-        yesterdayPostCount: row.todayPostCount,
-      }));
-      logger.debug("更新昨日发言数完成。");
+      // 把“昨日 = 今日”与“今日 = 0”合并为一次更新，并且只触及今日或昨日有发言的行。
+      // 绝大多数历史记录当天并没有发言，原先的整表两次重写正是零点卡顿的根源；
+      // 这里的开销只与当日活跃人数有关，与累积的历史数据量无关。
+      // 注意：yesterdayPostCount 必须写在 todayPostCount 之前，赋值按字段顺序生效。
+      await ctx.database.set(
+        "message_counter_records",
+        {
+          $or: [
+            { todayPostCount: { $gt: 0 } },
+            { yesterdayPostCount: { $gt: 0 } },
+          ],
+        },
+        (row) => ({
+          yesterdayPostCount: row.todayPostCount,
+          todayPostCount: 0,
+        }),
+      );
+    } else {
+      // 其余周期同理：非零的行才需要清零，已经是 0 的行没有任何写入的必要。
+      await ctx.database.set(
+        "message_counter_records",
+        { [field]: { $gt: 0 } } as any,
+        { [field]: 0 },
+      );
     }
-
-    // 然后将相应的字段置零
-    await ctx.database.set("message_counter_records", {}, { [field]: 0 });
     logger.success(message);
 
     // 更新状态表，记录本次重置时间
