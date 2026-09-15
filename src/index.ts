@@ -1,4 +1,5 @@
 import { Context, h, Logger, Schema, sleep, Bot, Dict, $ } from "koishi";
+import { clientColorScript, FONT_STACK, lch, scheme, SHAPE } from "./m3";
 import {} from "koishi-plugin-cron";
 import {} from "koishi-plugin-puppeteer";
 import path from "path";
@@ -2601,6 +2602,10 @@ export async function apply(ctx: Context, config: Config) {
    * 生成图表的静态 CSS 样式。
    * @returns 包含基本元素样式的 CSS 字符串。
    */
+  /** 统计类的图表取蓝紫主调：中性偏冷，衬得住每行各自的头像色。 */
+  const HUE = 268;
+  const SCHEME = scheme(HUE);
+
   function _getChartBaseStyles(): string {
     return `
       html {
@@ -2608,7 +2613,7 @@ export async function apply(ctx: Context, config: Config) {
       }
 
       body {
-        font-family: sans-serif;
+        font-family: ${FONT_STACK};
         margin: 0;
         padding: ${CHART_PAGE_PADDING_Y}px ${CHART_PAGE_PADDING_X}px ${
           CHART_PAGE_PADDING_Y + 8
@@ -2617,6 +2622,9 @@ export async function apply(ctx: Context, config: Config) {
         min-height: 100%;
         box-sizing: border-box;
         position: relative;
+        color: ${SCHEME.onSurface};
+        -webkit-font-smoothing: antialiased;
+        font-variant-numeric: tabular-nums;
       }
 
       /* 背景图层：承载模糊与蒙版，位于内容之下 */
@@ -2627,30 +2635,31 @@ export async function apply(ctx: Context, config: Config) {
         pointer-events: none;
       }
 
+      /* 页眉左对齐：标题与下面的榜单同一条起始线，比居中更稳 */
       .chart-header {
-        text-align: center;
-        margin: 0 0 30px;
+        margin: 0 0 28px;
+        padding-left: 2px;
       }
 
+      /* Expressive 的大标题：字号给足，字重压到 600 */
       .ranking-title {
         margin: 0;
-        font-size: 34px;
-        line-height: 1.3;
+        font-size: 36px;
+        line-height: 44px;
         font-weight: 600;
-        letter-spacing: 1px;
-        /* 正文墨色：纯黑太硬，统一用深蓝灰 */
-        color: #1e293b;
-        font-style: normal;
+        letter-spacing: 0;
+        color: ${SCHEME.onSurface};
       }
 
       /* 元信息行：榜单范围、合计与出图时间并成一行小字跟在标题下面。
          先看清这是什么，再看它是什么时候、多大范围的数据。 */
       .ranking-subtitle {
-        margin: 12px 0 0;
-        font-size: 17px;
+        margin: 8px 0 0;
+        font-size: 14px;
+        line-height: 20px;
         font-weight: 400;
-        letter-spacing: 0.6px;
-        color: #64748b;
+        letter-spacing: 0.25px;
+        color: ${SCHEME.onSurfaceVariant};
       }
 
       /* 分隔点自己带匀称的左右间距，不依赖字体里「·」的空腔 */
@@ -2671,21 +2680,31 @@ export async function apply(ctx: Context, config: Config) {
     `;
   }
 
-  /** 内置渐变配色：预设名 -> [起始色, 结束色]。 */
-  const GRADIENT_PRESETS: Record<string, [string, string]> = {
-    paper: ["#fbfaf7", "#f4f1ea"],
-    cloud: ["#f6f8f9", "#e5ebee"],
-    sunrise: ["#ffecd2", "#fcb69f"],
-    ocean: ["#e3f2fd", "#c5dcf5"],
-    sakura: ["#fde2f3", "#e9d5ff"],
-    mint: ["#e2f7ef", "#c7ecdc"],
-    cream: ["#fdfcfb", "#f3e7d9"],
-  };
+  /**
+   * 内置渐变配色：预设名 -> [起始色, 结束色]。
+   *
+   * 每个预设只是换一个色相，色调固定走 98 -> 92 这一档。
+   * 于是无论选哪个，背景与榜单之间的明度差都一样，条色不会忽然被背景吃掉。
+   */
+  const GRADIENT_PRESETS: Record<string, [string, string]> = Object.fromEntries(
+    (
+      [
+        ["paper", 82, 6],
+        ["cloud", 240, 8],
+        ["sunrise", 52, 26],
+        ["ocean", 250, 22],
+        ["sakura", 340, 22],
+        ["mint", 160, 20],
+        ["cream", 68, 18],
+      ] as [string, number, number][]
+    ).map(([name, hue, chroma]) => [name, [lch(98, chroma * 0.5, hue), lch(92, chroma, hue)]]),
+  ) as Record<string, [string, string]>;
 
-  /** 未配置或配置无效时使用的默认背景：暖白纸。
-   *  纯白在整屏两千像素上看久了刺眼，退半档到暖白，色带反而更浮得出来。 */
+  /** 未配置或配置无效时使用的默认背景：设计系统的表面色。
+   *  纯白在整屏两千像素上看久了刺眼，用 surface（色调 98）而不是纯白，
+   *  上面那层 surface-container 的色差才显得出来。 */
   const DEFAULT_BACKGROUND_CSS = `html {
-      background: linear-gradient(135deg, #fbfaf7 0%, #f4f1ea 100%);
+      background: linear-gradient(135deg, ${SCHEME.surfaceBright} 0%, ${SCHEME.surfaceContainer} 100%);
     }`;
 
   /** 图片背景的尺寸与平铺方式对应的 CSS 片段。 */
@@ -2885,8 +2904,10 @@ export async function apply(ctx: Context, config: Config) {
           avatarGap: 14,        // 头像与柱状条之间的空隙
           barMinWidth: 150,     // 柱状条的最小长度
           barSpan: 700,         // 柱状条随发言数增长的最大长度
-          barRadius: 12,        // 柱状条圆角
-          avatarRadius: 12,     // 「圆角方形」头像的圆角
+          // 形状刻度：条与头像都取行高的一半，也就是全圆角。
+          // Expressive 里这是最常见的形状，成排的药丸形比圆角方形更整。
+          barRadius: 26,        // 柱状条圆角（= avatarSize / 2）
+          avatarRadius: 26,     // 头像圆角（= avatarSize / 2，即正圆）
           textGap: 16,          // 柱状条末端与发言数之间的空隙
           textEndPad: 16,       // 发言数距轨道右端的最小留白
           rightPad: 26,         // 画布右侧留白
@@ -2926,19 +2947,18 @@ export async function apply(ctx: Context, config: Config) {
           // 每行的配色只算一次：条、轨道、数值、占比、名字全部出自同一支色相
           const rows = [];
           for (const [index, data] of rankingData.entries()) {
-            const bar = harmonizeTheme(await getAverageColor(data.avatarBase64));
-            const track = mixWithWhite(bar, 0.5);
-            const valueInk = deepTone(bar, 0.34);
+            const avg = await getAverageColor(data.avatarBase64);
+            const bar = harmonizeTheme(avg);
             rows.push({
               data,
               y: ROW_HEIGHT * index,
               barWidth: LAYOUT.barMinWidth + (LAYOUT.barSpan * data.count) / maxCount,
               bar,
-              track,
-              valueInk,
+              track: toneOf(avg, TRACK_TONE, 12),
+              valueInk: toneOf(avg, VALUE_TONE, 30),
               // 占比是次要信息：数值的墨往底色里退一档，同一支色相
-              pctInk: mixColors(valueInk, track, 0.64),
-              nameInk: contrastInk(bar),
+              pctInk: toneOf(avg, PERCENT_TONE, 20),
+              nameInk: contrastInk(),
             });
           }
 
@@ -2982,7 +3002,7 @@ export async function apply(ctx: Context, config: Config) {
               const newAvg = await drawCustomBarBackground(
                 context, pick, BAR_X, row.y, row.barWidth, LAYOUT.avatarSize, trackWidth
               );
-              row.nameInk = contrastInk(harmonizeTheme(newAvg));
+              row.nameInk = contrastInk();
             }
             context.restore();
           }
@@ -3204,59 +3224,30 @@ export async function apply(ctx: Context, config: Config) {
         //
         // 条色是从头像里取的平均色，什么都有：雪白的自拍、全黑的剪影、荧光的二次元图。
         // 直接拿来铺条，一张二十行的榜就是二十种互不相干的颜色，字色也只能碰运气。
-        // 这里收一道：色相留给个人，饱和度与明度收进一条窄带；条上的浅字、条外的深字
-        // 都从同一支色相里取——底淡字深，对比稳定，通篇一套调子。
+        // 这里收一道：色相留给个人，色调与彩度换成设计系统的取值。
+        //
+        // 运算走 M3 的 LCh 色调板（与服务端同一套代码，见 m3.ts）。色调在 LCh 里
+        // 就是感知亮度，所以「条一律色调 48」是个可以兑现的承诺：无论头像什么颜色，
+        // 条上的白字对比度都够，不必再逐行判断该配深字还是浅字。
 
-        /** 主题色的饱和度与明度收进窄带，只留色相。本来无彩的（灰/白/黑）保持中性。 */
+        const BAR_TONE = 48;      // 实色条
+        const TRACK_TONE = 93;    // 轨道
+        const VALUE_TONE = 32;    // 发言数
+        const PERCENT_TONE = 54;  // 占比，比发言数退一档
+
+        /** 头像主色 -> 条色。只保留色相。 */
         function harmonizeTheme(hex) {
-            const rgb = hexToRgb(hex);
-            const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
-            const l = Math.min(0.50, Math.max(0.36, hsl.l));
-            if (hsl.s < 0.06) {
-                const g = hslToRgb(0, 0, l);
-                return rgbToHex(g.r, g.g, g.b);
-            }
-            const s = Math.min(0.42, Math.max(0.18, hsl.s));
-            const out = hslToRgb(hsl.h, s, l);
-            return rgbToHex(out.r, out.g, out.b);
+            return M3.harmonize(hex, BAR_TONE, 46, THEME_HUE);
         }
 
-        /** YIQ 亮度（0—1）：判断底色该配浅字还是深字。 */
-        function calculateYiqBrightness(rgb) {
-            return (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 / 255;
+        /** 取同一支色相的另一个色调。 */
+        function toneOf(hex, tone, chroma) {
+            return M3.harmonize(hex, tone, chroma, THEME_HUE);
         }
 
-        /** 同色相的深调，给淡底上的字用；太浅时继续压暗，直到亮度足够低。 */
-        function deepTone(hex, strength) {
-            let rgb = hexToRgb(hex);
-            const scale = (c, k) => ({ r: Math.round(c.r * k), g: Math.round(c.g * k), b: Math.round(c.b * k) });
-            rgb = scale(rgb, Math.min(1, Math.max(0.05, strength)));
-            for (let i = 0; i < 4 && calculateYiqBrightness(rgb) * 255 > 96; i++) {
-                rgb = scale(rgb, 0.75);
-            }
-            return rgbToHex(rgb.r, rgb.g, rgb.b);
-        }
-
-        /** 向白色调：opacity=1 保留原色，0 变纯白。 */
-        function mixWithWhite(hex, opacity) {
-            const c = hexToRgb(hex);
-            const mix = (v) => Math.round(v * opacity + 255 * (1 - opacity));
-            return rgbToHex(mix(c.r), mix(c.g), mix(c.b));
-        }
-
-        /** 两色相调：t=1 全取前者，0 全取后者。 */
-        function mixColors(hexA, hexB, t) {
-            const a = hexToRgb(hexA), b = hexToRgb(hexB);
-            const mix = (x, y) => Math.round(x * t + y * (1 - t));
-            return rgbToHex(mix(a.r, b.r), mix(a.g, b.g), mix(a.b, b.b));
-        }
-
-        /** 实色条上的字色：纯白纯黑盖在彩色上像两片贴纸，取同色相的极浅调或极深调。 */
-        function contrastInk(hex) {
-            const rgb = hexToRgb(hex);
-            return calculateYiqBrightness(rgb) * 255 >= 128
-                ? deepTone(hex, 0.26)
-                : mixWithWhite(hex, 0.10);
+        /** 实色条上的字色。条固定在色调 48，白字永远够对比。 */
+        function contrastInk() {
+            return '#ffffff';
         }
 
         // --- 辅助工具函数 ---
@@ -3285,64 +3276,6 @@ export async function apply(ctx: Context, config: Config) {
           return assetList
             .filter(data => data.userId === userId)
             .map(data => data[key]);
-        }
-
-        function hexToRgb(hex) {
-            const sanitizedHex = String(hex).replace("#", "")
-            const bigint = parseInt(sanitizedHex, 16)
-            const r = (bigint >> 16) & 255
-            const g = (bigint >> 8) & 255
-            const b = bigint & 255
-            return {r, g, b}
-        }
-
-        function rgbToHsl(r, g, b) {
-            r /= 255, g /= 255, b /= 255
-            const max = Math.max(r, g, b), min = Math.min(r, g, b)
-            let h, s, l = (max + min) / 2
-            if (max === min) {
-                h = s = 0
-            } else {
-                const d = max - min
-                s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
-                switch (max) {
-                    case r: h = (g - b) / d + (g < b ? 6 : 0); break
-                    case g: h = (b - r) / d + 2; break
-                    case b: h = (r - g) / d + 4; break
-                }
-                h /= 6
-            }
-            return {h, s, l}
-        }
-
-        function hslToRgb(h, s, l) {
-            let r, g, b
-            if (s === 0) {
-                r = g = b = l
-            } else {
-                const hue2rgb = (p, q, t) => {
-                    if (t < 0) t += 1
-                    if (t > 1) t -= 1
-                    if (t < 1 / 6) return p + (q - p) * 6 * t
-                    if (t < 1 / 2) return q
-                    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
-                    return p
-                }
-                const q = l < 0.5 ? l * (1 + s) : l + s - l * s
-                const p = 2 * l - q
-                r = hue2rgb(p, q, h + 1 / 3)
-                g = hue2rgb(p, q, h)
-                b = hue2rgb(p, q, h - 1 / 3)
-            }
-            return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) }
-        }
-
-        function rgbToHex(r, g, b) {
-            const toHex = c => {
-                const hex = c.toString(16)
-                return hex.length === 1 ? "0" + hex : hex
-            }
-            return \`#\${toHex(r)}\${toHex(g)}\${toHex(b)}\`
         }
 
         async function getAverageColor(base64) {
@@ -3458,6 +3391,11 @@ export async function apply(ctx: Context, config: Config) {
             }';">预加载</span>
           </div>
           <canvas id="rankingCanvas"></canvas>
+          <script>
+            // 与服务端同源的 LCh 配色运算，两边算出来的颜色必须一致
+            ${clientColorScript()}
+            const THEME_HUE = ${HUE};
+          </script>
           <script>
             // 立即执行的异步函数，用于绘制图表
             (async () => {
