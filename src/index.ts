@@ -105,6 +105,8 @@ export interface Config {
   showStarInChart: boolean;
   /** 排行榜中头像的形状。 */
   avatarShape: "circle" | "rounded" | "square";
+  /** 刻度竖线是否压在柱状条之上。关闭则由柱状条盖住刻度。 */
+  gridLinesOverBars: boolean;
   /** 自定义背景图在进度条区域的不透明度。 */
   horizontalBarBackgroundOpacity: number;
   /** 自定义背景图在整行背景的不透明度。 */
@@ -307,6 +309,11 @@ export const Config: Schema<Config> = Schema.intersect([
           ])
             .default("circle")
             .description("排行榜中头像的形状。"),
+          gridLinesOverBars: Schema.boolean()
+            .default(false)
+            .description(
+              "刻度竖线是否压在柱状条之上。关闭（默认）则由柱状条盖住刻度，每根条是完整的一块颜色；开启则刻度贯穿整行。两种都只差遮挡关系，文字始终在最上层。",
+            ),
           horizontalBarBackgroundOpacity: Schema.number()
             .min(0)
             .max(1)
@@ -340,7 +347,7 @@ export const Config: Schema<Config> = Schema.intersect([
         Schema.intersect([
           Schema.object({
             backgroundType: Schema.union([
-              Schema.const("none").description("默认背景 —— 简洁灰白渐变"),
+              Schema.const("none").description("默认背景 —— 暖白纸"),
               Schema.const("gradient").description("渐变色 —— 内置配色或自选双色"),
               Schema.const("solid").description("纯色 —— 只用一种颜色"),
               Schema.const("image").description("图片 —— 网络链接或本地图片"),
@@ -356,7 +363,8 @@ export const Config: Schema<Config> = Schema.intersect([
             Schema.object({
               backgroundType: Schema.const("gradient").required(),
               gradientPreset: Schema.union([
-                Schema.const("cloud").description("云白 —— 淡雅灰白"),
+                Schema.const("paper").description("暖白纸 —— 与默认背景同款"),
+              Schema.const("cloud").description("云白 —— 淡雅灰白"),
                 Schema.const("sunrise").description("晨曦 —— 暖橙"),
                 Schema.const("ocean").description("海洋 —— 清透蓝"),
                 Schema.const("sakura").description("樱花 —— 粉紫"),
@@ -1395,6 +1403,7 @@ export async function apply(ctx: Context, config: Config) {
         rankTimeTitle,
         rankTitle,
         rankingData,
+        totalCount,
       });
     });
 
@@ -1474,6 +1483,7 @@ export async function apply(ctx: Context, config: Config) {
         rankTimeTitle,
         rankTitle,
         rankingData,
+        totalCount,
       });
     });
 
@@ -1950,6 +1960,7 @@ export async function apply(ctx: Context, config: Config) {
           rankTimeTitle,
           rankTitle,
           rankingData,
+          totalCount,
         });
         await ctx.broadcast([prefixedChannelId], renderedMessage);
 
@@ -2627,16 +2638,25 @@ export async function apply(ctx: Context, config: Config) {
         line-height: 1.3;
         font-weight: 600;
         letter-spacing: 1px;
-        color: #2c3038;
+        /* 正文墨色：纯黑太硬，统一用深蓝灰 */
+        color: #1e293b;
         font-style: normal;
       }
 
+      /* 元信息行：榜单范围、合计与出图时间并成一行小字跟在标题下面。
+         先看清这是什么，再看它是什么时候、多大范围的数据。 */
       .ranking-subtitle {
         margin: 12px 0 0;
-        font-size: 16px;
+        font-size: 17px;
         font-weight: 400;
         letter-spacing: 0.6px;
-        color: rgba(60, 64, 72, 0.55);
+        color: #64748b;
+      }
+
+      /* 分隔点自己带匀称的左右间距，不依赖字体里「·」的空腔 */
+      .ranking-subtitle .sep {
+        margin: 0 9px;
+        opacity: 0.55;
       }
 
       #rankingCanvas {
@@ -2653,6 +2673,7 @@ export async function apply(ctx: Context, config: Config) {
 
   /** 内置渐变配色：预设名 -> [起始色, 结束色]。 */
   const GRADIENT_PRESETS: Record<string, [string, string]> = {
+    paper: ["#fbfaf7", "#f4f1ea"],
     cloud: ["#f6f8f9", "#e5ebee"],
     sunrise: ["#ffecd2", "#fcb69f"],
     ocean: ["#e3f2fd", "#c5dcf5"],
@@ -2661,9 +2682,10 @@ export async function apply(ctx: Context, config: Config) {
     cream: ["#fdfcfb", "#f3e7d9"],
   };
 
-  /** 未配置或配置无效时使用的默认背景。 */
+  /** 未配置或配置无效时使用的默认背景：暖白纸。
+   *  纯白在整屏两千像素上看久了刺眼，退半档到暖白，色带反而更浮得出来。 */
   const DEFAULT_BACKGROUND_CSS = `html {
-      background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
+      background: linear-gradient(135deg, #fbfaf7 0%, #f4f1ea 100%);
     }`;
 
   /** 图片背景的尺寸与平铺方式对应的 CSS 片段。 */
@@ -2901,44 +2923,68 @@ export async function apply(ctx: Context, config: Config) {
           // 轨道（整行底色）的宽度：右侧留出一点空白，不顶到画布边缘
           const trackWidth = canvas.width - BAR_X - LAYOUT.rightPad;
 
-          // 按顺序绘制图层
-          await drawRankingBars(context, maxCount, trackWidth);
+          // 每行的配色只算一次：条、轨道、数值、占比、名字全部出自同一支色相
+          const rows = [];
+          for (const [index, data] of rankingData.entries()) {
+            const bar = harmonizeTheme(await getAverageColor(data.avatarBase64));
+            const track = mixWithWhite(bar, 0.5);
+            const valueInk = deepTone(bar, 0.34);
+            rows.push({
+              data,
+              y: ROW_HEIGHT * index,
+              barWidth: LAYOUT.barMinWidth + (LAYOUT.barSpan * data.count) / maxCount,
+              bar,
+              track,
+              valueInk,
+              // 占比是次要信息：数值的墨往底色里退一档，同一支色相
+              pctInk: mixColors(valueInk, track, 0.64),
+              nameInk: contrastInk(bar),
+            });
+          }
+
+          // 图层顺序：轨道 → (刻度) → 实色条 → (刻度) → 头像 → 文字。
+          // 文字永远在最上面，刻度压不到名字和数字上。
+          drawTracks(context, rows, trackWidth);
+          if (!config.gridLinesOverBars) drawGridLines(context, trackWidth);
+          await drawBars(context, rows, trackWidth);
+          if (config.gridLinesOverBars) drawGridLines(context, trackWidth);
           await drawAvatars(context);
-          drawGridLines(context, trackWidth);
+          await drawTexts(context, rows, trackWidth);
         }
 
         // --- 核心绘图逻辑 ---
 
-        async function drawRankingBars(context, maxCount, trackWidth) {
-          for (const [index, data] of rankingData.entries()) {
-            const barY = ROW_HEIGHT * index;
-            const barHeight = LAYOUT.avatarSize;
-            const barWidth = LAYOUT.barMinWidth + (LAYOUT.barSpan * data.count) / maxCount;
-
-            let avgColor = await getAverageColor(data.avatarBase64);
-            const trackColor = addOpacityToColor(avgColor, 0.34);
-
+        /** 轨道：整行的淡色底，四角圆润。 */
+        function drawTracks(context, rows, trackWidth) {
+          for (const row of rows) {
             context.save();
-            // 整行轨道：圆角矩形，同时作为进度条与背景图的裁剪区域
-            traceRoundRect(context, BAR_X, barY, trackWidth, barHeight, LAYOUT.barRadius);
-            context.fillStyle = trackColor;
+            traceRoundRect(context, BAR_X, row.y, trackWidth, LAYOUT.avatarSize, LAYOUT.barRadius);
+            context.fillStyle = row.track;
             context.fill();
+            context.restore();
+          }
+        }
+
+        /** 实色条：轨道内的已达成部分，右端平切，与轨道接成一条。 */
+        async function drawBars(context, rows, trackWidth) {
+          for (const row of rows) {
+            context.save();
+            traceRoundRect(context, BAR_X, row.y, trackWidth, LAYOUT.avatarSize, LAYOUT.barRadius);
             context.clip();
 
-            // 已达成部分
-            context.fillStyle = avgColor;
-            context.fillRect(BAR_X, barY, barWidth, barHeight);
+            context.fillStyle = row.bar;
+            context.fillRect(BAR_X, row.y, row.barWidth, LAYOUT.avatarSize);
 
-            // 绘制自定义背景图
-            const userBarBgImgs = findAssets(data.userId, barBgImgs, 'barBgImgBase64');
+            // 自定义背景图：铺在条上，名字的字色改用背景图的调子
+            const userBarBgImgs = findAssets(row.data.userId, barBgImgs, 'barBgImgBase64');
             if (userBarBgImgs.length > 0) {
-              const randomBarBgImgBase64 = userBarBgImgs[Math.floor(Math.random() * userBarBgImgs.length)];
-              avgColor = await drawCustomBarBackground(context, randomBarBgImgBase64, BAR_X, barY, barWidth, barHeight, trackWidth);
+              const pick = userBarBgImgs[Math.floor(Math.random() * userBarBgImgs.length)];
+              const newAvg = await drawCustomBarBackground(
+                context, pick, BAR_X, row.y, row.barWidth, LAYOUT.avatarSize, trackWidth
+              );
+              row.nameInk = contrastInk(harmonizeTheme(newAvg));
             }
             context.restore();
-
-            // 绘制文本和图标
-            await drawTextAndIcons(context, data, avgColor, barY, barWidth, barHeight, trackWidth);
           }
         }
 
@@ -2970,7 +3016,7 @@ export async function apply(ctx: Context, config: Config) {
         /** 量出「发言数 + 百分比」整块文字的尺寸，用于排版与画布宽度计算。 */
         function measureCountBlock(context, data) {
             context.font = chartFont(LAYOUT.countFontSize);
-            const countText = data.count.toString();
+            const countText = Number(data.count).toLocaleString('en-US');
             const countWidth = context.measureText(countText).width;
 
             const percentText = formatPercent(data.percentage);
@@ -2989,20 +3035,31 @@ export async function apply(ctx: Context, config: Config) {
             };
         }
 
-        /** 百分比文案：不带括号，交给字号与颜色来体现主次。 */
+        /** 百分比文案：一律取整——一列数字里不夹小数点看着才干净；
+         *  不足半个百分点写 "<1%"，免得非零的零头被舍成没意义的 "0%"。 */
         function formatPercent(percentage) {
             if (!config.isUserMessagePercentageVisible) return '';
             const value = Number(percentage) || 0;
-            if (value > 0 && value < 0.01) return '<0.01%';
-            return value.toFixed(value < 1 ? 2 : 0) + '%';
+            if (value <= 0) return '0%';
+            const rounded = Math.round(value);
+            return rounded === 0 ? '<1%' : rounded + '%';
         }
 
-        async function drawTextAndIcons(context, data, avgColor, barY, barWidth, barHeight, trackWidth) {
+        /** 行内文字：名字写在条内，发言数与占比紧跟条尾。字色取自这一行的调子。 */
+        async function drawTexts(context, rows, trackWidth) {
+          for (const row of rows) {
+            await drawRowText(context, row, trackWidth);
+          }
+        }
+
+        async function drawRowText(context, row, trackWidth) {
+            const { data, y: barY, barWidth } = row;
+            const barHeight = LAYOUT.avatarSize;
             const baselineY = barY + barHeight / 2 + LAYOUT.countFontSize * 0.35;
             const trackRight = BAR_X + trackWidth;
             const block = measureCountBlock(context, data);
 
-            // --- 发言次数与百分比 ---
+            // --- 发言次数与百分比：同色相的深调，在自己那行的底色上一眼跳出来 ---
             let textX = BAR_X + barWidth + LAYOUT.textGap;
             if (textX + block.width > trackRight - LAYOUT.textEndPad) {
                 // 放不下时贴着轨道右端绘制，避免溢出画布
@@ -3011,24 +3068,29 @@ export async function apply(ctx: Context, config: Config) {
 
             context.textAlign = "left";
             context.font = chartFont(LAYOUT.countFontSize);
-            context.fillStyle = "rgba(0, 0, 0, 0.82)";
+            context.fillStyle = row.valueInk;
             context.fillText(block.countText, textX, baselineY);
 
-            // 百分比小一号并用灰色，作为发言数的附注
+            // 百分比小一号、退半档，作为发言数的附注
             if (block.percentText) {
                 context.font = chartFont(LAYOUT.percentFontSize);
-                context.fillStyle = "rgba(0, 0, 0, 0.42)";
+                context.fillStyle = row.pctInk;
                 context.fillText(block.percentText, textX + block.countWidth + LAYOUT.percentGap, baselineY);
             }
 
-            // --- 用户名（带截断） ---
+            // --- 用户名（带截断），写在实色条内 ---
             context.font = chartFont(LAYOUT.countFontSize);
-            context.fillStyle = chooseColorAdjustmentMethod(avgColor);
+            context.fillStyle = row.nameInk;
+
+            // 名字能用满整根条：只有这个人确实挂了图标，才给图标留出那一格，
+            // 否则每行都白白少掉 44px，短条上的昵称会被截得只剩两三个字
+            const userIcons = findAssets(data.userId, iconData, 'iconBase64');
+            const iconReserve = userIcons.length > 0 ? 44 : LAYOUT.namePad;
 
             let nameText = data.name;
-            const maxNameWidth = barWidth - LAYOUT.namePad - 44;
+            const maxNameWidth = barWidth - LAYOUT.namePad - iconReserve;
             if (context.measureText(nameText).width > maxNameWidth) {
-                const ellipsis = "...";
+                const ellipsis = "…";
                 while (context.measureText(nameText + ellipsis).width > maxNameWidth && nameText.length > 0) {
                     nameText = nameText.slice(0, -1);
                 }
@@ -3038,7 +3100,6 @@ export async function apply(ctx: Context, config: Config) {
             context.fillText(nameText, nameTextX, baselineY);
 
             // 绘制用户自定义图标
-            const userIcons = findAssets(data.userId, iconData, 'iconBase64');
             if (userIcons.length > 0) {
                 await drawUserIcons(context, userIcons, {
                     nameTextX: context.measureText(nameText).width + nameTextX,
@@ -3118,13 +3179,14 @@ export async function apply(ctx: Context, config: Config) {
             }
         }
 
-        /** 刻度线：只画在轨道内部，行间空隙保持干净。 */
+        /** 刻度线：八道等距，自条的零点起一格一道；只刻在轨道里，行间空隙保持干净。
+         *  与实色条的上下关系由 gridLinesOverBars 决定，文字始终压在最上层。 */
         function drawGridLines(context, trackWidth) {
             const firstLineX = BAR_X + LAYOUT.barMinWidth;
             const step = LAYOUT.barSpan / 7;
 
             context.save();
-            context.fillStyle = "rgba(0, 0, 0, 0.06)";
+            context.fillStyle = "rgba(0, 0, 0, 0.08)";
             for (let row = 0; row < rankingData.length; row++) {
                 const y = ROW_HEIGHT * row;
                 context.save();
@@ -3136,6 +3198,65 @@ export async function apply(ctx: Context, config: Config) {
                 context.restore();
             }
             context.restore();
+        }
+
+        // --- 同一支色相里的调子 ---
+        //
+        // 条色是从头像里取的平均色，什么都有：雪白的自拍、全黑的剪影、荧光的二次元图。
+        // 直接拿来铺条，一张二十行的榜就是二十种互不相干的颜色，字色也只能碰运气。
+        // 这里收一道：色相留给个人，饱和度与明度收进一条窄带；条上的浅字、条外的深字
+        // 都从同一支色相里取——底淡字深，对比稳定，通篇一套调子。
+
+        /** 主题色的饱和度与明度收进窄带，只留色相。本来无彩的（灰/白/黑）保持中性。 */
+        function harmonizeTheme(hex) {
+            const rgb = hexToRgb(hex);
+            const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+            const l = Math.min(0.50, Math.max(0.36, hsl.l));
+            if (hsl.s < 0.06) {
+                const g = hslToRgb(0, 0, l);
+                return rgbToHex(g.r, g.g, g.b);
+            }
+            const s = Math.min(0.42, Math.max(0.18, hsl.s));
+            const out = hslToRgb(hsl.h, s, l);
+            return rgbToHex(out.r, out.g, out.b);
+        }
+
+        /** YIQ 亮度（0—1）：判断底色该配浅字还是深字。 */
+        function calculateYiqBrightness(rgb) {
+            return (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 / 255;
+        }
+
+        /** 同色相的深调，给淡底上的字用；太浅时继续压暗，直到亮度足够低。 */
+        function deepTone(hex, strength) {
+            let rgb = hexToRgb(hex);
+            const scale = (c, k) => ({ r: Math.round(c.r * k), g: Math.round(c.g * k), b: Math.round(c.b * k) });
+            rgb = scale(rgb, Math.min(1, Math.max(0.05, strength)));
+            for (let i = 0; i < 4 && calculateYiqBrightness(rgb) * 255 > 96; i++) {
+                rgb = scale(rgb, 0.75);
+            }
+            return rgbToHex(rgb.r, rgb.g, rgb.b);
+        }
+
+        /** 向白色调：opacity=1 保留原色，0 变纯白。 */
+        function mixWithWhite(hex, opacity) {
+            const c = hexToRgb(hex);
+            const mix = (v) => Math.round(v * opacity + 255 * (1 - opacity));
+            return rgbToHex(mix(c.r), mix(c.g), mix(c.b));
+        }
+
+        /** 两色相调：t=1 全取前者，0 全取后者。 */
+        function mixColors(hexA, hexB, t) {
+            const a = hexToRgb(hexA), b = hexToRgb(hexB);
+            const mix = (x, y) => Math.round(x * t + y * (1 - t));
+            return rgbToHex(mix(a.r, b.r), mix(a.g, b.g), mix(a.b, b.b));
+        }
+
+        /** 实色条上的字色：纯白纯黑盖在彩色上像两片贴纸，取同色相的极浅调或极深调。 */
+        function contrastInk(hex) {
+            const rgb = hexToRgb(hex);
+            return calculateYiqBrightness(rgb) * 255 >= 128
+                ? deepTone(hex, 0.26)
+                : mixWithWhite(hex, 0.10);
         }
 
         // --- 辅助工具函数 ---
@@ -3164,40 +3285,6 @@ export async function apply(ctx: Context, config: Config) {
           return assetList
             .filter(data => data.userId === userId)
             .map(data => data[key]);
-        }
-
-        function addOpacityToColor(color, opacity) {
-          const opacityHex = Math.round(opacity * 255).toString(16).padStart(2, "0");
-          return \`\${color}\${opacityHex}\`;
-        }
-
-        function chooseColorAdjustmentMethod(hexcolor) {
-            const rgb = hexToRgb(hexcolor)
-            const yiqBrightness = calculateYiqBrightness(rgb)
-            if (yiqBrightness > 0.2 && yiqBrightness < 0.8) {
-                return adjustColorHsl(hexcolor)
-            } else {
-                return adjustColorYiq(hexcolor)
-            }
-        }
-
-        function calculateYiqBrightness(rgb) {
-            return (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 / 255
-        }
-
-        function adjustColorYiq(hexcolor) {
-            const rgb = hexToRgb(hexcolor)
-            const yiqBrightness = calculateYiqBrightness(rgb)
-            return yiqBrightness >= 0.8 ? "#000000" : "#FFFFFF"
-        }
-
-        function adjustColorHsl(hexcolor) {
-            const rgb = hexToRgb(hexcolor)
-            let hsl = rgbToHsl(rgb.r, rgb.g, rgb.b)
-            hsl.l = hsl.l < 0.5 ? hsl.l + 0.3 : hsl.l - 0.3
-            hsl.s = hsl.s < 0.5 ? hsl.s + 0.3 : hsl.s - 0.3
-            const contrastRgb = hslToRgb(hsl.h, hsl.s, hsl.l)
-            return rgbToHex(contrastRgb.r, contrastRgb.g, contrastRgb.b)
         }
 
         function hexToRgb(hex) {
@@ -3294,6 +3381,8 @@ export async function apply(ctx: Context, config: Config) {
   function _getChartHtmlContent(params: {
     rankTimeTitle: string;
     rankTitle: string;
+    /** 榜单统计范围内的总发言数，用于元信息行；0 表示不显示。 */
+    totalCount: number;
     data: RankingData[];
     iconCache: AssetData[];
     barBgImgCache: AssetData[];
@@ -3304,6 +3393,7 @@ export async function apply(ctx: Context, config: Config) {
     const {
       rankTimeTitle,
       rankTitle,
+      totalCount,
       data,
       iconCache,
       barBgImgCache,
@@ -3326,6 +3416,17 @@ export async function apply(ctx: Context, config: Config) {
       config: chartConfig,
     };
 
+    // 元信息行：上榜人数 + 合计（每行的百分比正是以它为基数）+ 出图时间
+    const metaParts: string[] = [];
+    if (data.length > 1) metaParts.push(`前 ${data.length} 名`);
+    if (totalCount > 0) metaParts.push(`合计 ${totalCount.toLocaleString("en-US")}`);
+    if (config.isTimeInfoSupplementEnabled) metaParts.push(rankTimeTitle);
+    const metaLine = metaParts.length
+      ? `<p class="ranking-subtitle">${metaParts.join(
+          '<span class="sep">·</span>',
+        )}</p>`
+      : "";
+
     return `
       <!DOCTYPE html>
       <html lang="zh-CN">
@@ -3346,11 +3447,7 @@ export async function apply(ctx: Context, config: Config) {
           <div class="bg-layer"></div>
           <header class="chart-header">
             <h1 class="ranking-title">${rankTitle}</h1>
-            ${
-              config.isTimeInfoSupplementEnabled
-                ? `<p class="ranking-subtitle">${rankTimeTitle}</p>`
-                : ""
-            }
+            ${metaLine}
           </header>
           <div class="font-preload">
             <span style="font-family: '${
@@ -3383,8 +3480,14 @@ export async function apply(ctx: Context, config: Config) {
     {
       rankTimeTitle,
       rankTitle,
+      totalCount,
       data,
-    }: { rankTimeTitle: string; rankTitle: string; data: RankingData[] },
+    }: {
+      rankTimeTitle: string;
+      rankTitle: string;
+      totalCount: number;
+      data: RankingData[];
+    },
     {
       iconCache,
       barBgImgCache,
@@ -3413,6 +3516,7 @@ export async function apply(ctx: Context, config: Config) {
           config.horizontalBarBackgroundFullOpacity,
         isUserMessagePercentageVisible: config.isUserMessagePercentageVisible,
         avatarShape: config.avatarShape,
+        gridLinesOverBars: config.gridLinesOverBars,
         chartTitleFont: config.chartTitleFont,
         chartNicknameFont: config.chartNicknameFont,
       };
@@ -3420,6 +3524,7 @@ export async function apply(ctx: Context, config: Config) {
       const htmlContent = _getChartHtmlContent({
         rankTimeTitle,
         rankTitle,
+        totalCount,
         data,
         iconCache,
         barBgImgCache,
@@ -3554,10 +3659,13 @@ export async function apply(ctx: Context, config: Config) {
     rankTimeTitle,
     rankTitle,
     rankingData,
+    totalCount = 0,
   }: {
     rankTimeTitle: string;
     rankTitle: string;
     rankingData: RankingData[];
+    /** 统计范围内的总发言数，写在元信息行上；0 表示不显示。 */
+    totalCount?: number;
   }): Promise<string | h> {
     // 渲染为水平柱状图
     if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
@@ -3585,7 +3693,7 @@ export async function apply(ctx: Context, config: Config) {
           );
 
           const imageBuffer = await generateRankingChart(
-            { rankTimeTitle, rankTitle, data: chartReadyData },
+            { rankTimeTitle, rankTitle, totalCount, data: chartReadyData },
             { iconCache, barBgImgCache, fontFilesCache, emptyHtmlPath },
           );
           return h.image(imageBuffer, `image/${config.imageType}`);
