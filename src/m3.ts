@@ -478,11 +478,14 @@ export function components() {
 .m3-header__title{font-size:32px;line-height:40px;font-weight:600;letter-spacing:0;color:var(--md-sys-color-on-surface);margin:0}
 .m3-header__support{font-size:14px;line-height:20px;font-weight:400;letter-spacing:.25px;color:var(--md-sys-color-on-surface-variant);margin:0}
 
-/* 页脚署名，压到最低对比度，不与正文抢视线 */
+/*
+ * 页脚署名。层次靠字号与字重拉开，不靠压低对比度 ——
+ * outline 是描边色（WCAG 只要求 3:1），拿来写字会掉到 AA 线下。
+ */
 .m3-footnote{
   padding-top:16px;text-align:center;
   font-size:12px;line-height:16px;letter-spacing:.4px;
-  color:var(--md-sys-color-outline);
+  color:var(--md-sys-color-on-surface-variant);
 }
 `
 }
