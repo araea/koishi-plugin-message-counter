@@ -200,16 +200,16 @@ export const Config: Schema<Config> = Schema.intersect([
   Schema.object({
     isBotMessageTrackingEnabled: Schema.boolean()
       .default(false)
-      .description("是否统计 Bot 自己发送的消息。"),
+      .description("统计 Bot 自己发送的消息。"),
     enableCrossBotDeduplication: Schema.boolean()
       .default(true)
       .description(
-        "是否启用跨机器人消息去重。当同一个群内接入了多个机器人账号时，开启此项可避免同一条消息被重复计数。",
+        "跨机器人消息去重。同一个群里接入多个机器人账号时，开启可避免同一条消息被重复计数。",
       ),
     enableYesterdayRanking: Schema.boolean()
       .default(true)
       .description(
-        "是否统计昨日发言。零点重置时需要把今日数据结转到昨日，长期运行、记录数极多的实例可关闭此项来缩短零点的处理时间。关闭后 `--yd` 昨日榜、跨群昨日榜与“抓龙王”都将不可用（相关选项会从指令中隐藏）；重新开启后需等到下一个零点才会重新有昨日数据。",
+        "统计昨日发言。零点重置时要把今日数据结转到昨日，长期运行、记录极多的实例可以关掉它来缩短零点的处理时间。关闭后 `--yd` 昨日榜、跨群昨日榜与「抓龙王」都不可用，相关选项会从指令里隐藏；重新开启后，要等到下一个零点才重新有昨日数据。",
       ),
   }).description("核心功能"),
 
@@ -218,13 +218,13 @@ export const Config: Schema<Config> = Schema.intersect([
     defaultMaxDisplayCount: Schema.number()
       .min(0)
       .default(20)
-      .description("排行榜默认显示的人数。设置为 0 则显示所有。"),
+      .description("排行榜默认显示的人数，0 表示全部显示。"),
     isTimeInfoSupplementEnabled: Schema.boolean()
       .default(true)
-      .description("是否在排行榜标题中显示生成时间。"),
+      .description("在排行榜标题里显示生成时间。"),
     isUserMessagePercentageVisible: Schema.boolean()
       .default(true)
-      .description("是否在排行榜中显示用户的消息数占比。"),
+      .description("在排行榜里显示各人的消息数占比。"),
     hiddenUserIdsInLeaderboard: Schema.array(String)
       .role("table")
       .description("全局隐藏的用户 ID 列表，在所有用户排行榜中生效。"),
@@ -238,7 +238,7 @@ export const Config: Schema<Config> = Schema.intersect([
     Schema.object({
       isLeaderboardToHorizontalBarChartConversionEnabled: Schema.boolean()
         .default(false)
-        .description("是否将排行榜渲染为水平柱状图（依赖 `puppeteer` 服务）。"),
+        .description("把排行榜渲染成水平柱状图，需要 `puppeteer` 服务。"),
     }).description("图片生成"),
 
     // 仅在开启柱状图功能时显示以下详细选项
@@ -249,7 +249,7 @@ export const Config: Schema<Config> = Schema.intersect([
             Schema.const(true).required(),
           imageType: Schema.union(["png", "jpeg", "webp"])
             .default("png")
-            .description(`生成的柱状图图片格式。`),
+            .description(`柱状图的图片格式。`),
         }).description("柱状图基础设置"),
 
         Schema.object({
@@ -296,12 +296,12 @@ export const Config: Schema<Config> = Schema.intersect([
           shouldMoveIconToBarEndLeft: Schema.boolean()
             .default(true)
             .description(
-              "是否将自定义图标显示在进度条的末端。关闭则显示在用户名旁。",
+              "把自定义图标放在进度条末端。关闭则显示在用户名旁。",
             ),
           showStarInChart: Schema.boolean()
             .default(true)
             .description(
-              "是否在图表中对触发指令的用户/群聊名称前添加 ★ 以高亮显示。",
+              "在图表里给触发指令的用户或群聊名称前加 ★ 高亮。",
             ),
           avatarShape: Schema.union([
             Schema.const("circle").description("圆形（推荐）"),
@@ -506,7 +506,7 @@ export const Config: Schema<Config> = Schema.intersect([
     Schema.object({
       autoPush: Schema.boolean()
         .default(false)
-        .description("是否启用定时自动推送排行榜功能。"),
+        .description("按时自动推送排行榜。"),
     }).description("自动推送"),
     Schema.union([
       Schema.intersect([
@@ -538,19 +538,19 @@ export const Config: Schema<Config> = Schema.intersect([
           shouldSendLeaderboardNotificationsToAllChannels: Schema.boolean()
             .default(false)
             .description(
-              "是否向机器人所在的所有群聊推送（可能造成打扰，请谨慎开启）。",
+              "向机器人所在的全部群聊推送。打扰面较大，开启前先想清楚。",
             ),
           excludedLeaderboardChannels: Schema.array(String)
             .role("table")
             .description(
-              "当“向所有群聊推送”开启时，此处指定的频道将不会收到推送。",
+              "「向所有群聊推送」开启时，这里指定的频道不会收到推送。",
             ),
         }).description("推送目标"),
 
         Schema.object({
           isGeneratingRankingListPromptVisible: Schema.boolean()
             .default(true)
-            .description("发送排行榜前，是否先发送一条“正在生成”的提示消息。"),
+            .description("发送排行榜前，先发一条「正在生成」的提示。"),
           leaderboardGenerationWaitTime: Schema.number()
             .min(0)
             .default(3)
@@ -578,7 +578,7 @@ export const Config: Schema<Config> = Schema.intersect([
     Schema.object({
       enableMostActiveUserMuting: Schema.boolean()
         .default(false)
-        .description("是否在每日 0 点自动禁言昨日发言最多的人（“抓龙王”）。"),
+        .description("每日 0 点自动禁言昨日发言最多的人，即「抓龙王」。"),
     }).description("龙王禁言"),
     Schema.union([
       Schema.object({
@@ -593,7 +593,7 @@ export const Config: Schema<Config> = Schema.intersect([
           .description("禁言时长（天）。"),
         muteChannelIds: Schema.array(String)
           .role("table")
-          .description("在哪些频道中执行“抓龙王”操作。"),
+          .description("在哪些频道执行「抓龙王」。"),
       }),
       Schema.object({}),
     ]),
@@ -887,7 +887,7 @@ export async function apply(ctx: Context, config: Config) {
           logger.debug(`[自动推送] 已设置每日 ${time} 推送今日排行榜的任务。`);
         } else {
           logger.warn(
-            `[自动推送] 无效的时间格式: "${time}"，已跳过。请使用 "HH:mm" 格式。`,
+            `[自动推送] 时间格式 "${time}" 无法解析，已跳过。格式应为 "HH:mm"。`,
           );
         }
       });
@@ -954,7 +954,7 @@ export async function apply(ctx: Context, config: Config) {
         {
           period: "daily",
           field: "todayPostCount",
-          message: "今日发言榜已成功置空！",
+          message: "今日发言榜已置空",
         },
       ];
 
@@ -963,7 +963,7 @@ export async function apply(ctx: Context, config: Config) {
         jobs.push({
           period: "weekly",
           field: "thisWeekPostCount",
-          message: "本周发言榜已成功置空！",
+          message: "本周发言榜已置空",
         });
       }
 
@@ -972,7 +972,7 @@ export async function apply(ctx: Context, config: Config) {
         jobs.push({
           period: "monthly",
           field: "thisMonthPostCount",
-          message: "本月发言榜已成功置空！",
+          message: "本月发言榜已置空",
         });
       }
 
@@ -981,7 +981,7 @@ export async function apply(ctx: Context, config: Config) {
         jobs.push({
           period: "yearly",
           field: "thisYearPostCount",
-          message: "今年发言榜已成功置空！",
+          message: "今年发言榜已置空",
         });
       }
 
@@ -1138,15 +1138,15 @@ export async function apply(ctx: Context, config: Config) {
   // --- 指令定义 ---
   // zl*
   ctx
-    .command("msgcount", "查看发言计数器帮助")
+    .command("msgcount", "发言计数器 · 谁在说话")
     .alias("messageCounter")
     .action(({ session }) => session?.execute(`help msgcount`));
 
   ctx
-    .command("msgcount.初始化", "初始化", { authority: 3 })
+    .command("msgcount.初始化", "清空全部发言记录", { authority: 3 })
     .action(async ({ session }) => {
       if (!session) return;
-      await session.send("⏳ 正在清空所有发言记录...");
+      await session.send("⏳ 正在清空所有发言记录……");
       await ctx.database.remove("message_counter_records", {});
       await session.send("✅ 所有发言记录已清空。");
     });
@@ -1155,7 +1155,7 @@ export async function apply(ctx: Context, config: Config) {
   const queryCommand = ctx
     .command(
       "msgcount.查询 [targetUser:text]",
-      "查询指定用户的发言次数信息",
+      "查询发言次数与排名",
     )
     .userFields(["id", "name"]);
 
@@ -1227,7 +1227,7 @@ export async function apply(ctx: Context, config: Config) {
         channelId,
         userId,
       });
-      if (targetUserRecord.length === 0) return `⚠️ 被查询对象没有任何发言记录。`;
+      if (targetUserRecord.length === 0) return `📋 这个用户还没有发言记录。\n从下一条消息起就会开始计数。`;
 
       // 求和交给数据库：每人一行，而不是每人每群一行
       const [channelSummary, acrossSummary]: [Summary[], Summary[]] =
@@ -1316,7 +1316,7 @@ export async function apply(ctx: Context, config: Config) {
       const acrossTable = formatStatsTable("跨群发言", acrossStats);
 
       const body = [channelTable, acrossTable].filter(Boolean).join("\n");
-      if (!body) return `⚠️ 被查询对象在指定时段内没有发言记录。`;
+      if (!body) return `📋 这个用户在所选时段内没有发言记录。\n换一个时段选项，或用 \`-t\` 看总计。`;
 
       // 使用 'sv-SE' locale 可以方便地得到 YYYY-MM-DD HH:MM:SS 格式
       const timestamp = new Date().toLocaleString("sv-SE", {
@@ -1330,39 +1330,39 @@ export async function apply(ctx: Context, config: Config) {
 
   // 排行榜指令
   const rankCommand = ctx
-    .command("msgcount.排行榜 [limit:number]", "用户发言排行榜")
+    .command("msgcount.排行榜 [limit:number]", "查看用户发言排行榜")
     .userFields(["id", "name"])
-    .option("whites", "<users:text> 白名单，用空格、逗号等分隔")
-    .option("blacks", "<users:text> 黑名单，用空格、逗号等分隔");
+    .option("whites", "<users:text> 白名单，用空格或逗号分隔")
+    .option("blacks", "<users:text> 黑名单，用空格或逗号分隔");
 
   // 关闭昨日发言统计时，相关选项不再注册，帮助文本与实际行为保持一致
   if (config.enableYesterdayRanking) {
-    rankCommand.option("yesterday", "--yd");
+    rankCommand.option("yesterday", "--yd 昨日发言榜");
   }
 
   rankCommand
-    .option("day", "-d")
-    .option("week", "-w")
-    .option("month", "-m")
-    .option("year", "-y")
-    .option("total", "-t");
+    .option("day", "-d 今日发言榜")
+    .option("week", "-w 本周发言榜")
+    .option("month", "-m 本月发言榜")
+    .option("year", "-y 今年发言榜")
+    .option("total", "-t 总发言榜");
 
   if (config.enableYesterdayRanking) {
-    rankCommand.option("ydag", "跨群昨日");
+    rankCommand.option("ydag", "跨群昨日发言榜");
   }
 
   rankCommand
-    .option("dag", "跨群今日")
-    .option("wag", "跨群本周")
-    .option("mag", "跨群本月")
-    .option("yag", "跨群本年")
-    .option("dragon", "圣龙王榜 (跨群总榜)")
+    .option("dag", "跨群今日发言榜")
+    .option("wag", "跨群本周发言榜")
+    .option("mag", "跨群本月发言榜")
+    .option("yag", "跨群今年发言榜")
+    .option("dragon", "圣龙王榜，即跨群总榜")
     .action(async ({ session, options }, limit) => {
       if (!session) return;
 
       const number = limit ?? config.defaultMaxDisplayCount;
       if (typeof number !== "number" || isNaN(number) || number < 0) {
-        return "⚠️ 请输入不小于 0 的数字作为排行榜显示人数。";
+        return "⚠️ 排行榜人数须是不小于 0 的整数。";
       }
 
       const whites = parseList(options?.whites);
@@ -1389,7 +1389,7 @@ export async function apply(ctx: Context, config: Config) {
       });
 
       if (rows.length === 0) {
-        return "⚠️ 当前范围内暂无发言记录。";
+        return "📋 这个范围内还没有发言记录。\n换一个时段选项，或用 `-t` 看总计。";
       }
 
       const rankingData: RankingData[] = rows.map((row) => ({
@@ -1409,28 +1409,28 @@ export async function apply(ctx: Context, config: Config) {
     });
 
   const channelRankCommand = ctx
-    .command("msgcount.群排行榜 [limit:number]", "群发言排行榜")
-    .option("specificUser", "-s <user:text> 特定用户的群发言榜")
+    .command("msgcount.群排行榜 [limit:number]", "查看各群发言排行榜")
+    .option("specificUser", "-s <user:text> 只看某个用户的群发言榜")
     .option("whites", "<channels:text> 白名单群号")
     .option("blacks", "<channels:text> 黑名单群号");
 
   // 关闭昨日发言统计时，相关选项不再注册，帮助文本与实际行为保持一致
   if (config.enableYesterdayRanking) {
-    channelRankCommand.option("yesterday", "--yd");
+    channelRankCommand.option("yesterday", "--yd 昨日发言榜");
   }
 
   channelRankCommand
-    .option("day", "-d")
-    .option("week", "-w")
-    .option("month", "-m")
-    .option("year", "-y")
-    .option("total", "-t")
+    .option("day", "-d 今日发言榜")
+    .option("week", "-w 本周发言榜")
+    .option("month", "-m 本月发言榜")
+    .option("year", "-y 今年发言榜")
+    .option("total", "-t 总发言榜")
     .action(async ({ session, options }, limit) => {
       if (!session) return;
 
       const number = limit ?? config.defaultMaxDisplayCount;
       if (typeof number !== "number" || isNaN(number) || number < 0) {
-        return "⚠️ 请输入不小于 0 的数字作为排行榜显示人数。";
+        return "⚠️ 排行榜人数须是不小于 0 的整数。";
       }
 
       const whites = parseList(options?.whites);
@@ -1469,7 +1469,7 @@ export async function apply(ctx: Context, config: Config) {
       });
 
       if (rows.length === 0) {
-        return `⚠️ 在当前条件下找不到任何群聊发言记录。`;
+        return `📋 这些条件下还没有群聊发言记录。\n放宽黑白名单，或换一个时段选项。`;
       }
 
       const rankingData: RankingData[] = rows.map((row) => ({
@@ -1492,19 +1492,19 @@ export async function apply(ctx: Context, config: Config) {
   ctx
     .command(
       "msgcount.上传柱状条背景",
-      "上传/更新自定义的水平柱状条背景图",
+      "上传个人柱状条底图",
     )
     .action(async ({ session }) => {
       if (!session || !session.userId) {
-        return "❌ 无法获取用户信息，请稍后再试。";
+        return "❌ 读不到用户信息，稍后再试一次。";
       }
       if (!session.content) {
-        return "⚠️ 请在发送指令时附带一张图片。新图片会覆盖旧背景。";
+        return "⚠️ 指令里没有附带图片\n把图片和指令发在同一条消息里，新图会覆盖旧背景。";
       }
 
       const imageElements = h.select(session.content, "img");
       if (imageElements.length === 0) {
-        return "⚠️ 请在发送指令时附带一张图片。新图片会覆盖旧背景。";
+        return "⚠️ 指令里没有附带图片\n把图片和指令发在同一条消息里，新图会覆盖旧背景。";
       }
 
       const { userId } = session;
@@ -1586,7 +1586,7 @@ export async function apply(ctx: Context, config: Config) {
         await fs.writeFile(newFilePath, buffer);
         await reloadBarBgImgCache();
 
-        return "✅ 自定义柱状条背景已更新。";
+        return "✅ 自定义柱状条背景已更新。\n发送「msgcount.排行榜」看看效果。";
       } catch (error) {
         logger.error(`为用户 ${userId} 上传背景图失败:`, error);
 
@@ -1597,46 +1597,46 @@ export async function apply(ctx: Context, config: Config) {
         const userMessage =
           error instanceof Error
             ? error.message
-            : "图片保存时发生未知错误，请联系管理员。";
-        return `❌ 图片上传失败：${userMessage}\n之前的自定义背景（如有）已被移除。`;
+            : "图片保存时出了未知的错。";
+        return `❌ 背景图没能保存\n${userMessage}\n原有的自定义背景已一并移除，可以重新上传一张。`;
       }
     });
 
   // 重载资源
   ctx
-    .command("msgcount.重载资源", "重载图标、背景和字体资源", {
+    .command("msgcount.重载资源", "重载图标、背景与字体", {
       authority: 2,
     })
     .action(async ({ session }) => {
       if (!session) return;
 
-      await session.send("⏳ 正在重新加载用户图标、背景图片和字体文件缓存...");
+      await session.send("⏳ 正在重载图标、背景与字体缓存……");
 
       await reloadIconCache();
       await reloadBarBgImgCache();
       await reloadFontCache(); // 调用字体缓存重载
 
-      return `✅ 资源重载完毕。\n- 已加载 ${iconCache.length} 个用户图标。\n- 已加载 ${barBgImgCache.length} 个柱状条背景图片。\n- 已加载 ${fontFilesCache.length} 个字体文件。`;
+      return `✅ 资源重载完毕\n• 用户图标 ${iconCache.length} 个\n• 柱状条背景 ${barBgImgCache.length} 张\n• 字体文件 ${fontFilesCache.length} 个`;
     });
 
   // 清理缓存
   ctx
-    .command("msgcount.清理缓存", "清理过期的头像缓存文件", {
+    .command("msgcount.清理缓存", "清理过期的头像缓存", {
       authority: 3,
     })
     .option(
       "days",
-      "-d <days:number> 清理超过指定天数未使用的缓存文件 (默认: 30)",
+      "-d <days:number> 清理多少天前的缓存，默认 30",
     )
     .action(async ({ session, options }) => {
       if (!session) return;
 
       const days = options.days ?? 30;
       if (typeof days !== "number" || days < 0) {
-        return "⚠️ 请输入有效的天数（不小于 0）。";
+        return "⚠️ 天数须是不小于 0 的整数。";
       }
 
-      await session.send(`⏳ 正在清理 ${days} 天前的头像缓存...`);
+      await session.send(`⏳ 正在清理 ${days} 天前的头像缓存……`);
 
       const cacheDir = avatarsPath; // 使用已定义的头像缓存路径
       let deletedCount = 0;
@@ -1668,13 +1668,13 @@ export async function apply(ctx: Context, config: Config) {
         }
 
         const freedSizeFormatted = formatBytes(totalFreedSize);
-        return `✅ 缓存清理完成。\n- 共删除 ${deletedCount} 个过期缓存文件。\n- 释放磁盘空间约 ${freedSizeFormatted}。`;
+        return `✅ 缓存清理完成\n• 删除过期文件 ${deletedCount} 个\n• 释放空间约 ${freedSizeFormatted}`;
       } catch (error) {
         if (error.code === "ENOENT") {
-          return "⚠️ 头像缓存目录不存在，无需清理。";
+          return "📋 头像缓存目录还不存在，没有要清理的。";
         }
         logger.error("清理头像缓存时发生未知错误:", error);
-        return "❌ 清理过程中发生错误，请查看控制台日志。";
+        return "❌ 清理没能完成\n详细原因见后台日志，稍后再试一次。";
       }
     });
 
@@ -1727,7 +1727,7 @@ export async function apply(ctx: Context, config: Config) {
             logger.debug(
               `检测到字体 "${path.basename(
                 filePath,
-              )}" 不规范，正在创建修复版本 "${patchedFilename}"...`,
+              )}" 不规范，正在创建修复版本 "${patchedFilename}"……`,
             );
             const CORRECT_VERSION = 0x00010000; // 65536
             buffer.writeUInt32BE(CORRECT_VERSION, tableOffset);
@@ -1949,7 +1949,7 @@ export async function apply(ctx: Context, config: Config) {
           try {
             await ctx.broadcast(
               [prefixedChannelId],
-              `⏳ 正在为本群生成${periodName}发言排行榜...`,
+              `⏳ 正在生成本频道的${periodName}发言排行榜……`,
             );
           } catch (e) {}
           await sleep(config.leaderboardGenerationWaitTime * 1000);
@@ -2198,22 +2198,22 @@ export async function apply(ctx: Context, config: Config) {
       {
         period: "daily",
         field: "todayPostCount",
-        message: "已补上错过的每日发言榜重置！",
+        message: "已补上错过的每日发言榜重置",
       },
       {
         period: "weekly",
         field: "thisWeekPostCount",
-        message: "已补上错过的每周发言榜重置！",
+        message: "已补上错过的每周发言榜重置",
       },
       {
         period: "monthly",
         field: "thisMonthPostCount",
-        message: "已补上错过的每月发言榜重置！",
+        message: "已补上错过的每月发言榜重置",
       },
       {
         period: "yearly",
         field: "thisYearPostCount",
-        message: "已补上错过的每年发言榜重置！",
+        message: "已补上错过的每年发言榜重置",
       },
     ];
 
