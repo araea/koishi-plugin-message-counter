@@ -2908,14 +2908,14 @@ export async function apply(ctx: Context, config: Config) {
           avatarGap: 14,        // 头像与柱状条之间的空隙
           barMinWidth: 150,     // 柱状条的最小长度
           barSpan: 700,         // 柱状条随发言数增长的最大长度
-          // 形状刻度：条与头像都取全圆角（traceRoundRect 会按行高收敛到 h / 2）。
-          // Expressive 里这是最常见的形状，成排的药丸形比圆角方形更整。
-          barRadius: ${SHAPE.full},  // 柱状条圆角
+          // 形状刻度：条取 medium，头像取全圆角。
+          // 条的圆角是条高的两成：行高 52 时是 10.4，SHAPE 里最近的一档是 medium，落到 12。
+          barRadius: ${SHAPE.medium},  // 柱状条圆角
           avatarRadius: ${SHAPE.full}, // 头像圆角，行高的一半即正圆
-          textGap: 16,          // 柱状条末端与发言数之间的空隙
+          textGap: 10,          // 柱状条末端与发言数之间的空隙
           textEndPad: 16,       // 发言数距轨道右端的最小留白
           rightPad: 26,         // 画布右侧留白
-          namePad: 18,          // 名称距柱状条左端的距离
+          namePad: 10,          // 名称距柱状条左端的距离
           countFontSize: ${TYPE.headlineLarge.size},   // 发言数字号，每行的一号数字走 headlineLarge
           percentFontSize: ${TYPE.bodyLarge.size},     // 百分比字号，作为发言数的附注退一档
           percentGap: 9,        // 发言数与百分比之间的空隙
@@ -2961,10 +2961,10 @@ export async function apply(ctx: Context, config: Config) {
               y: ROW_HEIGHT * index,
               barWidth: LAYOUT.barMinWidth + (LAYOUT.barSpan * data.count) / maxCount,
               bar,
-              track: toneOf(avg, TRACK_TONE, 12),
+              track: toneOf(avg, TRACK_TONE, 23),
               valueInk: toneOf(avg, VALUE_TONE, 30),
-              // 占比是次要信息：数值的墨往底色里退一档，同一支色相
-              pctInk: toneOf(avg, PERCENT_TONE, 20),
+              // 占比是次要信息：数值的墨往轨道色退一档，同一支色相
+              pctInk: toneOf(avg, PERCENT_TONE, 28),
               nameInk: contrastInk(),
             });
           }
@@ -3237,11 +3237,18 @@ export async function apply(ctx: Context, config: Config) {
         // 运算走 M3 的 LCh 色调板（与服务端同一套代码，见 m3.ts）。色调在 LCh 里
         // 就是感知亮度，所以「条一律色调 48」是个可以兑现的承诺：无论头像什么颜色，
         // 条上的白字对比度都够，不必再逐行判断该配深字还是浅字。
+        //
+        // 轨道是条色与页面底色各半的混色，色相仍跟着头像走。色调板只能按色调与
+        // 彩度取色，所以这两档是按混色结果反查出来的：色调 73，彩度 23
+        // （条色的彩度是 46，取一半）。
+        //
+        // 占比是次要信息：同色相往轨道色退一档，色调落在 47，彩度取 28
+        // （发言数的彩度是 30）。彩度 20 那档会让占比读成条色的褪色版。
 
         const BAR_TONE = 48;      // 实色条
-        const TRACK_TONE = 93;    // 轨道
+        const TRACK_TONE = 73;    // 轨道，条色与页面底色各半
         const VALUE_TONE = 32;    // 发言数
-        const PERCENT_TONE = 54;  // 占比，比发言数退一档
+        const PERCENT_TONE = 47;  // 占比，比发言数退一档
 
         /** 头像主色 -> 条色。只保留色相。 */
         function harmonizeTheme(hex) {
