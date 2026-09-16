@@ -15,9 +15,9 @@ yarn add koishi-plugin-message-counter
 | 指令 | 说明 |
 | --- | --- |
 | `msgcount` | 帮助 |
-| `msgcount.查询 [用户]` | 发言次数与排名 |
-| `msgcount.排行榜 [人数]` | 本群发言排行 |
-| `msgcount.群排行榜 [人数]` | 各群发言排行 |
+| `msgcount.查询 [用户]` | 查看发言次数与排名 |
+| `msgcount.排行榜 [人数]` | 本频道发言排行 |
+| `msgcount.频道排行榜 [人数]` | 各频道发言排行 |
 | `msgcount.上传柱状条背景` | 上传个人柱状条底图 |
 | `msgcount.重载资源` | 重载图标与字体，权限 2 |
 | `msgcount.清理缓存` | 清理头像缓存，权限 3 |

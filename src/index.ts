@@ -28,7 +28,7 @@ export const inject = {
 
 export const usage = `## 使用
 
-统计群聊发言次数，生成水平柱状图排行榜。
+统计频道发言次数，生成水平柱状图排行榜。
 
 ## 指令
 
@@ -36,8 +36,8 @@ export const usage = `## 使用
 | --- | --- |
 | \`msgcount\` | 帮助 |
 | \`msgcount.查询 [用户]\` | 发言次数与排名 |
-| \`msgcount.排行榜 [人数]\` | 本群发言排行 |
-| \`msgcount.群排行榜 [人数]\` | 各群发言排行 |
+| \`msgcount.排行榜 [人数]\` | 本频道发言排行 |
+| \`msgcount.频道排行榜 [人数]\` | 各频道发言排行 |
 | \`msgcount.上传柱状条背景\` | 上传个人柱状条底图 |
 | \`msgcount.重载资源\` | 重载图标与字体，权限 2 |
 | \`msgcount.清理缓存\` | 清理头像缓存，权限 3 |
@@ -73,7 +73,7 @@ export interface Config {
   isUserMessagePercentageVisible: boolean;
   /** 在排行榜中全局隐藏的用户 ID 列表。 */
   hiddenUserIdsInLeaderboard: string[];
-  /** 在群排行榜中全局隐藏的频道 ID 列表。 */
+  /** 在频道排行榜中全局隐藏的频道 ID 列表。 */
   hiddenChannelIdsInLeaderboard: string[];
 
   // --- 图片生成 ---
@@ -209,7 +209,7 @@ export const Config: Schema<Config> = Schema.intersect([
     enableYesterdayRanking: Schema.boolean()
       .default(true)
       .description(
-        "统计昨日发言。零点重置时要把今日数据结转到昨日，长期运行、记录极多的实例可以关掉它来缩短零点的处理时间。关闭后 `--yd` 昨日榜、跨群昨日榜与「抓龙王」都不可用，相关选项会从指令里隐藏；重新开启后，要等到下一个零点才重新有昨日数据。",
+        "统计昨日发言。零点重置时要把今日数据结转到昨日，长期运行、记录极多的实例可以关掉它来缩短零点的处理时间。关闭后 `--yd` 昨日榜、跨频道昨日榜与「抓龙王」都不可用，相关选项会从指令里隐藏；重新开启后，要等到下一个零点才重新有昨日数据。",
       ),
   }).description("核心功能"),
 
@@ -230,7 +230,7 @@ export const Config: Schema<Config> = Schema.intersect([
       .description("全局隐藏的用户 ID 列表，在所有用户排行榜中生效。"),
     hiddenChannelIdsInLeaderboard: Schema.array(String)
       .role("table")
-      .description("全局隐藏的频道 ID 列表，在群排行榜中生效。"),
+      .description("全局隐藏的频道 ID 列表，在频道排行榜中生效。"),
   }).description("排行榜设置"),
 
   // --- 图片生成 ---
@@ -1172,15 +1172,15 @@ export async function apply(ctx: Context, config: Config) {
     .option("total", "-t 总发言");
 
   if (config.enableYesterdayRanking) {
-    queryCommand.option("ydag", "跨群昨日发言");
+    queryCommand.option("ydag", "跨频道昨日发言");
   }
 
   queryCommand
-    .option("dag", "跨群今日发言")
-    .option("wag", "跨群本周发言")
-    .option("mag", "跨群本月发言")
-    .option("yag", "跨群本年发言")
-    .option("across", "-a 跨群总发言")
+    .option("dag", "跨频道今日发言")
+    .option("wag", "跨频道本周发言")
+    .option("mag", "跨频道本月发言")
+    .option("yag", "跨频道本年发言")
+    .option("across", "-a 跨频道总发言")
     .action(async ({ session, options }, targetUser) => {
       // -- 1. 选项解析 --
       const optionKeys = [
@@ -1227,7 +1227,7 @@ export async function apply(ctx: Context, config: Config) {
         channelId,
         userId,
       });
-      if (targetUserRecord.length === 0) return `📋 这个用户还没有发言记录。\n从下一条消息起就会开始计数。`;
+      if (targetUserRecord.length === 0) return `📋 这个用户还没有发言记录\n从下一条消息起就会开始计数。`;
 
       // 求和交给数据库：每人一行，而不是每人每群一行
       const [channelSummary, acrossSummary]: [Summary[], Summary[]] =
@@ -1312,11 +1312,11 @@ export async function apply(ctx: Context, config: Config) {
         return table;
       };
 
-      const channelTable = formatStatsTable("群发言", channelStats);
-      const acrossTable = formatStatsTable("跨群发言", acrossStats);
+      const channelTable = formatStatsTable("频道发言", channelStats);
+      const acrossTable = formatStatsTable("跨频道发言", acrossStats);
 
       const body = [channelTable, acrossTable].filter(Boolean).join("\n");
-      if (!body) return `📋 这个用户在所选时段内没有发言记录。\n换一个时段选项，或用 \`-t\` 看总计。`;
+      if (!body) return `📋 这个用户在所选时段内没有发言记录\n换一个时段选项，或用 \`-t\` 看总计。`;
 
       // 使用 'sv-SE' locale 可以方便地得到 YYYY-MM-DD HH:MM:SS 格式
       const timestamp = new Date().toLocaleString("sv-SE", {
@@ -1330,7 +1330,7 @@ export async function apply(ctx: Context, config: Config) {
 
   // 排行榜指令
   const rankCommand = ctx
-    .command("msgcount.排行榜 [limit:number]", "查看用户发言排行榜")
+    .command("msgcount.排行榜 [count:posint]", "查看用户发言排行榜")
     .userFields(["id", "name"])
     .option("whites", "<users:text> 白名单，用空格或逗号分隔")
     .option("blacks", "<users:text> 黑名单，用空格或逗号分隔");
@@ -1348,22 +1348,19 @@ export async function apply(ctx: Context, config: Config) {
     .option("total", "-t 总发言榜");
 
   if (config.enableYesterdayRanking) {
-    rankCommand.option("ydag", "跨群昨日发言榜");
+    rankCommand.option("ydag", "跨频道昨日发言榜");
   }
 
   rankCommand
-    .option("dag", "跨群今日发言榜")
-    .option("wag", "跨群本周发言榜")
-    .option("mag", "跨群本月发言榜")
-    .option("yag", "跨群今年发言榜")
-    .option("dragon", "圣龙王榜，即跨群总榜")
-    .action(async ({ session, options }, limit) => {
+    .option("dag", "跨频道今日发言榜")
+    .option("wag", "跨频道本周发言榜")
+    .option("mag", "跨频道本月发言榜")
+    .option("yag", "跨频道今年发言榜")
+    .option("dragon", "圣龙王榜，即跨频道总榜")
+    .action(async ({ session, options }, count) => {
       if (!session) return;
 
-      const number = limit ?? config.defaultMaxDisplayCount;
-      if (typeof number !== "number" || isNaN(number) || number < 0) {
-        return "⚠️ 排行榜人数须是不小于 0 的整数。";
-      }
+      const number = count ?? config.defaultMaxDisplayCount;
 
       const whites = parseList(options?.whites);
       const blacks = [
@@ -1375,7 +1372,7 @@ export async function apply(ctx: Context, config: Config) {
       const isAcross = isAcrossChannel(options);
 
       const { field, name: periodName } = periodMapping[period];
-      const scopeName = isAcross ? "跨群" : "本群";
+      const scopeName = isAcross ? "跨频道" : "本频道";
       const rankTitle = `${scopeName}${periodName}发言排行榜`;
       const rankTimeTitle = getCurrentBeijingTime();
 
@@ -1389,7 +1386,7 @@ export async function apply(ctx: Context, config: Config) {
       });
 
       if (rows.length === 0) {
-        return "📋 这个范围内还没有发言记录。\n换一个时段选项，或用 `-t` 看总计。";
+        return "📋 这个范围内还没有发言记录\n换一个时段选项，或用 `-t` 看总计。";
       }
 
       const rankingData: RankingData[] = rows.map((row) => ({
@@ -1409,10 +1406,10 @@ export async function apply(ctx: Context, config: Config) {
     });
 
   const channelRankCommand = ctx
-    .command("msgcount.群排行榜 [limit:number]", "查看各群发言排行榜")
-    .option("specificUser", "-s <user:text> 只看某个用户的群发言榜")
-    .option("whites", "<channels:text> 白名单群号")
-    .option("blacks", "<channels:text> 黑名单群号");
+    .command("msgcount.频道排行榜 [count:posint]", "查看各频道发言排行榜")
+    .option("specificUser", "-s <user:text> 只看某个用户的频道发言榜")
+    .option("whites", "<channels:text> 白名单频道号")
+    .option("blacks", "<channels:text> 黑名单频道号");
 
   // 关闭昨日发言统计时，相关选项不再注册，帮助文本与实际行为保持一致
   if (config.enableYesterdayRanking) {
@@ -1425,13 +1422,10 @@ export async function apply(ctx: Context, config: Config) {
     .option("month", "-m 本月发言榜")
     .option("year", "-y 今年发言榜")
     .option("total", "-t 总发言榜")
-    .action(async ({ session, options }, limit) => {
+    .action(async ({ session, options }, count) => {
       if (!session) return;
 
-      const number = limit ?? config.defaultMaxDisplayCount;
-      if (typeof number !== "number" || isNaN(number) || number < 0) {
-        return "⚠️ 排行榜人数须是不小于 0 的整数。";
-      }
+      const number = count ?? config.defaultMaxDisplayCount;
 
       const whites = parseList(options?.whites);
       const blacks = [
@@ -1454,9 +1448,9 @@ export async function apply(ctx: Context, config: Config) {
           { userId, channelId: session.channelId },
           ["username"],
         );
-        rankTitle = `${record?.username || `用户${userId}`}的${periodName}群发言排行榜`;
+        rankTitle = `${record?.username || `用户${userId}`}的${periodName}频道发言排行榜`;
       } else {
-        rankTitle = `全群${periodName}发言排行榜`;
+        rankTitle = `全频道${periodName}发言排行榜`;
       }
 
       const { rows, total: totalCount } = await rankChannels(ctx, {
@@ -1469,7 +1463,7 @@ export async function apply(ctx: Context, config: Config) {
       });
 
       if (rows.length === 0) {
-        return `📋 这些条件下还没有群聊发言记录。\n放宽黑白名单，或换一个时段选项。`;
+        return `📋 这些条件下还没有频道发言记录\n放宽黑白名单，或换一个时段选项。`;
       }
 
       const rankingData: RankingData[] = rows.map((row) => ({
@@ -1586,7 +1580,7 @@ export async function apply(ctx: Context, config: Config) {
         await fs.writeFile(newFilePath, buffer);
         await reloadBarBgImgCache();
 
-        return "✅ 自定义柱状条背景已更新。\n发送「msgcount.排行榜」看看效果。";
+        return "✅ 自定义柱状条背景已更新\n发送「msgcount.排行榜」看看效果。";
       } catch (error) {
         logger.error(`为用户 ${userId} 上传背景图失败:`, error);
 
@@ -1626,15 +1620,12 @@ export async function apply(ctx: Context, config: Config) {
     })
     .option(
       "days",
-      "-d <days:number> 清理多少天前的缓存，默认 30",
+      "-d <days:natural> 清理多少天前的缓存，默认 30",
     )
     .action(async ({ session, options }) => {
       if (!session) return;
 
       const days = options.days ?? 30;
-      if (typeof days !== "number" || days < 0) {
-        return "⚠️ 天数须是不小于 0 的整数。";
-      }
 
       await session.send(`⏳ 正在清理 ${days} 天前的头像缓存……`);
 
@@ -1782,7 +1773,7 @@ export async function apply(ctx: Context, config: Config) {
 
     logger.debug(`[自动推送] 开始执行 ${periodName} 发言排行榜推送任务。`);
 
-    const scopeName = "本群"; // 自动推送总是基于单个群聊的视角
+    const scopeName = "本频道"; // 自动推送总是基于单个群聊的视角
     const rankTimeTitle = getCurrentBeijingTime();
 
     // 1. 优先获取所有机器人能触及的群聊列表，并建立一个 ID -> 带平台前缀ID 的映射
