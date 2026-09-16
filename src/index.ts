@@ -41,7 +41,7 @@ export const usage = `## 使用
 | \`msgcount.上传柱状条背景\` | 上传个人柱状条底图 |
 | \`msgcount.重载资源\` | 重载图标与字体，权限 2 |
 | \`msgcount.清理缓存\` | 清理头像缓存，权限 3 |
-| \`msgcount.初始化\` | 清空发言记录，权限 3 |
+| \`msgcount.清空记录\` | 清空全部发言记录，权限 3 |
 
 时段选项：\`-d\` 今日、\`--yd\` 昨日、\`-w\` 本周、\`-m\` 本月、\`-y\` 今年、\`-t\` 总计。关闭「统计昨日发言」后，\`--yd\` 与「抓龙王」不可用。
 
@@ -1143,7 +1143,7 @@ export async function apply(ctx: Context, config: Config) {
     .action(({ session }) => session?.execute(`help msgcount`));
 
   ctx
-    .command("msgcount.初始化", "清空全部发言记录", { authority: 3 })
+    .command("msgcount.清空记录", "清空全部发言记录", { authority: 3 })
     .action(async ({ session }) => {
       if (!session) return;
       await session.send("⏳ 正在清空所有发言记录……");
