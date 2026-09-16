@@ -1,5 +1,16 @@
 import { Context, h, Logger, Schema, sleep, Bot, Dict, $ } from "koishi";
-import { clientColorScript, FONT_STACK, lch, scheme, SHAPE } from "./m3";
+import {
+  baseline,
+  clientColorScript,
+  components,
+  EMPHASIZED_WEIGHT,
+  FONT_STACK,
+  lch,
+  MONO_STACK,
+  scheme,
+  SHAPE,
+  TYPE,
+} from "./m3";
 import {} from "koishi-plugin-cron";
 import {} from "koishi-plugin-puppeteer";
 import path from "path";
@@ -28,7 +39,7 @@ export const inject = {
 
 export const usage = `## 使用
 
-统计频道发言次数，生成水平柱状图排行榜。
+发送 \`msgcount.排行榜\` 查看本频道的发言排行，\`msgcount.查询\` 看某个人的发言次数与排名。
 
 ## 指令
 
@@ -54,6 +65,15 @@ const FONT_OPTIONS = {
   TITLE: "HarmonyOS_Sans_Medium",
   NICKNAME: "HarmonyOS_Sans_Medium",
 };
+
+/**
+ * 统计类的图表取蓝紫主调：中性偏冷，衬得住每行各自的头像色。
+ *
+ * 色相与配色放在模块作用域：图的底色与页眉、配置里那几项背景色默认值都从它推出，
+ * 三处必须同源。
+ */
+const HUE = 268;
+const SCHEME = scheme(HUE);
 
 export interface Config {
   // --- 核心功能 ---
@@ -333,15 +353,15 @@ export const Config: Schema<Config> = Schema.intersect([
           maxBarBgWidth: Schema.number()
             .min(0)
             .default(850)
-            .description("允许上传的背景图最大宽度（像素）。0为不限制。"),
+            .description("允许上传的背景图最大宽度（像素）。0 为不限制。"),
           maxBarBgHeight: Schema.number()
             .min(0)
             .default(50)
-            .description("允许上传的背景图最大高度（像素）。0为不限制。"),
+            .description("允许上传的背景图最大高度（像素）。0 为不限制。"),
           maxBarBgSize: Schema.number()
             .min(0)
             .default(5)
-            .description("允许上传的背景图最大体积（MB）。0为不限制。"),
+            .description("允许上传的背景图最大体积（MB）。0 为不限制。"),
         }).description("上传限制"),
 
         // 背景设置（条件化）
@@ -375,13 +395,15 @@ export const Config: Schema<Config> = Schema.intersect([
               ])
                 .default("cloud")
                 .description("内置配色。选「自定义」后才会使用下面填的颜色。"),
+              /* 自定义渐变的两个默认端点取设计系统的表面色，
+                 与未配置时那条内置渐变（surfaceBright -> surfaceContainer）同源。 */
               gradientStartColor: Schema.string()
                 .role("color")
-                .default("#f6f8f9")
+                .default(SCHEME.surfaceBright)
                 .description("自定义渐变的起始颜色。"),
               gradientEndColor: Schema.string()
                 .role("color")
-                .default("#e5ebee")
+                .default(SCHEME.surfaceContainer)
                 .description("自定义渐变的结束颜色。"),
               gradientAngle: Schema.number()
                 .min(0)
@@ -396,7 +418,7 @@ export const Config: Schema<Config> = Schema.intersect([
               backgroundType: Schema.const("solid").required(),
               solidColor: Schema.string()
                 .role("color")
-                .default("#f2f4f7")
+                .default(SCHEME.surfaceContainerLow)
                 .description("背景颜色。建议选浅色，否则文字会看不清。"),
             }),
             Schema.object({
@@ -474,7 +496,7 @@ export const Config: Schema<Config> = Schema.intersect([
               backgroundValue: Schema.string()
                 .role("textarea", { rows: [2, 4] })
                 .default(
-                  `html {\n  background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);\n}`,
+                  `html {\n  background: linear-gradient(135deg, ${SCHEME.surfaceBright} 0%, ${SCHEME.surfaceContainer} 100%);\n}`,
                 )
                 .description(
                   "自定义背景的 CSS 代码。建议使用 `html` 选择器来设置背景。",
@@ -1155,7 +1177,7 @@ export async function apply(ctx: Context, config: Config) {
   const queryCommand = ctx
     .command(
       "msgcount.查询 [targetUser:text]",
-      "查询发言次数与排名",
+      "查看发言次数与排名",
     )
     .userFields(["id", "name"]);
 
@@ -1179,8 +1201,8 @@ export async function apply(ctx: Context, config: Config) {
     .option("dag", "跨频道今日发言")
     .option("wag", "跨频道本周发言")
     .option("mag", "跨频道本月发言")
-    .option("yag", "跨频道本年发言")
-    .option("across", "-a 跨频道总发言")
+    .option("yag", "跨频道今年发言")
+    .option("tag", "跨频道总发言")
     .action(async ({ session, options }, targetUser) => {
       // -- 1. 选项解析 --
       const optionKeys = [
@@ -1193,7 +1215,7 @@ export async function apply(ctx: Context, config: Config) {
         "wag",
         "mag",
         "yag",
-        "across",
+        "tag",
         // 关闭昨日统计后必须从这里剔除：不带任何选项时会把 optionKeys 全部置为
         // 选中，否则残留的 yesterdayPostCount 仍会被展示出来。
         ...(config.enableYesterdayRanking ? ["yesterday", "ydag"] : []),
@@ -1265,7 +1287,7 @@ export async function apply(ctx: Context, config: Config) {
       push(channelStats, channelSummary, "today", "今日", selectedOptions.day);
       push(channelStats, channelSummary, "week", "本周", selectedOptions.week);
       push(channelStats, channelSummary, "month", "本月", selectedOptions.month);
-      push(channelStats, channelSummary, "year", "全年", selectedOptions.year);
+      push(channelStats, channelSummary, "year", "今年", selectedOptions.year);
       push(channelStats, channelSummary, "total", "总计", selectedOptions.total);
 
       if (config.enableYesterdayRanking) {
@@ -1274,8 +1296,8 @@ export async function apply(ctx: Context, config: Config) {
       push(acrossStats, acrossSummary, "today", "今日", selectedOptions.dag);
       push(acrossStats, acrossSummary, "week", "本周", selectedOptions.wag);
       push(acrossStats, acrossSummary, "month", "本月", selectedOptions.mag);
-      push(acrossStats, acrossSummary, "year", "全年", selectedOptions.yag);
-      push(acrossStats, acrossSummary, "total", "总计", selectedOptions.across);
+      push(acrossStats, acrossSummary, "year", "今年", selectedOptions.yag);
+      push(acrossStats, acrossSummary, "total", "总计", selectedOptions.tag);
 
       // -- 4. 格式化与输出 --
       const formatPercentage = (count: number, total: number): string => {
@@ -1322,7 +1344,7 @@ export async function apply(ctx: Context, config: Config) {
       const timestamp = new Date().toLocaleString("sv-SE", {
         timeZone: "Asia/Shanghai",
       });
-      const header = `${timestamp}\n${targetUserRecord[0].username}\n\n`;
+      const header = `📋 ${targetUserRecord[0].username} 的发言次数\n${timestamp}\n\n`;
       const message = header + body;
 
       return message;
@@ -1332,8 +1354,8 @@ export async function apply(ctx: Context, config: Config) {
   const rankCommand = ctx
     .command("msgcount.排行榜 [count:posint]", "查看用户发言排行榜")
     .userFields(["id", "name"])
-    .option("whites", "<users:text> 白名单，用空格或逗号分隔")
-    .option("blacks", "<users:text> 黑名单，用空格或逗号分隔");
+    .option("whites", "<users:text> 空格或逗号分隔的白名单")
+    .option("blacks", "<users:text> 空格或逗号分隔的黑名单");
 
   // 关闭昨日发言统计时，相关选项不再注册，帮助文本与实际行为保持一致
   if (config.enableYesterdayRanking) {
@@ -1356,7 +1378,7 @@ export async function apply(ctx: Context, config: Config) {
     .option("wag", "跨频道本周发言榜")
     .option("mag", "跨频道本月发言榜")
     .option("yag", "跨频道今年发言榜")
-    .option("dragon", "圣龙王榜，即跨频道总榜")
+    .option("tag", "跨频道总发言榜")
     .action(async ({ session, options }, count) => {
       if (!session) return;
 
@@ -1539,11 +1561,7 @@ export async function apply(ctx: Context, config: Config) {
         // 检查文件大小
         const imageSizeInMB = buffer.byteLength / 1024 / 1024;
         if (config.maxBarBgSize > 0 && imageSizeInMB > config.maxBarBgSize) {
-          throw new Error(
-            `图片文件过大（${imageSizeInMB.toFixed(2)}MB），请上传小于 ${
-              config.maxBarBgSize
-            }MB 的图片。`,
-          );
+          return `⚠️ 图片文件过大\n当前 ${imageSizeInMB.toFixed(2)}MB，上限 ${config.maxBarBgSize}MB。\n换一张更小的图片再传一次。`;
         }
 
         // 检查图片尺寸
@@ -1556,15 +1574,11 @@ export async function apply(ctx: Context, config: Config) {
               (config.maxBarBgHeight > 0 &&
                 image.naturalHeight > config.maxBarBgHeight)
             ) {
-              throw new Error(
-                `图片尺寸（${image.naturalWidth}x${image.naturalHeight}）超出限制（最大 ${config.maxBarBgWidth}x${config.maxBarBgHeight}）。\n建议尺寸为 850x50 像素。`,
-              );
+              return `⚠️ 图片尺寸超出限制\n当前 ${image.naturalWidth}x${image.naturalHeight}，上限 ${config.maxBarBgWidth}x${config.maxBarBgHeight}。\n换一张 850x50 像素左右的图片再传一次。`;
             }
           } catch (error) {
             logger.error("解析图片尺寸失败:", error);
-            throw new Error(
-              "无法解析图片尺寸，请尝试使用其他标准图片格式（如 PNG, JPEG）。",
-            );
+            return "⚠️ 图片格式读不出来\n换一张 PNG 或 JPEG 格式的图片再传一次。";
           }
         } else {
           warnOnce("canvas-missing", "Canvas 服务未启用，跳过背景图尺寸检查。");
@@ -1620,7 +1634,7 @@ export async function apply(ctx: Context, config: Config) {
     })
     .option(
       "days",
-      "-d <days:natural> 清理多少天前的缓存，默认 30",
+      "-d <days:natural> 清理天数",
     )
     .action(async ({ session, options }) => {
       if (!session) return;
@@ -2046,10 +2060,10 @@ export async function apply(ctx: Context, config: Config) {
           // 禁言成功后，再向群内发送通知
           await ctx.broadcast(
             [channelId],
-            `根据统计，昨日发言最多的是 ${h("at", {
+            `✅ 昨日发言最多的是 ${h("at", {
               id: topUser.userId,
               name: topUser.username,
-            })}，现执行禁言 ${config.detentionDuration} 天。`,
+            })}，已禁言 ${config.detentionDuration} 天。`,
           );
         } else {
           // 如果所有机器人都尝试失败了
@@ -2593,18 +2607,20 @@ export async function apply(ctx: Context, config: Config) {
    * 生成图表的静态 CSS 样式。
    * @returns 包含基本元素样式的 CSS 字符串。
    */
-  /** 统计类的图表取蓝紫主调：中性偏冷，衬得住每行各自的头像色。 */
-  const HUE = 268;
-  const SCHEME = scheme(HUE);
-
   function _getChartBaseStyles(): string {
     return `
+      ${baseline(SCHEME)}
+      ${components()}
+
       html {
         min-height: 100%;
       }
 
       body {
         font-family: ${FONT_STACK};
+        /* 底色由 html 上的可配置样式承载（渐变 / 图片 / 自定义 CSS），
+           baseline 给 body 铺的背景色会把它整个盖住，这里保持透明。 */
+        background: transparent;
         margin: 0;
         padding: ${CHART_PAGE_PADDING_Y}px ${CHART_PAGE_PADDING_X}px ${
           CHART_PAGE_PADDING_Y + 8
@@ -2626,34 +2642,29 @@ export async function apply(ctx: Context, config: Config) {
         pointer-events: none;
       }
 
-      /* 页眉左对齐：标题与下面的榜单同一条起始线，比居中更稳 */
+      /* 页眉左对齐：标题与下面的榜单同一条起始线，比居中更稳。
+         降到组件的 m3-header（标题 + 辅助说明）；它自带的 padding 与 4px 间隙
+         会挪动这条起始线，三处间距按本页原样压回去。 */
       .chart-header {
         margin: 0 0 28px;
-        padding-left: 2px;
+        padding: 0 0 0 2px;
+        gap: 8px;
       }
 
-      /* Expressive 的大标题：字号给足，字重压到 600 */
+      /* Expressive 的大标题：字阶取 displaySmall，字重压到强调档 */
       .ranking-title {
         margin: 0;
-        font-size: 36px;
-        line-height: 44px;
-        font-weight: 600;
-        letter-spacing: 0;
+        font-size: ${TYPE.displaySmall.size}px;
+        line-height: ${TYPE.displaySmall.line}px;
+        font-weight: ${EMPHASIZED_WEIGHT.display};
+        letter-spacing: ${TYPE.displaySmall.tracking}px;
         color: ${SCHEME.onSurface};
       }
 
-      /* 元信息行：榜单范围、合计与出图时间并成一行小字跟在标题下面。
-         先看清这是什么，再看它是什么时候、多大范围的数据。 */
-      .ranking-subtitle {
-        margin: 8px 0 0;
-        font-size: 14px;
-        line-height: 20px;
-        font-weight: 400;
-        letter-spacing: 0.25px;
-        color: ${SCHEME.onSurfaceVariant};
-      }
-
-      /* 分隔点自己带匀称的左右间距，不依赖字体里「·」的空腔 */
+      /* 元信息行（m3-header__support）：榜单范围、合计与出图时间并成一行小字
+         跟在标题下面。先看清这是什么，再看它是什么时候、多大范围的数据。
+         字阶与字色由组件给，与改版前逐项相同。
+         分隔点自己带匀称的左右间距，不依赖字体里「·」的空腔。 */
       .ranking-subtitle .sep {
         margin: 0 9px;
         opacity: 0.55;
@@ -2721,7 +2732,7 @@ export async function apply(ctx: Context, config: Config) {
     );
 
     let css = `html {
-      background-color: #eef1f4;
+      background-color: ${SCHEME.surfaceContainer};
       background-image: ${imageUrl};
       background-position: center;
       ${sizing}
@@ -2743,6 +2754,8 @@ export async function apply(ctx: Context, config: Config) {
       content: "";
       position: absolute;
       inset: 0;
+      /* 全库唯一保留的 rgba：这是真的压在图片上的半透明遮罩，
+         浓度由用户配置，换成不透明色就不是蒙版了 */
       background: rgba(255, 255, 255, ${mask});
     }`;
     }
@@ -2837,8 +2850,8 @@ export async function apply(ctx: Context, config: Config) {
     switch (config.backgroundType) {
       case "gradient": {
         const preset = GRADIENT_PRESETS[config.gradientPreset];
-        const from = preset?.[0] ?? config.gradientStartColor ?? "#f6f8f9";
-        const to = preset?.[1] ?? config.gradientEndColor ?? "#e5ebee";
+        const from = preset?.[0] ?? config.gradientStartColor ?? SCHEME.surfaceBright;
+        const to = preset?.[1] ?? config.gradientEndColor ?? SCHEME.surfaceContainer;
         const angle = Number.isFinite(config.gradientAngle)
           ? config.gradientAngle
           : 135;
@@ -2895,21 +2908,24 @@ export async function apply(ctx: Context, config: Config) {
           avatarGap: 14,        // 头像与柱状条之间的空隙
           barMinWidth: 150,     // 柱状条的最小长度
           barSpan: 700,         // 柱状条随发言数增长的最大长度
-          // 形状刻度：条与头像都取行高的一半，也就是全圆角。
+          // 形状刻度：条与头像都取全圆角（traceRoundRect 会按行高收敛到 h / 2）。
           // Expressive 里这是最常见的形状，成排的药丸形比圆角方形更整。
-          barRadius: 26,        // 柱状条圆角（= avatarSize / 2）
-          avatarRadius: 26,     // 头像圆角（= avatarSize / 2，即正圆）
+          barRadius: ${SHAPE.full},  // 柱状条圆角
+          avatarRadius: ${SHAPE.full}, // 头像圆角，行高的一半即正圆
           textGap: 16,          // 柱状条末端与发言数之间的空隙
           textEndPad: 16,       // 发言数距轨道右端的最小留白
           rightPad: 26,         // 画布右侧留白
           namePad: 18,          // 名称距柱状条左端的距离
-          countFontSize: 30,    // 发言数字号
-          percentFontSize: 19,  // 百分比字号，比发言数小一号
+          countFontSize: ${TYPE.headlineLarge.size},   // 发言数字号，每行的一号数字走 headlineLarge
+          percentFontSize: ${TYPE.bodyLarge.size},     // 百分比字号，作为发言数的附注退一档
           percentGap: 9,        // 发言数与百分比之间的空隙
         };
         const ROW_HEIGHT = LAYOUT.avatarSize + LAYOUT.rowGap;
         const BAR_X = LAYOUT.avatarSize + LAYOUT.avatarGap;
 
+        /* 读数（发言数、占比）走等宽栈：数字要能对齐。等宽栈里没有汉字，
+           把用户选的昵称字体接在后面，读数里可能夹的别的字才不掉队。 */
+        const numFont = (size) => \`\${size}px ${MONO_STACK}, "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
         const chartFont = (size) => \`\${size}px "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
 
         // --- 主绘制函数 ---
@@ -3026,14 +3042,14 @@ export async function apply(ctx: Context, config: Config) {
 
         /** 量出「发言数 + 百分比」整块文字的尺寸，用于排版与画布宽度计算。 */
         function measureCountBlock(context, data) {
-            context.font = chartFont(LAYOUT.countFontSize);
+            context.font = numFont(LAYOUT.countFontSize);
             const countText = Number(data.count).toLocaleString('en-US');
             const countWidth = context.measureText(countText).width;
 
             const percentText = formatPercent(data.percentage);
             let percentWidth = 0;
             if (percentText) {
-                context.font = chartFont(LAYOUT.percentFontSize);
+                context.font = numFont(LAYOUT.percentFontSize);
                 percentWidth = context.measureText(percentText).width;
             }
 
@@ -3078,13 +3094,13 @@ export async function apply(ctx: Context, config: Config) {
             }
 
             context.textAlign = "left";
-            context.font = chartFont(LAYOUT.countFontSize);
+            context.font = numFont(LAYOUT.countFontSize);
             context.fillStyle = row.valueInk;
             context.fillText(block.countText, textX, baselineY);
 
             // 百分比小一号、退半档，作为发言数的附注
             if (block.percentText) {
-                context.font = chartFont(LAYOUT.percentFontSize);
+                context.font = numFont(LAYOUT.percentFontSize);
                 context.fillStyle = row.pctInk;
                 context.fillText(block.percentText, textX + block.countWidth + LAYOUT.percentGap, baselineY);
             }
@@ -3165,10 +3181,10 @@ export async function apply(ctx: Context, config: Config) {
             context.drawImage(image, 0, y, size, size);
             context.restore();
 
-            // 极浅的描边，让头像与背景之间有一点分隔
+            // 极浅的描边，让头像与背景之间有一点分隔：描边取系统里最弱的一档
             context.save();
             traceAvatarShape(context, 0.5, y + 0.5, size - 1, shape);
-            context.strokeStyle = "rgba(0, 0, 0, 0.08)";
+            context.strokeStyle = "${SCHEME.outlineVariant}";
             context.lineWidth = 1;
             context.stroke();
             context.restore();
@@ -3197,7 +3213,8 @@ export async function apply(ctx: Context, config: Config) {
             const step = LAYOUT.barSpan / 7;
 
             context.save();
-            context.fillStyle = "rgba(0, 0, 0, 0.08)";
+            // 刻度线取系统里最弱的一档描边色：压在轨道与实色条上都读得出来
+            context.fillStyle = "${SCHEME.outlineVariant}";
             for (let row = 0; row < rankingData.length; row++) {
                 const y = ROW_HEIGHT * row;
                 context.save();
@@ -3236,9 +3253,9 @@ export async function apply(ctx: Context, config: Config) {
             return M3.harmonize(hex, tone, chroma, THEME_HUE);
         }
 
-        /** 实色条上的字色。条固定在色调 48，白字永远够对比。 */
+        /** 实色条上的字色。条固定在色调 48，取 onPrimary（色调 100，即纯白）永远够对比。 */
         function contrastInk() {
-            return '#ffffff';
+            return '${SCHEME.onPrimary}';
         }
 
         // --- 辅助工具函数 ---
@@ -3346,7 +3363,7 @@ export async function apply(ctx: Context, config: Config) {
     if (totalCount > 0) metaParts.push(`合计 ${totalCount.toLocaleString("en-US")}`);
     if (config.isTimeInfoSupplementEnabled) metaParts.push(rankTimeTitle);
     const metaLine = metaParts.length
-      ? `<p class="ranking-subtitle">${metaParts.join(
+      ? `<p class="ranking-subtitle m3-header__support">${metaParts.join(
           '<span class="sep">·</span>',
         )}</p>`
       : "";
@@ -3369,8 +3386,8 @@ export async function apply(ctx: Context, config: Config) {
       </head>
       <body>
           <div class="bg-layer"></div>
-          <header class="chart-header">
-            <h1 class="ranking-title">${rankTitle}</h1>
+          <header class="chart-header m3-header">
+            <h1 class="ranking-title m3-header__title">${rankTitle}</h1>
             ${metaLine}
           </header>
           <div class="font-preload">
@@ -3565,12 +3582,12 @@ export async function apply(ctx: Context, config: Config) {
     if (options?.week || options?.wag) return "week";
     if (options?.month || options?.mag) return "month";
     if (options?.year || options?.yag) return "year";
-    if (options?.total || options?.across || options?.dragon) return "total";
+    if (options?.total || options?.tag) return "total";
     return fallback;
   }
 
   function isAcrossChannel(options: any): boolean {
-    return ["ydag", "dag", "wag", "mag", "yag", "across", "dragon"].some(
+    return ["ydag", "dag", "wag", "mag", "yag", "tag"].some(
       (opt) => options?.[opt],
     );
   }
@@ -3642,13 +3659,16 @@ export async function apply(ctx: Context, config: Config) {
   }
 
   function formatLeaderboardAsText(
-    title: string,
-    subtitle: string,
+    rankTimeTitle: string,
+    rankTitle: string,
     data: RankingData[],
     showPercentage: boolean,
   ): string {
-    let result = `${title}\n${subtitle}\n\n`;
-    data.forEach((item, index) => {
+    // 首行给榜单标题（带状态符），出图时间退到第二行，与出图版的页眉同序
+    let result = `📋 ${rankTitle}\n${rankTimeTitle}\n\n`;
+    // 纯文本不出图，列四条封顶，其余折成一行汇总
+    const shown = data.slice(0, 4);
+    shown.forEach((item, index) => {
       const percentageStr = showPercentage
         ? ` (${Math.round(item.percentage)}%)`
         : "";
@@ -3656,6 +3676,8 @@ export async function apply(ctx: Context, config: Config) {
         item.count
       } 次${percentageStr}\n`;
     });
+    const hidden = data.length - shown.length;
+    if (hidden > 0) result += `…… 另有 ${hidden} 人未列\n`;
     return result.trim();
   }
 }
