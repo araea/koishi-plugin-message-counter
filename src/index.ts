@@ -2392,20 +2392,23 @@ export async function apply(ctx: Context, config: Config) {
     // 3. 从网络获取，并根据结果应用不同的缓存策略
     let finalBase64 = fallbackBase64[0];
     try {
-      if (!ctx.canvas) {
-        throw new Error("Canvas service is not available.");
-      }
       // 设置5秒超时，防止请求卡死
       const buffer = await ctx.http.get(url, {
         responseType: "arraybuffer",
         timeout: 5000,
       });
-      // 使用 canvas 将图片统一处理为 50x50 的 PNG
-      const image = await ctx.canvas.loadImage(buffer);
-      const canvas = await ctx.canvas.createCanvas(50, 50);
-      const context = canvas.getContext("2d");
-      context.drawImage(image, 0, 0, 50, 50);
-      finalBase64 = (await canvas.toBuffer("image/png")).toString("base64");
+      if (ctx.canvas) {
+        // 有 canvas 服务：统一缩到 50×50 的 PNG，缓存更小
+        const image = await ctx.canvas.loadImage(buffer);
+        const canvas = await ctx.canvas.createCanvas(50, 50);
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0, 50, 50);
+        finalBase64 = (await canvas.toBuffer("image/png")).toString("base64");
+      } else {
+        // 没有 canvas 服务：原图直接存下来。图表的浏览器端会自己缩到 50×50，
+        // 头像照样画得出来，取主色也在那边做——这条路径不需要 canvas。
+        finalBase64 = Buffer.from(buffer as ArrayBuffer).toString("base64");
+      }
     } catch (error) {
       warnOnce(
         `avatar-fetch-failed:${error?.message ?? error}`,
@@ -3386,12 +3389,14 @@ export async function apply(ctx: Context, config: Config) {
             image.src = "data:image/png;base64," + base64;
             await new Promise(r => image.onload = r);
 
+            // 先缩到 50×50 再量：没有 canvas 服务时缓存里存的是原图（可能上千像素），
+            // 缩过之后既快，结果也只跟这一档尺寸有关，与 monetary-rank 的取法一致。
+            const size = 50;
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext("2d", { willReadFrequently: true });
-            canvas.width = image.width; canvas.height = image.height;
-            ctx.drawImage(image, 0, 0);
+            canvas.width = size; canvas.height = size;
+            ctx.drawImage(image, 0, 0, size, size);
 
-            const size = image.width;
             const center = size / 2;
             const radius = center - 1;
             const data = ctx.getImageData(0, 0, size, size).data;

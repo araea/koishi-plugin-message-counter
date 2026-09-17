@@ -8,7 +8,7 @@
 yarn add koishi-plugin-message-counter
 ```
 
-在 Koishi 配置中启用，并提供 database 与 cron 服务。生成图表需要 puppeteer，上传柱状条背景需要 canvas。
+在 Koishi 配置中启用，并提供 database 与 cron 服务。生成图表需要 puppeteer；有 canvas 服务时头像会先缩到 50×50 再缓存，没有也照常出图（缩略图与取主色都在图表的浏览器端做），上传柱状条背景仍需要 canvas。
 
 ## 指令
 
