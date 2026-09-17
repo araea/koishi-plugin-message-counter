@@ -136,7 +136,7 @@ export interface Config {
   showStarInChart: boolean;
   /** 排行榜中头像的形状。 */
   avatarShape: "circle" | "rounded" | "square";
-  /** 刻度竖线是否压在柱状条之上。关闭则由柱状条盖住刻度。 */
+  /** 刻度竖线是否压在柱状条之上。默认压在条上，关闭则由柱状条盖住刻度。 */
   gridLinesOverBars: boolean;
   /** 自定义背景图在进度条区域的不透明度。 */
   horizontalBarBackgroundOpacity: number;
@@ -341,9 +341,9 @@ export const Config: Schema<Config> = Schema.intersect([
             .default("circle")
             .description("排行榜中头像的形状。"),
           gridLinesOverBars: Schema.boolean()
-            .default(false)
+            .default(true)
             .description(
-              "刻度竖线是否压在柱状条之上。关闭（默认）则由柱状条盖住刻度，每根条是完整的一块颜色；开启则刻度贯穿整行。两种都只差遮挡关系，文字始终在最上层。",
+              "刻度竖线是否压在柱状条之上。开启（默认）则刻度贯穿整行；关闭则由柱状条盖住刻度，每根条是完整的一块颜色。两种都只差遮挡关系，文字始终在最上层。",
             ),
           horizontalBarBackgroundOpacity: Schema.number()
             .min(0)
