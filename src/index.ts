@@ -1,14 +1,12 @@
 import { Context, h, Logger, Schema, sleep, Bot, Dict, $ } from "koishi";
 import {
   baseline,
-  clientColorScript,
   components,
+  EMPHASIZED_WEIGHT,
   FONT_STACK,
   lch,
-  MONO_STACK,
   scheme,
   SHAPE,
-  TYPE,
 } from "./m3";
 import {} from "koishi-plugin-cron";
 import {} from "koishi-plugin-puppeteer";
@@ -61,15 +59,28 @@ const logger = new Logger("messageCounter");
 
 // --- 定义字体选项常量 ---
 const FONT_OPTIONS = {
-  TITLE: "HarmonyOS_Sans_Medium",
-  NICKNAME: "HarmonyOS_Sans_Medium",
+  // 与 ayjx 的 stats 图表同一支字体：那边 config.toml 的 font_family 就是它。
+  // 系统里没有时，行内字体栈会退回到随包带的 HarmonyOS_Sans_Medium。
+  TITLE: "Noto Sans CJK SC",
+  NICKNAME: "Noto Sans CJK SC",
 };
 
 /**
- * 统计类的图表取蓝紫主调：中性偏冷，衬得住每行各自的头像色。
+ * 图表的纸色与墨色，取自 ayjx 的 `ColorScheme::default`（scheme-manual）。
  *
- * 色相与配色放在模块作用域：图的底色与页眉、配置里那几项背景色默认值都从它推出，
- * 三处必须同源。
+ * ayjx 的发言榜与本插件的排行榜会在同一个群里并排出现，纸色、墨色与每行的
+ * 条色都按同一套来，两边的图才谈得上一致。下面这五个值与 ayjx 的
+ * `chart/utils.rs`、`chart/renderer.rs` 一一对应，改一处要两边一起改。
+ */
+const PAPER = "#fffefa"; // surface，页面底色
+const INK = "#1f2a27"; // on-surface，标题
+const INK_SOFT = "#4f5c57"; // on-surface-variant，元信息行
+const HAIRLINE = "rgba(0, 0, 0, 0.08)"; // 刻度线与头像描边：8% 的黑
+/** 取不到头像时的兜底色，即 ayjx 的 FALLBACK_THEME（主色）。 */
+const FALLBACK_THEME = "#1f6350";
+
+/**
+ * 用户可选的背景方案仍按本插件的主色相推：那是配置项，与图表的默认纸色无关。
  */
 const HUE = 268;
 const SCHEME = scheme(HUE);
@@ -2626,7 +2637,7 @@ export async function apply(ctx: Context, config: Config) {
         min-height: 100%;
         box-sizing: border-box;
         position: relative;
-        color: ${SCHEME.onSurface};
+        color: ${INK};
         -webkit-font-smoothing: antialiased;
         font-variant-numeric: tabular-nums;
       }
@@ -2639,9 +2650,9 @@ export async function apply(ctx: Context, config: Config) {
         pointer-events: none;
       }
 
-      /* 页眉居中：与 ayjx 的榜单同一条版式——标题居中，范围、合计与出图时间
-         并成一行小字跟在下面。组件自带的 padding 与 4px 间隙会把这块撑高，
-         三处间距按图表的原样压回去。 */
+      /* 页眉居中：标题、元信息行的高与间距逐项按 ayjx 的标题区来（32 / 12 / 18），
+         下面的榜单因此落在与 ayjx 同一个纵坐标上。组件自带的 padding 与间隙
+         会把这块撑高，这里按图表的原样压回去。 */
       .chart-header {
         margin: 0 0 24px;
         padding: 0;
@@ -2650,19 +2661,22 @@ export async function apply(ctx: Context, config: Config) {
         text-align: center;
       }
 
-      /* 标题不另设字号：组件的 m3-header__title 就是 32px / 600，与 ayjx 的
-         标题同档，此前绕开组件写 displaySmall 反而比它大了一号。 */
+      /* 标题 32px：与 ayjx 的 title_font_size 同档 */
       .ranking-title {
         margin: 0;
-        color: ${SCHEME.onSurface};
+        font-size: 32px;
+        line-height: 32px;
+        font-weight: ${EMPHASIZED_WEIGHT.headline};
+        color: ${INK};
       }
 
-      /* 元信息行（m3-header__support）：字号抬到 bodyLarge，与 ayjx 的 18px
-         小字同档；组件默认的 label 档在这里偏小。
+      /* 元信息行（m3-header__support），18px：与 ayjx 的 meta_font_size 同档。
          分隔点自己带匀称的左右间距，不依赖字体里「·」的空腔。 */
       .ranking-subtitle {
-        font-size: ${TYPE.bodyLarge.size}px;
-        line-height: ${TYPE.bodyLarge.line}px;
+        font-size: 18px;
+        line-height: 18px;
+        font-weight: 400;
+        color: ${INK_SOFT};
       }
       .ranking-subtitle .sep {
         margin: 0 9px;
@@ -2701,11 +2715,11 @@ export async function apply(ctx: Context, config: Config) {
     ).map(([name, hue, chroma]) => [name, [lch(98, chroma * 0.5, hue), lch(92, chroma, hue)]]),
   ) as Record<string, [string, string]>;
 
-  /** 未配置或配置无效时使用的默认背景：设计系统的表面色。
-   *  纯白在整屏两千像素上看久了刺眼，用 surface（色调 98）而不是纯白，
-   *  上面那层 surface-container 的色差才显得出来。 */
+  /** 未配置或配置无效时使用的默认背景：与 ayjx 的图表同一张纸。
+   *  纯白在整屏两千像素上看久了刺眼，退半档到暖白（surface），
+   *  ayjx 的淡色轨道与横条也是画在这张纸上。 */
   const DEFAULT_BACKGROUND_CSS = `html {
-      background: linear-gradient(135deg, ${SCHEME.surfaceBright} 0%, ${SCHEME.surfaceContainer} 100%);
+      background: ${PAPER};
     }`;
 
   /** 图片背景的尺寸与平铺方式对应的 CSS 片段。 */
@@ -2899,35 +2913,34 @@ export async function apply(ctx: Context, config: Config) {
     // 此函数返回一个字符串，该字符串是将在 Puppeteer 浏览器上下文中执行的完整脚本。
     // 使用 IIFE (async (...) => { ... }) 格式，以便在 HTML 中清晰地传递参数。
     return `
-      async ({ rankingData, iconData, barBgImgs, config }) => {
+      async ({ rankingData, iconData, barBgImgs, fallbackAvatar, config }) => {
         // --- 版式常量：集中控制头像、柱状条与文字的尺寸和留白 ---
         // 这一组数值与 ayjx 的 draw_bar_chart 逐项对齐（那边以 2 倍尺寸绘制，
         // 这里是 1 倍）：行高 50、条最短 150、随发言数增长 700、名字左内缩 10、
-        // 条尾到发言数 10、发言数与占比之间 8。改动时两处一起改。
+        // 条尾到发言数 10、发言数与占比之间 8。改动时三处一起改。
         const LAYOUT = {
           avatarSize: 50,       // 头像边长，也是每一行的高度
           rowGap: 10,           // 行与行之间的空隙
           avatarGap: 6,         // 头像与柱状条之间的空隙
           barMinWidth: 150,     // 柱状条的最小长度
           barSpan: 700,         // 柱状条随发言数增长的最大长度
-          // 形状刻度：条的圆角是条高的两成（50 的 20% = 10，SHAPE 里最近的一档是
-          // medium = 12），头像取全圆角。
-          barRadius: ${SHAPE.medium},  // 柱状条圆角
+          barRadius: 10,        // 柱状条圆角：条高的两成
           avatarRadius: ${SHAPE.full}, // 头像圆角，行高的一半即正圆
           namePad: 10,          // 名称距柱状条左端的距离
           textGap: 10,          // 柱状条末端与发言数之间的空隙
-          countFontSize: ${TYPE.headlineLarge.size},   // 发言数字号，每行的一号数字走 headlineLarge
-          percentFontSize: ${TYPE.titleLarge.size},    // 百分比字号，退到标题档，与发言数保持 2:3
+          countFontSize: 30,    // 发言数字号，与 ayjx 的 font_size 同档
+          percentFontSize: 20,  // 百分比字号，与 ayjx 的 pct_font_size 同档
           percentGap: 8,        // 发言数与百分比之间的空隙
+          textNudge: 2,         // 行内文字相对行中心的纵向微调，与 ayjx 的 text_mid_y 对齐
         };
         const ROW_HEIGHT = LAYOUT.avatarSize + LAYOUT.rowGap;
         const BAR_X = LAYOUT.avatarSize + LAYOUT.avatarGap;
         // 轨道是定长的：条最长就铺满它，数值写在轨道右侧的留白上，与 ayjx 一致。
         const TRACK_WIDTH = LAYOUT.barMinWidth + LAYOUT.barSpan;
 
-        /* 读数（发言数、占比）走等宽栈：数字要能对齐。等宽栈里没有汉字，
-           把用户选的昵称字体接在后面，读数里可能夹的别的字才不掉队。 */
-        const numFont = (size) => \`\${size}px ${MONO_STACK}, "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
+        /* 行内文字只用一支字体，与 ayjx 相同——那边整张图的昵称与读数都不走等宽栈。
+           字体栈照那边的取字体顺序：先系统里的 Noto Sans CJK SC（ayjx 的
+           config.toml 里 font_family 就是它），再是本插件随包带的那支。 */
         const chartFont = (size) => \`\${size}px "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
 
         // --- 主绘制函数 ---
@@ -2951,21 +2964,26 @@ export async function apply(ctx: Context, config: Config) {
           context = canvas.getContext('2d');
           context.textBaseline = "alphabetic";
 
-          // 每行的配色只算一次：条、轨道、数值、占比、名字全部出自同一支色相
+          // 每行的配色只算一次，全部出自 ayjx 那套运算
           const rows = [];
           for (const [index, data] of rankingData.entries()) {
-            const avg = await getAverageColor(data.avatarBase64);
-            const bar = harmonizeTheme(avg);
+            // 取不到头像的用兜底色，与 ayjx 的 FALLBACK_THEME 同一支
+            const theme = data.avatarBase64 === fallbackAvatar
+              ? hexToRgb(FALLBACK_THEME)
+              : hexToRgb(await getAverageColor(data.avatarBase64));
+            const bar = harmonizeTheme(theme);
+            const track = mixWithWhite(bar, 0.5);
+            const valueTone = deepTone(bar, 0.34);
             rows.push({
               data,
               y: ROW_HEIGHT * index,
               barWidth: LAYOUT.barMinWidth + (LAYOUT.barSpan * data.count) / maxCount,
-              bar,
-              track: toneOf(avg, TRACK_TONE, 23),
-              valueInk: toneOf(avg, VALUE_TONE, 30),
+              bar: rgbToHex(bar),
+              track: rgbToHex(track),
+              valueInk: rgbToHex(valueTone),
               // 占比是次要信息：数值的墨往轨道色退一档，同一支色相
-              pctInk: toneOf(avg, PERCENT_TONE, 28),
-              nameInk: contrastInk(),
+              pctInk: rgbToHex(mixWithColor(valueTone, track, 0.64)),
+              nameInk: rgbToHex(contrastInk(bar)),
             });
           }
 
@@ -3042,14 +3060,14 @@ export async function apply(ctx: Context, config: Config) {
 
         /** 量出「发言数 + 百分比」整块文字的尺寸，用于排版与画布宽度计算。 */
         function measureCountBlock(context, data) {
-            context.font = numFont(LAYOUT.countFontSize);
+            context.font = chartFont(LAYOUT.countFontSize);
             const countText = Number(data.count).toLocaleString('en-US');
             const countWidth = context.measureText(countText).width;
 
             const percentText = formatPercent(data.percentage);
             let percentWidth = 0;
             if (percentText) {
-                context.font = numFont(LAYOUT.percentFontSize);
+                context.font = chartFont(LAYOUT.percentFontSize);
                 percentWidth = context.measureText(percentText).width;
             }
 
@@ -3082,7 +3100,7 @@ export async function apply(ctx: Context, config: Config) {
         async function drawRowText(context, row) {
             const { data, y: barY, barWidth } = row;
             const barHeight = LAYOUT.avatarSize;
-            const baselineY = barY + barHeight / 2 + LAYOUT.countFontSize * 0.35;
+            const baselineY = barY + barHeight / 2 + LAYOUT.countFontSize * 0.35 + LAYOUT.textNudge;
             const block = measureCountBlock(context, data);
 
             // --- 发言次数与百分比：同色相的深调，落在自己那行的轨道或纸面上 ---
@@ -3090,13 +3108,13 @@ export async function apply(ctx: Context, config: Config) {
             const textX = BAR_X + barWidth + LAYOUT.textGap;
 
             context.textAlign = "left";
-            context.font = numFont(LAYOUT.countFontSize);
+            context.font = chartFont(LAYOUT.countFontSize);
             context.fillStyle = row.valueInk;
             context.fillText(block.countText, textX, baselineY);
 
             // 百分比小一号、退半档，作为发言数的附注
             if (block.percentText) {
-                context.font = numFont(LAYOUT.percentFontSize);
+                context.font = chartFont(LAYOUT.percentFontSize);
                 context.fillStyle = row.pctInk;
                 context.fillText(block.percentText, textX + block.countWidth + LAYOUT.percentGap, baselineY);
             }
@@ -3171,18 +3189,30 @@ export async function apply(ctx: Context, config: Config) {
             });
             if (!image.width) continue;
 
+            if (shape === 'circle') {
+              // 头像底下垫一圈发丝细的暗边：浅色头像贴在暖白纸上边缘会化掉。
+              // 与 ayjx 同法——半径比头像大 1px 的 8% 黑实心圆，垫在头像下面。
+              context.save();
+              context.beginPath();
+              context.arc(size / 2, y + size / 2, size / 2 + 1, 0, Math.PI * 2);
+              context.closePath();
+              context.fillStyle = HAIRLINE;
+              context.fill();
+              context.restore();
+            } else {
+              // 非圆形的头像（用户配置的形状）仍用一圈描边收边
+              context.save();
+              traceAvatarShape(context, 0.5, y + 0.5, size - 1, shape);
+              context.strokeStyle = HAIRLINE;
+              context.lineWidth = 1;
+              context.stroke();
+              context.restore();
+            }
+
             context.save();
             traceAvatarShape(context, 0, y, size, shape);
             context.clip();
             context.drawImage(image, 0, y, size, size);
-            context.restore();
-
-            // 极浅的描边，让头像与背景之间有一点分隔：描边取系统里最弱的一档
-            context.save();
-            traceAvatarShape(context, 0.5, y + 0.5, size - 1, shape);
-            context.strokeStyle = "${SCHEME.outlineVariant}";
-            context.lineWidth = 1;
-            context.stroke();
             context.restore();
           }
         }
@@ -3211,8 +3241,8 @@ export async function apply(ctx: Context, config: Config) {
             const lastLineX = firstLineX + LAYOUT.barSpan - LAYOUT.barRadius;
 
             context.save();
-            // 刻度线取系统里最弱的一档描边色：压在轨道与实色条上都读得出来
-            context.fillStyle = "${SCHEME.outlineVariant}";
+            // 刻度线与 ayjx 同为一档 8% 的黑：压在轨道与实色条上都读得出来
+            context.fillStyle = HAIRLINE;
             for (let row = 0; row < rankingData.length; row++) {
                 const y = ROW_HEIGHT * row;
                 context.save();
@@ -3226,42 +3256,94 @@ export async function apply(ctx: Context, config: Config) {
             context.restore();
         }
 
-        // --- 同一支色相里的调子 ---
+        // --- 与 ayjx 同一套配色 ---
         //
         // 条色是从头像里取的平均色，什么都有：雪白的自拍、全黑的剪影、荧光的二次元图。
         // 直接拿来铺条，一张二十行的榜就是二十种互不相干的颜色，字色也只能碰运气。
-        // 这里收一道：色相留给个人，色调与彩度换成设计系统的取值。
+        // ayjx 的图表先把它收一道：色相留给个人，明度与饱和度收进一条窄带，
+        // 条上的字、条外的读数与占比都从同一支色相里取。
         //
-        // 运算走 M3 的 LCh 色调板（与服务端同一套代码，见 m3.ts）。色调在 LCh 里
-        // 就是感知亮度，所以「条一律色调 48」是个可以兑现的承诺：无论头像什么颜色，
-        // 条上的白字对比度都够，不必再逐行判断该配深字还是浅字。
-        //
-        // 轨道是条色与页面底色各半的混色，色相仍跟着头像走。色调板只能按色调与
-        // 彩度取色，所以这两档是按混色结果反查出来的：色调 73，彩度 23
-        // （条色的彩度是 46，取一半）。
-        //
-        // 占比是次要信息：同色相往轨道色退一档，色调落在 47，彩度取 28
-        // （发言数的彩度是 30）。彩度 20 那档会让占比读成条色的褪色版。
+        // 下面这几个函数是从 ayjx 的 chart/utils.rs 逐行搬过来的，连「as u8」
+        // 的截断与 round() 的位置都没改：两张榜会在同一个群里并排出现，
+        // 颜色只有逐位相同才算一致。改了这里，ayjx 那边要对着一起改。
 
-        const BAR_TONE = 48;      // 实色条
-        const TRACK_TONE = 73;    // 轨道，条色与页面底色各半
-        const VALUE_TONE = 32;    // 发言数
-        const PERCENT_TONE = 47;  // 占比，比发言数退一档
+        /** 刻度线与头像描边的颜色，与 ayjx 同为一档 8% 的黑。 */
+        const HAIRLINE = '${HAIRLINE}';
 
-        /** 头像主色 -> 条色。只保留色相。 */
-        function harmonizeTheme(hex) {
-            return M3.harmonize(hex, BAR_TONE, 46, THEME_HUE);
+        const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+
+        const hexToRgb = (hex) => [
+            parseInt(hex.slice(1, 3), 16) || 0,
+            parseInt(hex.slice(3, 5), 16) || 0,
+            parseInt(hex.slice(5, 7), 16) || 0,
+        ];
+
+        const rgbToHex = (color) => '#' + color
+            .map((value) => clamp(Math.round(value), 0, 255).toString(16).padStart(2, '0'))
+            .join('');
+
+        // Rust 里「x as u8」是截断，不是四舍五入
+        const to8 = (value) => clamp(Math.trunc(value), 0, 255);
+
+        /** RGB -> HSL，H 为 0—360，S/L 为 0—1。 */
+        function toHsl(color) {
+            const [r, g, b] = color.map((value) => value / 255);
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            const l = (max + min) / 2;
+            const d = max - min;
+            if (Math.abs(d) < 1e-6) return [0, 0, l];
+            const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            const h = max === r
+                ? 60 * (((g - b) / d) % 6)
+                : max === g
+                    ? 60 * ((b - r) / d + 2)
+                    : 60 * ((r - g) / d + 4);
+            return [(h + 360) % 360, s, l];
         }
 
-        /** 取同一支色相的另一个色调。 */
-        function toneOf(hex, tone, chroma) {
-            return M3.harmonize(hex, tone, chroma, THEME_HUE);
+        /** HSL -> RGB。 */
+        function fromHsl(h, s, l) {
+            const c = (1 - Math.abs(2 * l - 1)) * s;
+            const hp = (h % 360) / 60;
+            const x = c * (1 - Math.abs((hp % 2) - 1));
+            const [r, g, b] = hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x]
+                : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
+            const m = l - c / 2;
+            const channel = (value) => clamp(Math.round(clamp(value + m, 0, 1) * 255), 0, 255);
+            return [channel(r), channel(g), channel(b)];
         }
 
-        /** 实色条上的字色。条固定在色调 48，取 onPrimary（色调 100，即纯白）永远够对比。 */
-        function contrastInk() {
-            return '${SCHEME.onPrimary}';
+        const yiq = (color) => (color[0] * 299 + color[1] * 587 + color[2] * 114) / 1000;
+
+        /** 主题色的明度与饱和度收进窄带，只留色相。 */
+        function harmonizeTheme(color) {
+            const [h, s, l] = toHsl(color);
+            // 本来就没有色相的头像（纯灰）保持中性，硬给饱和度会凭空染出一条彩色的条
+            if (s < 0.06) return fromHsl(0, 0, clamp(l, 0.36, 0.5));
+            return fromHsl(h, clamp(s, 0.18, 0.42), clamp(l, 0.36, 0.5));
         }
+
+        const mixWithWhite = (color, opacity) => color
+            .map((value) => to8(value * opacity + 255 * (1 - opacity)));
+
+        const mixWithColor = (color, base, opacity) => {
+            const t = clamp(opacity, 0, 1);
+            return color.map((value, i) => to8(value * t + base[i] * (1 - t)));
+        };
+
+        /** 同色相的深调：给淡底上的字用。 */
+        function deepTone(color, strength) {
+            let out = mixWithColor(color, [0, 0, 0], clamp(strength, 0.05, 1));
+            for (let i = 0; i < 4; i++) {
+                if (yiq(out) <= 96) break;
+                out = mixWithColor(out, [0, 0, 0], 0.75);
+            }
+            return out;
+        }
+
+        /** 实色条上的字色：亮的底取深调，暗的底取极浅调。 */
+        const contrastInk = (color) => (yiq(color) >= 128 ? deepTone(color, 0.26) : mixWithWhite(color, 0.1));
 
         // --- 辅助工具函数 ---
 
@@ -3291,6 +3373,14 @@ export async function apply(ctx: Context, config: Config) {
             .map(data => data[key]);
         }
 
+        /**
+         * 头像主色：与 ayjx 的 get_average_color 逐字对应。
+         *
+         * 那边取的是**圆裁之后**的缩略图，圆外算作纯黑（make_circular_avatar 把
+         * 圆外留成透明，而求平均时不看 alpha、只累加 RGB），这里照做：只有落在
+         * 圆里的像素参与累加，分母仍是整张缩略图的像素数，最后向下取整。
+         * monetary-rank 取主色是同一份代码，两个插件算出来才相等。
+         */
         async function getAverageColor(base64) {
             const image = new Image();
             image.src = "data:image/png;base64," + base64;
@@ -3301,20 +3391,24 @@ export async function apply(ctx: Context, config: Config) {
             canvas.width = image.width; canvas.height = image.height;
             ctx.drawImage(image, 0, 0);
 
-            const data = ctx.getImageData(0, 0, image.width, image.height).data;
-            let r = 0, g = 0, b = 0, weight = 0;
+            const size = image.width;
+            const center = size / 2;
+            const radius = center - 1;
+            const data = ctx.getImageData(0, 0, size, size).data;
+            let r = 0, g = 0, b = 0;
 
-            // 透明像素不参与平均，否则带透明边的头像会被整体拉灰。
-            // 这套算法与 monetary-rank 取头像主色的那一份逐字相同：同一张头像
-            // 在两个插件里必须算出同一个主色。
-            for (let i = 0; i < data.length; i += 4) {
-                const alpha = data[i + 3] / 255;
-                if (!alpha) continue;
-                r += data[i] * alpha; g += data[i + 1] * alpha; b += data[i + 2] * alpha;
-                weight += alpha;
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    const dx = x - center + 0.5;
+                    const dy = y - center + 0.5;
+                    if (Math.hypot(dx, dy) > radius + 0.5) continue;
+                    const i = (y * size + x) * 4;
+                    r += data[i]; g += data[i + 1]; b += data[i + 2];
+                }
             }
-            if (!weight) return '#808080';
-            const toHex = (sum) => Math.round(sum / weight).toString(16).padStart(2, "0");
+
+            const count = size * size;
+            const toHex = (sum) => Math.floor(sum / count).toString(16).padStart(2, "0");
             return \`#\${toHex(r)}\${toHex(g)}\${toHex(b)}\`;
         }
 
@@ -3364,6 +3458,8 @@ export async function apply(ctx: Context, config: Config) {
         userId: d.userId,
         barBgImgBase64: d.base64,
       })),
+      // 取不到头像时客户端用兜底色，与 ayjx 的 FALLBACK_THEME 同一支
+      fallbackAvatar: fallbackBase64[0],
       config: chartConfig,
     };
 
@@ -3391,7 +3487,7 @@ export async function apply(ctx: Context, config: Config) {
           <style>
             .ranking-title, .ranking-subtitle { font-family: "${
               chartConfig.chartTitleFont
-            }", "Microsoft YaHei", sans-serif; }
+            }", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif; }
           </style>
       </head>
       <body>
@@ -3409,11 +3505,6 @@ export async function apply(ctx: Context, config: Config) {
             }';">预加载</span>
           </div>
           <canvas id="rankingCanvas"></canvas>
-          <script>
-            // 与服务端同源的 LCh 配色运算，两边算出来的颜色必须一致
-            ${clientColorScript()}
-            const THEME_HUE = ${HUE};
-          </script>
           <script>
             // 立即执行的异步函数，用于绘制图表
             (async () => {
