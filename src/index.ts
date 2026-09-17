@@ -3,7 +3,6 @@ import {
   baseline,
   clientColorScript,
   components,
-  EMPHASIZED_WEIGHT,
   FONT_STACK,
   lch,
   MONO_STACK,
@@ -2598,10 +2597,10 @@ export async function apply(ctx: Context, config: Config) {
 
   // --- 辅助函数：图表生成 ---
 
-  /** 页面左右留白（像素），同时用于计算截图宽度。 */
-  const CHART_PAGE_PADDING_X = 28;
+  /** 页面左右留白（像素），同时用于计算截图宽度。与 ayjx 的图表取同一档。 */
+  const CHART_PAGE_PADDING_X = 24;
   /** 页面上下留白（像素）。 */
-  const CHART_PAGE_PADDING_Y = 32;
+  const CHART_PAGE_PADDING_Y = 24;
 
   /**
    * 生成图表的静态 CSS 样式。
@@ -2622,9 +2621,7 @@ export async function apply(ctx: Context, config: Config) {
            baseline 给 body 铺的背景色会把它整个盖住，这里保持透明。 */
         background: transparent;
         margin: 0;
-        padding: ${CHART_PAGE_PADDING_Y}px ${CHART_PAGE_PADDING_X}px ${
-          CHART_PAGE_PADDING_Y + 8
-        }px;
+        padding: ${CHART_PAGE_PADDING_Y}px ${CHART_PAGE_PADDING_X}px;
         width: 100%;
         min-height: 100%;
         box-sizing: border-box;
@@ -2642,29 +2639,31 @@ export async function apply(ctx: Context, config: Config) {
         pointer-events: none;
       }
 
-      /* 页眉左对齐：标题与下面的榜单同一条起始线，比居中更稳。
-         降到组件的 m3-header（标题 + 辅助说明）；它自带的 padding 与 4px 间隙
-         会挪动这条起始线，三处间距按本页原样压回去。 */
+      /* 页眉居中：与 ayjx 的榜单同一条版式——标题居中，范围、合计与出图时间
+         并成一行小字跟在下面。组件自带的 padding 与 4px 间隙会把这块撑高，
+         三处间距按图表的原样压回去。 */
       .chart-header {
-        margin: 0 0 28px;
-        padding: 0 0 0 2px;
-        gap: 8px;
+        margin: 0 0 24px;
+        padding: 0;
+        gap: 12px;
+        align-items: center;
+        text-align: center;
       }
 
-      /* Expressive 的大标题：字阶取 displaySmall，字重压到强调档 */
+      /* 标题不另设字号：组件的 m3-header__title 就是 32px / 600，与 ayjx 的
+         标题同档，此前绕开组件写 displaySmall 反而比它大了一号。 */
       .ranking-title {
         margin: 0;
-        font-size: ${TYPE.displaySmall.size}px;
-        line-height: ${TYPE.displaySmall.line}px;
-        font-weight: ${EMPHASIZED_WEIGHT.display};
-        letter-spacing: ${TYPE.displaySmall.tracking}px;
         color: ${SCHEME.onSurface};
       }
 
-      /* 元信息行（m3-header__support）：榜单范围、合计与出图时间并成一行小字
-         跟在标题下面。先看清这是什么，再看它是什么时候、多大范围的数据。
-         字阶与字色由组件给，与改版前逐项相同。
+      /* 元信息行（m3-header__support）：字号抬到 bodyLarge，与 ayjx 的 18px
+         小字同档；组件默认的 label 档在这里偏小。
          分隔点自己带匀称的左右间距，不依赖字体里「·」的空腔。 */
+      .ranking-subtitle {
+        font-size: ${TYPE.bodyLarge.size}px;
+        line-height: ${TYPE.bodyLarge.line}px;
+      }
       .ranking-subtitle .sep {
         margin: 0 9px;
         opacity: 0.55;
@@ -2902,26 +2901,29 @@ export async function apply(ctx: Context, config: Config) {
     return `
       async ({ rankingData, iconData, barBgImgs, config }) => {
         // --- 版式常量：集中控制头像、柱状条与文字的尺寸和留白 ---
+        // 这一组数值与 ayjx 的 draw_bar_chart 逐项对齐（那边以 2 倍尺寸绘制，
+        // 这里是 1 倍）：行高 50、条最短 150、随发言数增长 700、名字左内缩 10、
+        // 条尾到发言数 10、发言数与占比之间 8。改动时两处一起改。
         const LAYOUT = {
-          avatarSize: 52,       // 头像边长，也是每一行的高度
+          avatarSize: 50,       // 头像边长，也是每一行的高度
           rowGap: 10,           // 行与行之间的空隙
-          avatarGap: 14,        // 头像与柱状条之间的空隙
+          avatarGap: 6,         // 头像与柱状条之间的空隙
           barMinWidth: 150,     // 柱状条的最小长度
           barSpan: 700,         // 柱状条随发言数增长的最大长度
-          // 形状刻度：条取 medium，头像取全圆角。
-          // 条的圆角是条高的两成：行高 52 时是 10.4，SHAPE 里最近的一档是 medium，落到 12。
+          // 形状刻度：条的圆角是条高的两成（50 的 20% = 10，SHAPE 里最近的一档是
+          // medium = 12），头像取全圆角。
           barRadius: ${SHAPE.medium},  // 柱状条圆角
           avatarRadius: ${SHAPE.full}, // 头像圆角，行高的一半即正圆
-          textGap: 10,          // 柱状条末端与发言数之间的空隙
-          textEndPad: 16,       // 发言数距轨道右端的最小留白
-          rightPad: 26,         // 画布右侧留白
           namePad: 10,          // 名称距柱状条左端的距离
+          textGap: 10,          // 柱状条末端与发言数之间的空隙
           countFontSize: ${TYPE.headlineLarge.size},   // 发言数字号，每行的一号数字走 headlineLarge
-          percentFontSize: ${TYPE.bodyLarge.size},     // 百分比字号，作为发言数的附注退一档
-          percentGap: 9,        // 发言数与百分比之间的空隙
+          percentFontSize: ${TYPE.titleLarge.size},    // 百分比字号，退到标题档，与发言数保持 2:3
+          percentGap: 8,        // 发言数与百分比之间的空隙
         };
         const ROW_HEIGHT = LAYOUT.avatarSize + LAYOUT.rowGap;
         const BAR_X = LAYOUT.avatarSize + LAYOUT.avatarGap;
+        // 轨道是定长的：条最长就铺满它，数值写在轨道右侧的留白上，与 ayjx 一致。
+        const TRACK_WIDTH = LAYOUT.barMinWidth + LAYOUT.barSpan;
 
         /* 读数（发言数、占比）走等宽栈：数字要能对齐。等宽栈里没有汉字，
            把用户选的昵称字体接在后面，读数里可能夹的别的字才不掉队。 */
@@ -2940,16 +2942,14 @@ export async function apply(ctx: Context, config: Config) {
             maxTextWidth = Math.max(maxTextWidth, measureCountBlock(context, data).width);
           }
 
-          const barEndX = BAR_X + LAYOUT.barMinWidth + LAYOUT.barSpan;
-          canvas.width = Math.ceil(barEndX + LAYOUT.textGap + maxTextWidth + LAYOUT.textEndPad + LAYOUT.rightPad);
+          const barEndX = BAR_X + TRACK_WIDTH;
+          // 画布只留内容：轨道 + 条尾那串读数。数值最长时正好落在右侧留白里。
+          canvas.width = Math.ceil(barEndX + LAYOUT.textGap + maxTextWidth);
           canvas.height = ROW_HEIGHT * rankingData.length - LAYOUT.rowGap;
 
           // 重新获取上下文，因为尺寸变化会重置状态
           context = canvas.getContext('2d');
           context.textBaseline = "alphabetic";
-
-          // 轨道（整行底色）的宽度：右侧留出一点空白，不顶到画布边缘
-          const trackWidth = canvas.width - BAR_X - LAYOUT.rightPad;
 
           // 每行的配色只算一次：条、轨道、数值、占比、名字全部出自同一支色相
           const rows = [];
@@ -2971,12 +2971,12 @@ export async function apply(ctx: Context, config: Config) {
 
           // 图层顺序：轨道 → (刻度) → 实色条 → (刻度) → 头像 → 文字。
           // 文字永远在最上面，刻度压不到名字和数字上。
-          drawTracks(context, rows, trackWidth);
-          if (!config.gridLinesOverBars) drawGridLines(context, trackWidth);
-          await drawBars(context, rows, trackWidth);
-          if (config.gridLinesOverBars) drawGridLines(context, trackWidth);
+          drawTracks(context, rows, TRACK_WIDTH);
+          if (!config.gridLinesOverBars) drawGridLines(context, TRACK_WIDTH);
+          await drawBars(context, rows, TRACK_WIDTH);
+          if (config.gridLinesOverBars) drawGridLines(context, TRACK_WIDTH);
           await drawAvatars(context);
-          await drawTexts(context, rows, trackWidth);
+          await drawTexts(context, rows);
         }
 
         // --- 核心绘图逻辑 ---
@@ -3073,25 +3073,21 @@ export async function apply(ctx: Context, config: Config) {
         }
 
         /** 行内文字：名字写在条内，发言数与占比紧跟条尾。字色取自这一行的调子。 */
-        async function drawTexts(context, rows, trackWidth) {
+        async function drawTexts(context, rows) {
           for (const row of rows) {
-            await drawRowText(context, row, trackWidth);
+            await drawRowText(context, row);
           }
         }
 
-        async function drawRowText(context, row, trackWidth) {
+        async function drawRowText(context, row) {
             const { data, y: barY, barWidth } = row;
             const barHeight = LAYOUT.avatarSize;
             const baselineY = barY + barHeight / 2 + LAYOUT.countFontSize * 0.35;
-            const trackRight = BAR_X + trackWidth;
             const block = measureCountBlock(context, data);
 
-            // --- 发言次数与百分比：同色相的深调，在自己那行的底色上一眼跳出来 ---
-            let textX = BAR_X + barWidth + LAYOUT.textGap;
-            if (textX + block.width > trackRight - LAYOUT.textEndPad) {
-                // 放不下时贴着轨道右端绘制，避免溢出画布
-                textX = Math.max(BAR_X + LAYOUT.namePad, trackRight - LAYOUT.textEndPad - block.width);
-            }
+            // --- 发言次数与百分比：同色相的深调，落在自己那行的轨道或纸面上 ---
+            // 条铺满整条轨道时这串读数就在轨道外，画布按最宽的一行留过位置
+            const textX = BAR_X + barWidth + LAYOUT.textGap;
 
             context.textAlign = "left";
             context.font = numFont(LAYOUT.countFontSize);
@@ -3206,11 +3202,13 @@ export async function apply(ctx: Context, config: Config) {
             }
         }
 
-        /** 刻度线：八道等距，自条的零点起一格一道；只刻在轨道里，行间空隙保持干净。
-         *  与实色条的上下关系由 gridLinesOverBars 决定，文字始终压在最上层。 */
+        /** 刻度线：自条的零点起一格一道，只刻在轨道里，行间空隙保持干净。
+         *  末道收在圆角之前，不落到轨迹的圆角上；与实色条的上下关系由
+         *  gridLinesOverBars 决定，文字始终压在最上层。 */
         function drawGridLines(context, trackWidth) {
             const firstLineX = BAR_X + LAYOUT.barMinWidth;
             const step = LAYOUT.barSpan / 7;
+            const lastLineX = firstLineX + LAYOUT.barSpan - LAYOUT.barRadius;
 
             context.save();
             // 刻度线取系统里最弱的一档描边色：压在轨道与实色条上都读得出来
@@ -3220,8 +3218,8 @@ export async function apply(ctx: Context, config: Config) {
                 context.save();
                 traceRoundRect(context, BAR_X, y, trackWidth, LAYOUT.avatarSize, LAYOUT.barRadius);
                 context.clip();
-                for (let i = 0; i < 8; i++) {
-                    context.fillRect(firstLineX + step * i, y, 2, LAYOUT.avatarSize);
+                for (let x = firstLineX; x <= lastLineX; x += step) {
+                    context.fillRect(x, y, 2, LAYOUT.avatarSize);
                 }
                 context.restore();
             }
@@ -3304,15 +3302,20 @@ export async function apply(ctx: Context, config: Config) {
             ctx.drawImage(image, 0, 0);
 
             const data = ctx.getImageData(0, 0, image.width, image.height).data;
-            let r = 0, g = 0, b = 0;
+            let r = 0, g = 0, b = 0, weight = 0;
 
+            // 透明像素不参与平均，否则带透明边的头像会被整体拉灰。
+            // 这套算法与 monetary-rank 取头像主色的那一份逐字相同：同一张头像
+            // 在两个插件里必须算出同一个主色。
             for (let i = 0; i < data.length; i += 4) {
-                r += data[i]; g += data[i+1]; b += data[i+2];
+                const alpha = data[i + 3] / 255;
+                if (!alpha) continue;
+                r += data[i] * alpha; g += data[i + 1] * alpha; b += data[i + 2] * alpha;
+                weight += alpha;
             }
-            const count = data.length / 4;
-            r = ~~(r / count); g = ~~(g / count); b = ~~(b / count);
-
-            return \`#\${r.toString(16).padStart(2, "0")}\${g.toString(16).padStart(2, "0")}\${b.toString(16).padStart(2, "0")}\`;
+            if (!weight) return '#808080';
+            const toHex = (sum) => Math.round(sum / weight).toString(16).padStart(2, "0");
+            return \`#\${toHex(r)}\${toHex(g)}\${toHex(b)}\`;
         }
 
         // --- 启动绘制 ---
