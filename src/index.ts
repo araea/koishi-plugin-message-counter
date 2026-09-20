@@ -59,24 +59,24 @@ const logger = new Logger("messageCounter");
 
 // --- 定义字体选项常量 ---
 const FONT_OPTIONS = {
-  // 与 ayjx 的 stats 图表同一支字体：那边 config.toml 的 font_family 就是它。
+  // 与 acumen 的 stats 图表同一支字体：那边 config.toml 的 font_family 就是它。
   // 系统里没有时，行内字体栈会退回到随包带的 HarmonyOS_Sans_Medium。
   TITLE: "Noto Sans CJK SC",
   NICKNAME: "Noto Sans CJK SC",
 };
 
 /**
- * 图表的纸色与墨色，取自 ayjx 的 `ColorScheme::default`（scheme-manual）。
+ * 图表的纸色与墨色，取自 acumen 的 `ColorScheme::default`（scheme-manual）。
  *
- * ayjx 的发言榜与本插件的排行榜会在同一个群里并排出现，纸色、墨色与每行的
- * 条色都按同一套来，两边的图才谈得上一致。下面这五个值与 ayjx 的
+ * acumen 的发言榜与本插件的排行榜会在同一个群里并排出现，纸色、墨色与每行的
+ * 条色都按同一套来，两边的图才谈得上一致。下面这五个值与 acumen 的
  * `chart/utils.rs`、`chart/renderer.rs` 一一对应，改一处要两边一起改。
  */
 const PAPER = "#fffefa"; // surface，页面底色
 const INK = "#1f2a27"; // on-surface，标题
 const INK_SOFT = "#4f5c57"; // on-surface-variant，元信息行
 const HAIRLINE = "rgba(0, 0, 0, 0.08)"; // 刻度线与头像描边：8% 的黑
-/** 取不到头像时的兜底色，即 ayjx 的 FALLBACK_THEME（主色）。 */
+/** 取不到头像时的兜底色，即 acumen 的 FALLBACK_THEME（主色）。 */
 const FALLBACK_THEME = "#1f6350";
 
 /**
@@ -2611,7 +2611,7 @@ export async function apply(ctx: Context, config: Config) {
 
   // --- 辅助函数：图表生成 ---
 
-  /** 页面左右留白（像素），同时用于计算截图宽度。与 ayjx 的图表取同一档。 */
+  /** 页面左右留白（像素），同时用于计算截图宽度。与 acumen 的图表取同一档。 */
   const CHART_PAGE_PADDING_X = 24;
   /** 页面上下留白（像素）。 */
   const CHART_PAGE_PADDING_Y = 24;
@@ -2653,8 +2653,8 @@ export async function apply(ctx: Context, config: Config) {
         pointer-events: none;
       }
 
-      /* 页眉居中：标题、元信息行的高与间距逐项按 ayjx 的标题区来（32 / 12 / 18），
-         下面的榜单因此落在与 ayjx 同一个纵坐标上。组件自带的 padding 与间隙
+      /* 页眉居中：标题、元信息行的高与间距逐项按 acumen 的标题区来（32 / 12 / 18），
+         下面的榜单因此落在与 acumen 同一个纵坐标上。组件自带的 padding 与间隙
          会把这块撑高，这里按图表的原样压回去。 */
       .chart-header {
         margin: 0 0 24px;
@@ -2664,7 +2664,7 @@ export async function apply(ctx: Context, config: Config) {
         text-align: center;
       }
 
-      /* 标题 32px：与 ayjx 的 title_font_size 同档 */
+      /* 标题 32px：与 acumen 的 title_font_size 同档 */
       .ranking-title {
         margin: 0;
         font-size: 32px;
@@ -2673,7 +2673,7 @@ export async function apply(ctx: Context, config: Config) {
         color: ${INK};
       }
 
-      /* 元信息行（m3-header__support），18px：与 ayjx 的 meta_font_size 同档。
+      /* 元信息行（m3-header__support），18px：与 acumen 的 meta_font_size 同档。
          分隔点自己带匀称的左右间距，不依赖字体里「·」的空腔。 */
       .ranking-subtitle {
         font-size: 18px;
@@ -2718,9 +2718,9 @@ export async function apply(ctx: Context, config: Config) {
     ).map(([name, hue, chroma]) => [name, [lch(98, chroma * 0.5, hue), lch(92, chroma, hue)]]),
   ) as Record<string, [string, string]>;
 
-  /** 未配置或配置无效时使用的默认背景：与 ayjx 的图表同一张纸。
+  /** 未配置或配置无效时使用的默认背景：与 acumen 的图表同一张纸。
    *  纯白在整屏两千像素上看久了刺眼，退半档到暖白（surface），
-   *  ayjx 的淡色轨道与横条也是画在这张纸上。 */
+   *  acumen 的淡色轨道与横条也是画在这张纸上。 */
   const DEFAULT_BACKGROUND_CSS = `html {
       background: ${PAPER};
     }`;
@@ -2918,7 +2918,7 @@ export async function apply(ctx: Context, config: Config) {
     return `
       async ({ rankingData, iconData, barBgImgs, fallbackAvatar, config }) => {
         // --- 版式常量：集中控制头像、柱状条与文字的尺寸和留白 ---
-        // 这一组数值与 ayjx 的 draw_bar_chart 逐项对齐（那边以 2 倍尺寸绘制，
+        // 这一组数值与 acumen 的 draw_bar_chart 逐项对齐（那边以 2 倍尺寸绘制，
         // 这里是 1 倍）：行高 50、条最短 150、随发言数增长 700、名字左内缩 10、
         // 条尾到发言数 10、发言数与占比之间 8。改动时三处一起改。
         const LAYOUT = {
@@ -2931,18 +2931,18 @@ export async function apply(ctx: Context, config: Config) {
           avatarRadius: ${SHAPE.full}, // 头像圆角，行高的一半即正圆
           namePad: 10,          // 名称距柱状条左端的距离
           textGap: 10,          // 柱状条末端与发言数之间的空隙
-          countFontSize: 30,    // 发言数字号，与 ayjx 的 font_size 同档
-          percentFontSize: 20,  // 百分比字号，与 ayjx 的 pct_font_size 同档
+          countFontSize: 30,    // 发言数字号，与 acumen 的 font_size 同档
+          percentFontSize: 20,  // 百分比字号，与 acumen 的 pct_font_size 同档
           percentGap: 8,        // 发言数与百分比之间的空隙
-          textNudge: 2,         // 行内文字相对行中心的纵向微调，与 ayjx 的 text_mid_y 对齐
+          textNudge: 2,         // 行内文字相对行中心的纵向微调，与 acumen 的 text_mid_y 对齐
         };
         const ROW_HEIGHT = LAYOUT.avatarSize + LAYOUT.rowGap;
         const BAR_X = LAYOUT.avatarSize + LAYOUT.avatarGap;
-        // 轨道是定长的：条最长就铺满它，数值写在轨道右侧的留白上，与 ayjx 一致。
+        // 轨道是定长的：条最长就铺满它，数值写在轨道右侧的留白上，与 acumen 一致。
         const TRACK_WIDTH = LAYOUT.barMinWidth + LAYOUT.barSpan;
 
-        /* 行内文字只用一支字体，与 ayjx 相同——那边整张图的昵称与读数都不走等宽栈。
-           字体栈照那边的取字体顺序：先系统里的 Noto Sans CJK SC（ayjx 的
+        /* 行内文字只用一支字体，与 acumen 相同——那边整张图的昵称与读数都不走等宽栈。
+           字体栈照那边的取字体顺序：先系统里的 Noto Sans CJK SC（acumen 的
            config.toml 里 font_family 就是它），再是本插件随包带的那支。 */
         const chartFont = (size) => \`\${size}px "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
 
@@ -2967,10 +2967,10 @@ export async function apply(ctx: Context, config: Config) {
           context = canvas.getContext('2d');
           context.textBaseline = "alphabetic";
 
-          // 每行的配色只算一次，全部出自 ayjx 那套运算
+          // 每行的配色只算一次，全部出自 acumen 那套运算
           const rows = [];
           for (const [index, data] of rankingData.entries()) {
-            // 取不到头像的用兜底色，与 ayjx 的 FALLBACK_THEME 同一支
+            // 取不到头像的用兜底色，与 acumen 的 FALLBACK_THEME 同一支
             const theme = data.avatarBase64 === fallbackAvatar
               ? hexToRgb(FALLBACK_THEME)
               : hexToRgb(await getAverageColor(data.avatarBase64));
@@ -3194,7 +3194,7 @@ export async function apply(ctx: Context, config: Config) {
 
             if (shape === 'circle') {
               // 头像底下垫一圈发丝细的暗边：浅色头像贴在暖白纸上边缘会化掉。
-              // 与 ayjx 同法——半径比头像大 1px 的 8% 黑实心圆，垫在头像下面。
+              // 与 acumen 同法——半径比头像大 1px 的 8% 黑实心圆，垫在头像下面。
               context.save();
               context.beginPath();
               context.arc(size / 2, y + size / 2, size / 2 + 1, 0, Math.PI * 2);
@@ -3244,7 +3244,7 @@ export async function apply(ctx: Context, config: Config) {
             const lastLineX = firstLineX + LAYOUT.barSpan - LAYOUT.barRadius;
 
             context.save();
-            // 刻度线与 ayjx 同为一档 8% 的黑：压在轨道与实色条上都读得出来
+            // 刻度线与 acumen 同为一档 8% 的黑：压在轨道与实色条上都读得出来
             context.fillStyle = HAIRLINE;
             for (let row = 0; row < rankingData.length; row++) {
                 const y = ROW_HEIGHT * row;
@@ -3259,18 +3259,18 @@ export async function apply(ctx: Context, config: Config) {
             context.restore();
         }
 
-        // --- 与 ayjx 同一套配色 ---
+        // --- 与 acumen 同一套配色 ---
         //
         // 条色是从头像里取的平均色，什么都有：雪白的自拍、全黑的剪影、荧光的二次元图。
         // 直接拿来铺条，一张二十行的榜就是二十种互不相干的颜色，字色也只能碰运气。
-        // ayjx 的图表先把它收一道：色相留给个人，明度与饱和度收进一条窄带，
+        // acumen 的图表先把它收一道：色相留给个人，明度与饱和度收进一条窄带，
         // 条上的字、条外的读数与占比都从同一支色相里取。
         //
-        // 下面这几个函数是从 ayjx 的 chart/utils.rs 逐行搬过来的，连「as u8」
+        // 下面这几个函数是从 acumen 的 chart/utils.rs 逐行搬过来的，连「as u8」
         // 的截断与 round() 的位置都没改：两张榜会在同一个群里并排出现，
-        // 颜色只有逐位相同才算一致。改了这里，ayjx 那边要对着一起改。
+        // 颜色只有逐位相同才算一致。改了这里，acumen 那边要对着一起改。
 
-        /** 刻度线与头像描边的颜色，与 ayjx 同为一档 8% 的黑。 */
+        /** 刻度线与头像描边的颜色，与 acumen 同为一档 8% 的黑。 */
         const HAIRLINE = '${HAIRLINE}';
 
         const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
@@ -3377,7 +3377,7 @@ export async function apply(ctx: Context, config: Config) {
         }
 
         /**
-         * 头像主色：与 ayjx 的 get_average_color 逐字对应。
+         * 头像主色：与 acumen 的 get_average_color 逐字对应。
          *
          * 那边取的是**圆裁之后**的缩略图，圆外算作纯黑（make_circular_avatar 把
          * 圆外留成透明，而求平均时不看 alpha、只累加 RGB），这里照做：只有落在
@@ -3463,7 +3463,7 @@ export async function apply(ctx: Context, config: Config) {
         userId: d.userId,
         barBgImgBase64: d.base64,
       })),
-      // 取不到头像时客户端用兜底色，与 ayjx 的 FALLBACK_THEME 同一支
+      // 取不到头像时客户端用兜底色，与 acumen 的 FALLBACK_THEME 同一支
       fallbackAvatar: fallbackBase64[0],
       config: chartConfig,
     };
