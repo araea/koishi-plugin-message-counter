@@ -75,7 +75,16 @@ const FONT_OPTIONS = {
 const PAPER = "#fffefa"; // surface，页面底色
 const INK = "#1f2a27"; // on-surface，标题
 const INK_SOFT = "#4f5c57"; // on-surface-variant，元信息行
-const HAIRLINE = "rgba(0, 0, 0, 0.08)"; // 刻度线与头像描边：8% 的黑
+/** on-surface-faint 在暖白纸上差一线（4.44∶1），这是它过 4.5∶1 之后的值，
+ *  即 acumen 的 `ColorScheme::readable_faint()`：名次这类参照数字的墨色。 */
+const INK_FAINT = "#66726d";
+/** 刻度竖线：8% 的黑，压在轨道或实色条上都读得出来，与 acumen 的构图线同一档。 */
+const HAIRLINE = "rgba(0, 0, 0, 0.08)";
+/** 头像底下那圈发丝细的边。acumen 用的是不透明的 outline-variant，
+ *  垫在头像下面收住浅色头像的圆边；它压在纸上，不是一个半透明遮罩。 */
+const GRID_LINE = "#dee5df";
+/** 前三名的名次色：金、银、铜。含义在颜色本身，不跟主题也不跟头像走。 */
+const MEDALS = ["#8a640a", "#687076", "#8c5834"];
 /** 取不到头像时的兜底色，即 acumen 的 FALLBACK_THEME（主色）。 */
 const FALLBACK_THEME = "#1f6350";
 
@@ -138,6 +147,11 @@ export interface Config {
   avatarShape: "circle" | "rounded" | "square";
   /** 刻度竖线是否压在柱状条之上。默认压在条上，关闭则由柱状条盖住刻度。 */
   gridLinesOverBars: boolean;
+  /**
+   * 排行榜的发言次数与占比写在哪儿。
+   * 默认紧跟在自己那根条的尾巴后面；关闭则右对齐成固定的两列。
+   */
+  valueFollowsBar: boolean;
   /** 自定义背景图在进度条区域的不透明度。 */
   horizontalBarBackgroundOpacity: number;
   /** 自定义背景图在整行背景的不透明度。 */
@@ -344,6 +358,11 @@ export const Config: Schema<Config> = Schema.intersect([
             .default(true)
             .description(
               "刻度竖线是否压在柱状条之上。开启（默认）则刻度贯穿整行；关闭则由柱状条盖住刻度，每根条是完整的一块颜色。两种都只差遮挡关系，文字始终在最上层。",
+            ),
+          valueFollowsBar: Schema.boolean()
+            .default(true)
+            .description(
+              "发言次数与占比是否紧跟在自己那根条的尾巴后面。开启（默认）时眼睛被条的颜色牵到条尾，答案就在那里；代价是二十个数字排成一串阶梯。关闭则右对齐成固定的两列，上下扫一眼就能比大小，但读完条还得横着扫到画面最右边再回头认这是哪一行。",
             ),
           horizontalBarBackgroundOpacity: Schema.number()
             .min(0)
@@ -2920,7 +2939,8 @@ export async function apply(ctx: Context, config: Config) {
         // --- 版式常量：集中控制头像、柱状条与文字的尺寸和留白 ---
         // 这一组数值与 acumen 的 draw_bar_chart 逐项对齐（那边以 2 倍尺寸绘制，
         // 这里是 1 倍）：行高 50、条最短 150、随发言数增长 700、名字左内缩 10、
-        // 条尾到发言数 10、发言数与占比之间 8。改动时三处一起改。
+        // 条尾到发言数 10、发言数与占比之间 8、名次字号 22、名次到头像 12。
+        // 改动时三处一起改。
         const LAYOUT = {
           avatarSize: 50,       // 头像边长，也是每一行的高度
           rowGap: 10,           // 行与行之间的空隙
@@ -2931,15 +2951,26 @@ export async function apply(ctx: Context, config: Config) {
           avatarRadius: ${SHAPE.full}, // 头像圆角，行高的一半即正圆
           namePad: 10,          // 名称距柱状条左端的距离
           textGap: 10,          // 柱状条末端与发言数之间的空隙
+          columnGap: 14,        // 读数排成两列时，轨道右端到数值列的空隙
           countFontSize: 30,    // 发言数字号，与 acumen 的 font_size 同档
           percentFontSize: 20,  // 百分比字号，与 acumen 的 pct_font_size 同档
           percentGap: 8,        // 发言数与百分比之间的空隙
+          rankFontSize: 22,     // 名次字号：比昵称小两档，只作次序参照
+          rankGap: 12,          // 名次列与头像之间的空隙
           textNudge: 2,         // 行内文字相对行中心的纵向微调，与 acumen 的 text_mid_y 对齐
         };
         const ROW_HEIGHT = LAYOUT.avatarSize + LAYOUT.rowGap;
-        const BAR_X = LAYOUT.avatarSize + LAYOUT.avatarGap;
         // 轨道是定长的：条最长就铺满它，数值写在轨道右侧的留白上，与 acumen 一致。
         const TRACK_WIDTH = LAYOUT.barMinWidth + LAYOUT.barSpan;
+
+        // 三个纵列的左边界（名次 / 头像 / 轨道）。名次列要按最长的那一号现量宽度，
+        // 所以在 drawRanking 里才落定；其余函数都从 drawRanking 里调，读到的是终值。
+        let RANK_RIGHT_X = 0;
+        let AVATAR_X = 0;
+        let BAR_X = 0;
+        // 读数排成两列时，数值与占比各自的右端
+        let VALUE_RIGHT_X = 0;
+        let PCT_RIGHT_X = 0;
 
         /* 行内文字只用一支字体，与 acumen 相同——那边整张图的昵称与读数都不走等宽栈。
            字体栈照那边的取字体顺序：先系统里的 Noto Sans CJK SC（acumen 的
@@ -2952,15 +2983,41 @@ export async function apply(ctx: Context, config: Config) {
           const canvas = document.getElementById('rankingCanvas');
           let context = canvas.getContext('2d');
 
+          // 版式分五个纵列：名次 → 头像 → 横条（实色进度 + 淡色轨道）→ 数值 → 占比。
+          //
+          // 名次单独成列：从前这张榜只能靠数行数才知道第几名。前三名走固定的奖牌色，
+          // 不跟头像色走——名次的颜色本身就是含义，跟着主题走一遍就不认得了。
+          //
+          // 列宽按「字号的 0.6 倍 × 位数」估，不拿画布去真量：monetary-rank 那边量不了字，
+          // 两张榜必须落到同一个数，所以两边共用这一个模型（与那边估数字宽度的模型一致）。
+          // 名次右对齐，模型比真实字宽略宽，多出来的那一点落在数字左边，看不出来。
+          const rankDigits = String(rankingData.length).length;
+          RANK_RIGHT_X = Math.ceil(LAYOUT.rankFontSize * 0.6 * rankDigits);
+          AVATAR_X = RANK_RIGHT_X + LAYOUT.rankGap;
+          BAR_X = AVATAR_X + LAYOUT.avatarSize + LAYOUT.avatarGap;
+
           // 逐行量一遍右侧文字，用最宽的一行决定画布宽度，避免数字被裁掉
           let maxTextWidth = 0;
+          let valueColumnWidth = 0;
+          let percentColumnWidth = 0;
           for (const data of rankingData) {
-            maxTextWidth = Math.max(maxTextWidth, measureCountBlock(context, data).width);
+            const block = measureCountBlock(context, data);
+            maxTextWidth = Math.max(maxTextWidth, block.width);
+            valueColumnWidth = Math.max(valueColumnWidth, block.countWidth);
+            percentColumnWidth = Math.max(percentColumnWidth, block.percentWidth);
           }
 
-          const barEndX = BAR_X + TRACK_WIDTH;
-          // 画布只留内容：轨道 + 条尾那串读数。数值最长时正好落在右侧留白里。
-          canvas.width = Math.ceil(barEndX + LAYOUT.textGap + maxTextWidth);
+          // 读数写在哪儿由 valueFollowsBar 决定，两种都要留位：跟着条尾时按最宽的
+          // 那一串在轨道右边留（榜首那根条恰好顶到轨道尽头，所以 textGap + 最宽的一串
+          // 就够）；排成两列时按两列各自最宽的一行留。
+          const valueEndX = BAR_X + TRACK_WIDTH;
+          if (config.valueFollowsBar) {
+            canvas.width = Math.ceil(valueEndX + LAYOUT.textGap + maxTextWidth);
+          } else {
+            VALUE_RIGHT_X = valueEndX + LAYOUT.columnGap + valueColumnWidth;
+            PCT_RIGHT_X = VALUE_RIGHT_X + LAYOUT.percentGap + percentColumnWidth;
+            canvas.width = Math.ceil(PCT_RIGHT_X);
+          }
           canvas.height = ROW_HEIGHT * rankingData.length - LAYOUT.rowGap;
 
           // 重新获取上下文，因为尺寸变化会重置状态
@@ -2973,19 +3030,25 @@ export async function apply(ctx: Context, config: Config) {
             // 取不到头像的用兜底色，与 acumen 的 FALLBACK_THEME 同一支
             const theme = data.avatarBase64 === fallbackAvatar
               ? hexToRgb(FALLBACK_THEME)
-              : hexToRgb(await getAverageColor(data.avatarBase64));
+              : await avatarThemeColor(data.avatarBase64);
             const bar = harmonizeTheme(theme);
-            const track = mixWithWhite(bar, 0.5);
-            const valueTone = deepTone(bar, 0.34);
+            const track = trackTone(bar);
+            // 数字踩在什么底上，就按什么底量对比度：跟着条尾时压在淡色轨道上
+            // （榜首那一行越过轨道落在纸上，纸更浅，一并够）；排成列时全在纸上。
+            const ground = config.valueFollowsBar ? track : hexToRgb(PAPER);
+            const valueTone = ensureContrast(deepTone(bar, 0.34), ground, 4.5);
             rows.push({
               data,
               y: ROW_HEIGHT * index,
-              barWidth: LAYOUT.barMinWidth + (LAYOUT.barSpan * data.count) / maxCount,
+              // 条长取整：monetary-rank 那边是 DOM 盒子，浏览器会把盒子的边落到整像素，
+              // 画布这边跟着取整，两张榜的条尾、读数与名字的起点才落在同一个位置。
+              barWidth: Math.round(LAYOUT.barMinWidth + (LAYOUT.barSpan * data.count) / maxCount),
               bar: rgbToHex(bar),
               track: rgbToHex(track),
               valueInk: rgbToHex(valueTone),
-              // 占比是次要信息：数值的墨往轨道色退一档，同一支色相
-              pctInk: rgbToHex(mixWithColor(valueTone, track, 0.64)),
+              // 占比是次要信息：把数值的墨往底色里调一点，同一支色相退半档，
+              // 退到刚好还在正文阈值上为止
+              pctInk: rgbToHex(ensureContrast(mixWithColor(valueTone, ground, 0.62), ground, 4.5)),
               nameInk: rgbToHex(contrastInk(bar)),
             });
           }
@@ -3030,7 +3093,7 @@ export async function apply(ctx: Context, config: Config) {
               const newAvg = await drawCustomBarBackground(
                 context, pick, BAR_X, row.y, row.barWidth, LAYOUT.avatarSize, trackWidth
               );
-              row.nameInk = contrastInk();
+              row.nameInk = rgbToHex(contrastInk(newAvg));
             }
             context.restore();
           }
@@ -3051,11 +3114,11 @@ export async function apply(ctx: Context, config: Config) {
                     context.globalAlpha = config.horizontalBarBackgroundOpacity;
                     context.drawImage(barBgImg, 0, 0, barWidth, barHeight, x, y, barWidth, barHeight);
                     context.restore();
-                    const newAvgColor = await getAverageColor(base64);
+                    const newAvgColor = averageColor(await readAvatarCircle(base64));
                     resolve(newAvgColor);
                 };
                 barBgImg.onerror = async () => {
-                    const originalColor = await getAverageColor(base64);
+                    const originalColor = averageColor(await readAvatarCircle(base64));
                     resolve(originalColor); // 发生错误则返回原始颜色
                 }
             });
@@ -3093,36 +3156,51 @@ export async function apply(ctx: Context, config: Config) {
             return rounded === 0 ? '<1%' : rounded + '%';
         }
 
-        /** 行内文字：名字写在条内，发言数与占比紧跟条尾。字色取自这一行的调子。 */
+        /** 行内文字：名次、名字写在条内，发言数与占比跟着条尾或排成右边两列。 */
         async function drawTexts(context, rows) {
-          for (const row of rows) {
-            await drawRowText(context, row);
+          for (const [index, row] of rows.entries()) {
+            await drawRowText(context, row, index + 1);
           }
         }
 
-        async function drawRowText(context, row) {
+        async function drawRowText(context, row, rank) {
             const { data, y: barY, barWidth } = row;
             const barHeight = LAYOUT.avatarSize;
             const baselineY = barY + barHeight / 2 + LAYOUT.countFontSize * 0.35 + LAYOUT.textNudge;
             const block = measureCountBlock(context, data);
 
-            // --- 发言次数与百分比：同色相的深调，落在自己那行的轨道或纸面上 ---
-            // 条铺满整条轨道时这串读数就在轨道外，画布按最宽的一行留过位置
-            const textX = BAR_X + barWidth + LAYOUT.textGap;
+            // --- 名次：右对齐收在头像左边。前三名是奖牌色，固定不跟主题也不跟头像走 ---
+            context.textAlign = "right";
+            context.font = chartFont(LAYOUT.rankFontSize);
+            context.fillStyle = rankInk(rank);
+            context.fillText(String(rank), RANK_RIGHT_X, baselineY);
 
-            context.textAlign = "left";
+            // --- 发言次数与百分比：同色相的深调，落在自己那行的轨道或纸面上 ---
             context.font = chartFont(LAYOUT.countFontSize);
             context.fillStyle = row.valueInk;
-            context.fillText(block.countText, textX, baselineY);
-
-            // 百分比小一号、退半档，作为发言数的附注
-            if (block.percentText) {
-                context.font = chartFont(LAYOUT.percentFontSize);
-                context.fillStyle = row.pctInk;
-                context.fillText(block.percentText, textX + block.countWidth + LAYOUT.percentGap, baselineY);
+            if (config.valueFollowsBar) {
+                // 条铺满整条轨道时这串读数就在轨道外，画布按最宽的一行留过位置
+                context.textAlign = "left";
+                const textX = BAR_X + barWidth + LAYOUT.textGap;
+                context.fillText(block.countText, textX, baselineY);
+                // 百分比小一号、退半档，作为发言数的附注
+                if (block.percentText) {
+                    context.font = chartFont(LAYOUT.percentFontSize);
+                    context.fillStyle = row.pctInk;
+                    context.fillText(block.percentText, textX + block.countWidth + LAYOUT.percentGap, baselineY);
+                }
+            } else {
+                // 两列各自右对齐：上下扫一眼就能比大小
+                context.fillText(block.countText, VALUE_RIGHT_X, baselineY);
+                if (block.percentText) {
+                    context.font = chartFont(LAYOUT.percentFontSize);
+                    context.fillStyle = row.pctInk;
+                    context.fillText(block.percentText, PCT_RIGHT_X, baselineY);
+                }
             }
 
             // --- 用户名（带截断），写在实色条内 ---
+            context.textAlign = "left";
             context.font = chartFont(LAYOUT.countFontSize);
             context.fillStyle = row.nameInk;
 
@@ -3194,28 +3272,28 @@ export async function apply(ctx: Context, config: Config) {
 
             if (shape === 'circle') {
               // 头像底下垫一圈发丝细的暗边：浅色头像贴在暖白纸上边缘会化掉。
-              // 与 acumen 同法——半径比头像大 1px 的 8% 黑实心圆，垫在头像下面。
+              // 与 acumen 同法——半径比头像大 1px 的实心圆，垫在头像下面。
               context.save();
               context.beginPath();
-              context.arc(size / 2, y + size / 2, size / 2 + 1, 0, Math.PI * 2);
+              context.arc(AVATAR_X + size / 2, y + size / 2, size / 2 + 1, 0, Math.PI * 2);
               context.closePath();
-              context.fillStyle = HAIRLINE;
+              context.fillStyle = GRID_LINE;
               context.fill();
               context.restore();
             } else {
               // 非圆形的头像（用户配置的形状）仍用一圈描边收边
               context.save();
-              traceAvatarShape(context, 0.5, y + 0.5, size - 1, shape);
-              context.strokeStyle = HAIRLINE;
+              traceAvatarShape(context, AVATAR_X + 0.5, y + 0.5, size - 1, shape);
+              context.strokeStyle = GRID_LINE;
               context.lineWidth = 1;
               context.stroke();
               context.restore();
             }
 
             context.save();
-            traceAvatarShape(context, 0, y, size, shape);
+            traceAvatarShape(context, AVATAR_X, y, size, shape);
             context.clip();
-            context.drawImage(image, 0, y, size, size);
+            context.drawImage(image, AVATAR_X, y, size, size);
             context.restore();
           }
         }
@@ -3263,15 +3341,22 @@ export async function apply(ctx: Context, config: Config) {
         //
         // 条色是从头像里取的平均色，什么都有：雪白的自拍、全黑的剪影、荧光的二次元图。
         // 直接拿来铺条，一张二十行的榜就是二十种互不相干的颜色，字色也只能碰运气。
-        // acumen 的图表先把它收一道：色相留给个人，明度与饱和度收进一条窄带，
-        // 条上的字、条外的读数与占比都从同一支色相里取。
+        // acumen 的图表先把它收一道：色相留给个人，明度归一到同一个点（相对亮度，
+        // 不是 HSL 明度），条上的字、条外的读数与占比都从同一支色相里取。
         //
         // 下面这几个函数是从 acumen 的 chart/utils.rs 逐行搬过来的，连「as u8」
-        // 的截断与 round() 的位置都没改：两张榜会在同一个群里并排出现，
+        // 的截断、二分与 round() 的位置都没改：两张榜会在同一个群里并排出现，
         // 颜色只有逐位相同才算一致。改了这里，acumen 那边要对着一起改。
 
-        /** 刻度线与头像描边的颜色，与 acumen 同为一档 8% 的黑。 */
+        /** 刻度竖线的颜色：8% 的黑，压在轨道或实色条上都读得出来。 */
         const HAIRLINE = '${HAIRLINE}';
+        /** 纸面：与 acumen 的 surface 同一支。读数排成两列时全落在纸上，按纸量对比度。 */
+        const PAPER = '${PAPER}';
+        /** 头像底下那圈发丝细的边：不透明的 outline-variant，垫在头像下面。 */
+        const GRID_LINE = '${GRID_LINE}';
+        /** 名次色：前三名金银铜，其余用弱化的前景色。 */
+        const MEDALS = ${JSON.stringify(MEDALS)};
+        const INK_FAINT = '${INK_FAINT}';
 
         const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 
@@ -3319,12 +3404,104 @@ export async function apply(ctx: Context, config: Config) {
 
         const yiq = (color) => (color[0] * 299 + color[1] * 587 + color[2] * 114) / 1000;
 
-        /** 主题色的明度与饱和度收进窄带，只留色相。 */
+        // --- 对比度：可达性，不是风格 ---
+        // 阈值由 WCAG 2.2 定，正文 4.5∶1，大字与图形元素 3∶1。条色来自头像，什么
+        // 都可能，所以「同一支色相的深调」这种算法给出来的字色得逐对量过才敢用。
+
+        /** WCAG 2.2 的相对亮度。 */
+        function relativeLuminance(color) {
+            const channel = (value) => {
+                const s = value / 255;
+                return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+            };
+            return 0.2126 * channel(color[0]) + 0.7152 * channel(color[1]) + 0.0722 * channel(color[2]);
+        }
+
+        /** 两色之间的对比度，1—21。 */
+        const contrastRatio = (a, b) => {
+            const la = relativeLuminance(a);
+            const lb = relativeLuminance(b);
+            return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+        };
+
+        /** 这块底上该写深字还是浅字：黑与白各量一次，谁的对比度高就往谁那边走。 */
+        const prefersDarkInk = (bg) => contrastRatio([0, 0, 0], bg) >= contrastRatio([255, 255, 255], bg);
+
+        /**
+         * 把前景一档档推开，直到它在 bg 上够 minRatio。色相不动，只动明度。
+         *
+         * 每档走掉剩余距离的 6%，且至少走一格：单纯按比例混色到了两端会因为取整
+         * 原地打转，字色就停在离阈值一线的地方。
+         */
+        function ensureContrast(fg, bg, minRatio) {
+            const target = prefersDarkInk(bg) ? [0, 0, 0] : [255, 255, 255];
+            const step = (value, t) => {
+                const moved = value + (t - value) * 0.06;
+                if (t > value) return Math.min(Math.ceil(moved), t);
+                if (t < value) return Math.max(Math.floor(moved), t);
+                return value;
+            };
+            let color = fg;
+            for (let i = 0; i < 255; i++) {
+                if (contrastRatio(color, bg) >= minRatio
+                    || (color[0] === target[0] && color[1] === target[1] && color[2] === target[2])) break;
+                color = [step(color[0], target[0]), step(color[1], target[1]), step(color[2], target[2])];
+            }
+            return color;
+        }
+
+        // --- 同一支色相里的调子 ---
+        //
+        // M3 的 tonal palette 用感知明度（HCT 的 tone）把同一档上的所有色相归到一样重。
+        // 这里用 WCAG 的相对亮度做同样的归一：HSL 明度不是视觉亮度，同一条明度带上
+        // 黄比紫亮将近三倍，于是黄绿那几行在榜上永远比别人扎眼，整张图的重量忽轻忽重。
+
+        /** 实色条的目标亮度：相对亮度 0.16。 */
+        const BAR_LUMINANCE = 0.16;
+        /** 淡色轨道的目标亮度：与条色的对比度约 3.5∶1，过非文字元素的 3∶1。 */
+        const TRACK_LUMINANCE = 0.68;
+        /** 彩度上限与下限：亮度归一之后，各行之间剩下的差别只有色相与彩度。 */
+        const MAX_SATURATION = 0.30;
+        const MIN_SATURATION = 0.16;
+        /**
+         * 读不出色相的下限：RGB 三分量的极差（彩度）不到这个比例，剩下的方向就是噪声。
+         *
+         * 判彩度要看极差，不能看 HSL 的 S：雪白的自拍三分量只差 10，HSL 却因为明度
+         * 贴着顶而算出 0.23 的饱和度——照着它染，一张白头像会得到一条橘色的条。
+         */
+        const HUE_NOISE_FLOOR = 0.02;
+
+        /** 回退色相：系统主色的那一支。灰头像不是「没有颜色」，是「没有自己的颜色」。 */
+        const fallbackHue = () => toHsl(hexToRgb(FALLBACK_THEME))[0];
+
+        /** 定住色相与饱和度，把明度推到指定的相对亮度上。相对亮度对 HSL 明度单调，二分即可。 */
+        function atLuminance(h, s, target) {
+            let low = 0;
+            let high = 1;
+            for (let i = 0; i < 24; i++) {
+                const mid = (low + high) / 2;
+                if (relativeLuminance(fromHsl(h, s, mid)) < target) low = mid;
+                else high = mid;
+            }
+            return fromHsl(h, s, (low + high) / 2);
+        }
+
+        /** 主题色只留色相，彩度收进窄带，亮度归一到 BAR_LUMINANCE。 */
         function harmonizeTheme(color) {
-            const [h, s, l] = toHsl(color);
-            // 本来就没有色相的头像（纯灰）保持中性，硬给饱和度会凭空染出一条彩色的条
-            if (s < 0.06) return fromHsl(0, 0, clamp(l, 0.36, 0.5));
-            return fromHsl(h, clamp(s, 0.18, 0.42), clamp(l, 0.36, 0.5));
+            const [h, s] = toHsl(color);
+            const chroma = (Math.max(color[0], color[1], color[2]) - Math.min(color[0], color[1], color[2])) / 255;
+            // 彩度低到读不出方向的头像退到固定的回退色相，但彩度压到窄带之下：
+            // 一张本来就没有颜色的头像，不该因为「没有颜色」反而成为整张榜上最扎眼的一条。
+            if (chroma < HUE_NOISE_FLOOR) return atLuminance(fallbackHue(), 0.08, BAR_LUMINANCE);
+            return atLuminance(h, clamp(s, MIN_SATURATION, MAX_SATURATION), BAR_LUMINANCE);
+        }
+
+        /** 这一行的淡色轨道：同一支色相，亮度归一到 TRACK_LUMINANCE。
+         *  「混一半白」得到的是固定的比例、不是固定的对比度：一支本来就亮的黄，
+         *  混一半白之后与自己只差 1.50∶1，条尾在哪根本看不出来。 */
+        function trackTone(bar) {
+            const [h, s] = toHsl(bar);
+            return atLuminance(h, s, TRACK_LUMINANCE);
         }
 
         const mixWithWhite = (color, opacity) => color
@@ -3335,7 +3512,8 @@ export async function apply(ctx: Context, config: Config) {
             return color.map((value, i) => to8(value * t + base[i] * (1 - t)));
         };
 
-        /** 同色相的深调：给淡底上的字用。 */
+        /** 同色相的深调：给淡底上的字用。一次压暗对本来就很浅的色还不够，
+         *  再压到 YIQ 亮度 96 以下为止。 */
         function deepTone(color, strength) {
             let out = mixWithColor(color, [0, 0, 0], clamp(strength, 0.05, 1));
             for (let i = 0; i < 4; i++) {
@@ -3345,8 +3523,15 @@ export async function apply(ctx: Context, config: Config) {
             return out;
         }
 
-        /** 实色条上的字色：亮的底取深调，暗的底取极浅调。 */
-        const contrastInk = (color) => (yiq(color) >= 128 ? deepTone(color, 0.26) : mixWithWhite(color, 0.1));
+        /** 实色条上的字色。纯白/纯黑盖在彩色上像两片贴纸；取同色相的极浅调或极深调，
+         *  对比度一样够，字却像是从这块颜色里长出来的。最后一律过一遍阈值再交出去。 */
+        function contrastInk(bg) {
+            const seed = prefersDarkInk(bg) ? deepTone(bg, 0.26) : mixWithWhite(bg, 0.10);
+            return ensureContrast(seed, bg, 4.5);
+        }
+
+        /** 第 rank 名（从 1 起）该用的墨色：前三名是奖牌色，其余是弱化的前景色。 */
+        const rankInk = (rank) => MEDALS[rank - 1] || INK_FAINT;
 
         // --- 辅助工具函数 ---
 
@@ -3377,20 +3562,18 @@ export async function apply(ctx: Context, config: Config) {
         }
 
         /**
-         * 头像主色：与 acumen 的 get_average_color 逐字对应。
+         * 把头像缩到 50×50 并把圆外的像素读出来。
          *
-         * 那边取的是**圆裁之后**的缩略图，圆外算作纯黑（make_circular_avatar 把
-         * 圆外留成透明，而求平均时不看 alpha、只累加 RGB），这里照做：只有落在
-         * 圆里的像素参与累加，分母仍是整张缩略图的像素数，最后向下取整。
-         * monetary-rank 取主色是同一份代码，两个插件算出来才相等。
+         * acumen 缓存里存的是**圆裁之后**的缩略图，圆外是透明的、求平均时不计入；
+         * 这里没有那一步，所以圆外的像素由这道遮罩剔除，两边看到的是同一批像素。
+         * 没有 canvas 服务时缓存里存的是原图（可能上千像素），缩过之后既快，
+         * 结果也只跟这一档尺寸有关，与 monetary-rank 的取法一致。
          */
-        async function getAverageColor(base64) {
+        async function readAvatarCircle(base64) {
             const image = new Image();
             image.src = "data:image/png;base64," + base64;
             await new Promise(r => image.onload = r);
 
-            // 先缩到 50×50 再量：没有 canvas 服务时缓存里存的是原图（可能上千像素），
-            // 缩过之后既快，结果也只跟这一档尺寸有关，与 monetary-rank 的取法一致。
             const size = 50;
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -3399,22 +3582,53 @@ export async function apply(ctx: Context, config: Config) {
 
             const center = size / 2;
             const radius = center - 1;
-            const data = ctx.getImageData(0, 0, size, size).data;
-            let r = 0, g = 0, b = 0;
-
+            const pixels = ctx.getImageData(0, 0, size, size).data;
+            const inside = [];
             for (let y = 0; y < size; y++) {
                 for (let x = 0; x < size; x++) {
                     const dx = x - center + 0.5;
                     const dy = y - center + 0.5;
                     if (Math.hypot(dx, dy) > radius + 0.5) continue;
-                    const i = (y * size + x) * 4;
-                    r += data[i]; g += data[i + 1]; b += data[i + 2];
+                    inside.push([pixels[(y * size + x) * 4], pixels[(y * size + x) * 4 + 1], pixels[(y * size + x) * 4 + 2]]);
                 }
             }
+            return inside;
+        }
 
-            const count = size * size;
-            const toHex = (sum) => Math.floor(sum / count).toString(16).padStart(2, "0");
-            return \`#\${toHex(r)}\${toHex(g)}\${toHex(b)}\`;
+        /** 这一圈像素的朴素平均，即 acumen 的 get_average_color。 */
+        function averageColor(pixels) {
+            if (!pixels.length) return hexToRgb(FALLBACK_THEME);
+            let r = 0, g = 0, b = 0;
+            for (const pixel of pixels) { r += pixel[0]; g += pixel[1]; b += pixel[2]; }
+            const n = pixels.length;
+            return [Math.floor(r / n), Math.floor(g / n), Math.floor(b / n)];
+        }
+
+        /**
+         * 头像的调子：**明度取整张图的均色，色相取「有颜色的那部分」的均色。**
+         *
+         * 与 acumen 的 avatar_theme_color 逐字对应。一大半头像是「大片白底 + 中间一小块
+         * 彩色」，白底一平均就把那一小块的方向稀释到快没有了；所以给每个像素按它自己的
+         * 彩度加一份权重（+0.04 的底让纯灰头像退化成朴素平均），明度仍按整张图算，
+         * 否则一张暗底亮标的头像会被那一点亮色带偏。最后把明度落进收调的窄带里。
+         */
+        async function avatarThemeColor(base64) {
+            const pixels = await readAvatarCircle(base64);
+            const plain = averageColor(pixels);
+
+            let r = 0, g = 0, b = 0, weight = 0;
+            for (const pixel of pixels) {
+                const chroma = (Math.max(pixel[0], pixel[1], pixel[2]) - Math.min(pixel[0], pixel[1], pixel[2])) / 255;
+                const w = chroma + 0.04;
+                r += pixel[0] * w; g += pixel[1] * w; b += pixel[2] * w;
+                weight += w;
+            }
+            if (weight <= 0) return plain;
+            const tinted = [Math.round(r / weight), Math.round(g / weight), Math.round(b / weight)];
+
+            const [h, s] = toHsl(tinted);
+            const l = toHsl(plain)[2];
+            return fromHsl(h, s, clamp(l, 0.36, 0.50));
         }
 
         // --- 启动绘制 ---
@@ -3569,6 +3783,7 @@ export async function apply(ctx: Context, config: Config) {
         isUserMessagePercentageVisible: config.isUserMessagePercentageVisible,
         avatarShape: config.avatarShape,
         gridLinesOverBars: config.gridLinesOverBars,
+        valueFollowsBar: config.valueFollowsBar,
         chartTitleFont: config.chartTitleFont,
         chartNicknameFont: config.chartNicknameFont,
       };
