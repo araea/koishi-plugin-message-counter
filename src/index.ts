@@ -2353,6 +2353,20 @@ export async function apply(ctx: Context, config: Config) {
     return `(${formattedNumber}%)`;
   }
 
+  /** 按文件头认浏览器能解的几种位图：PNG、JPEG、GIF、WebP、BMP。 */
+  function looksLikeImage(bytes: Buffer): boolean {
+    const startsWith = (...signature: number[]) =>
+      signature.every((byte, index) => bytes[index] === byte);
+    return (
+      startsWith(0x89, 0x50, 0x4e, 0x47) ||
+      startsWith(0xff, 0xd8, 0xff) ||
+      startsWith(0x47, 0x49, 0x46, 0x38) ||
+      (startsWith(0x52, 0x49, 0x46, 0x46) &&
+        bytes.toString("ascii", 8, 12) === "WEBP") ||
+      startsWith(0x42, 0x4d)
+    );
+  }
+
   /**
    * getAvatarAsBase64 函数
    * 实现了成功的长 TTL 缓存和失败的短 TTL 缓存策略。
@@ -2426,7 +2440,12 @@ export async function apply(ctx: Context, config: Config) {
       } else {
         // 没有 canvas 服务：原图直接存下来。图表的浏览器端会自己缩到 50×50，
         // 头像照样画得出来，取主色也在那边做——这条路径不需要 canvas。
-        finalBase64 = Buffer.from(buffer as ArrayBuffer).toString("base64");
+        // 但这里没人解码，状态码 200 的错误页也会被当成头像长期缓存，所以先认一下文件头。
+        const bytes = Buffer.from(buffer as ArrayBuffer);
+        if (!looksLikeImage(bytes)) {
+          throw new Error(`返回的不是图片（${bytes.length} 字节）`);
+        }
+        finalBase64 = bytes.toString("base64");
       }
     } catch (error) {
       warnOnce(
@@ -2632,6 +2651,8 @@ export async function apply(ctx: Context, config: Config) {
 
   /** 页面左右留白（像素），同时用于计算截图宽度。与 acumen 的图表取同一档。 */
   const CHART_PAGE_PADDING_X = 24;
+  /** 等画布画完的上限（毫秒）。头像都是内联的 data URL，正常几十毫秒就画完。 */
+  const CHART_DRAW_TIMEOUT = 15000;
   /** 页面上下留白（像素）。 */
   const CHART_PAGE_PADDING_Y = 24;
 
@@ -3256,18 +3277,26 @@ export async function apply(ctx: Context, config: Config) {
             }));
         }
 
+        /** 加载一张 base64 图片；加载失败也照常返回，由调用方看 width 判断。 */
+        async function loadImage(base64) {
+            const image = new Image();
+            image.src = "data:image/png;base64," + base64;
+            await new Promise(resolve => {
+                image.onload = resolve;
+                image.onerror = resolve; // 即使加载失败也继续
+            });
+            return image;
+        }
+
         async function drawAvatars(context) {
           const size = LAYOUT.avatarSize;
           const shape = config.avatarShape || 'circle';
 
           for (const [index, data] of rankingData.entries()) {
             const y = ROW_HEIGHT * index;
-            const image = new Image();
-            image.src = "data:image/png;base64," + data.avatarBase64;
-            await new Promise(resolve => {
-                image.onload = resolve;
-                image.onerror = resolve; // 即使加载失败也继续
-            });
+            let image = await loadImage(data.avatarBase64);
+            // 解不开的头像（旧版缓存下的坏字节）换成默认头像，与取不到头像的行一个样
+            if (!image.width) image = await loadImage(fallbackAvatar);
             if (!image.width) continue;
 
             if (shape === 'circle') {
@@ -3352,6 +3381,8 @@ export async function apply(ctx: Context, config: Config) {
         const HAIRLINE = '${HAIRLINE}';
         /** 纸面：与 acumen 的 surface 同一支。读数排成两列时全落在纸上，按纸量对比度。 */
         const PAPER = '${PAPER}';
+        /** 取不到头像、或头像读不出色相时的兜底色。这一行漏注入过：浏览器里一引用就抛错，整张画布空白（#29）。 */
+        const FALLBACK_THEME = '${FALLBACK_THEME}';
         /** 头像底下那圈发丝细的边：不透明的 outline-variant，垫在头像下面。 */
         const GRID_LINE = '${GRID_LINE}';
         /** 名次色：前三名金银铜，其余用弱化的前景色。 */
@@ -3568,11 +3599,18 @@ export async function apply(ctx: Context, config: Config) {
          * 这里没有那一步，所以圆外的像素由这道遮罩剔除，两边看到的是同一批像素。
          * 没有 canvas 服务时缓存里存的是原图（可能上千像素），缩过之后既快，
          * 结果也只跟这一档尺寸有关，与 monetary-rank 的取法一致。
+         *
+         * 解不开的图只会触发 onerror、永远等不到 onload，所以两个都要接；
+         * 读不出像素就返回空，由调用方落到兜底色，不能让一张坏头像卡住整张榜。
          */
         async function readAvatarCircle(base64) {
             const image = new Image();
             image.src = "data:image/png;base64," + base64;
-            await new Promise(r => image.onload = r);
+            const loaded = await new Promise(r => {
+                image.onload = () => r(true);
+                image.onerror = () => r(false);
+            });
+            if (!loaded || !image.width) return [];
 
             const size = 50;
             const canvas = document.createElement('canvas');
@@ -3725,8 +3763,8 @@ export async function apply(ctx: Context, config: Config) {
           </div>
           <canvas id="rankingCanvas"></canvas>
           <script>
-            // 立即执行的异步函数，用于绘制图表
-            (async () => {
+            // 立即执行的异步函数，用于绘制图表。Promise 挂在 window 上，截图前要等它落定
+            window.rankingDrawn = (async () => {
               const drawFunction = ${_getClientScript()};
               await drawFunction(${JSON.stringify(clientData)});
             })();
@@ -3809,6 +3847,23 @@ export async function apply(ctx: Context, config: Config) {
       await page.evaluate(async () => {
         await (document as any).fonts?.ready;
       });
+
+      // 等画布画完再截图。从前不等：页面里一抛错，截到的就是只有标题的空白图，
+      // 日志里也什么都没有（#29）。画不完或抛错都在这里报出来。
+      const drawError = await page.evaluate(async (timeout: number) => {
+        try {
+          await Promise.race([
+            (window as any).rankingDrawn,
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error(`${timeout} ms 内没有画完`)), timeout),
+            ),
+          ]);
+          return null;
+        } catch (error) {
+          return String(error?.stack || error);
+        }
+      }, CHART_DRAW_TIMEOUT);
+      if (drawError) throw new Error(`排行榜画布绘制失败：${drawError}`);
 
       const calculatedWidth = await page.evaluate((bodyPadding: number) => {
         const canvas = document.getElementById(
