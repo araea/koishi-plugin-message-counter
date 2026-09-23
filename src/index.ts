@@ -59,11 +59,22 @@ const logger = new Logger("messageCounter");
 
 // --- 定义字体选项常量 ---
 const FONT_OPTIONS = {
-  // 与 acumen 的 stats 图表同一支字体：那边 config.toml 的 font_family 就是它。
+  // acumen 的 stats 图表原先的字体（线上现在配的是 MiSans，但不能假定装了它）。
   // 系统里没有时，行内字体栈会退回到随包带的 HarmonyOS_Sans_Medium。
   TITLE: "Noto Sans CJK SC",
   NICKNAME: "Noto Sans CJK SC",
 };
+
+/**
+ * acumen 的字号换算成 CSS 字号的系数。
+ *
+ * acumen 用 plotters + ab_glyph 画字，那边写的「字号」是 ab_glyph 的 PxScale——
+ * 字体上伸部到下伸部的总高，不是 CSS 的 em。线上那支 MiSans Medium 每 em 1000
+ * 单位，上伸 1044、下伸 282，所以那边写 30，画出来的 em 只有 30 × 1000 / 1326
+ * ≈ 22.6px。从前这里把 acumen 的数照抄成 CSS px，整张图的字都大了三成多。
+ * 版式里的字号仍按 acumen 的数写，出图时统一乘上它（再乘配置里的倍率）。
+ */
+const ACUMEN_EM = 1000 / (1044 + 282);
 
 /**
  * 图表的纸色与墨色，取自 acumen 的 `ColorScheme::default`（scheme-manual）。
@@ -194,6 +205,8 @@ export interface Config {
   chartTitleFont: string;
   /** 水平柱状图 - 成员昵称和发言次数的字体。 */
   chartNicknameFont: string;
+  /** 水平柱状图 - 字号倍率，1 即与 acumen 的 stats 图表同大。 */
+  chartFontScale: number;
 
   // --- 自动推送 ---
   /** 是否启用定时自动推送排行榜功能。 */
@@ -545,6 +558,14 @@ export const Config: Schema<Config> = Schema.intersect([
             .default(FONT_OPTIONS.NICKNAME)
             .description(
               `昵称与计数字体。填写 'data/messageCounter/fonts' 目录中的字体文件名（不含后缀），或使用通用字体名称。`,
+            ),
+          chartFontScale: Schema.number()
+            .min(0.6)
+            .max(1.6)
+            .step(0.05)
+            .default(1)
+            .description(
+              "字号倍率。1 即与 acumen 的发言榜同大；标题、元信息、名次、昵称与读数一起缩放，行高、条长不变。",
             ),
         }).description("字体设置"),
       ]),
@@ -2655,6 +2676,11 @@ export async function apply(ctx: Context, config: Config) {
   const CHART_DRAW_TIMEOUT = 15000;
   /** 页面上下留白（像素）。 */
   const CHART_PAGE_PADDING_Y = 24;
+  /** 字号倍率，旧配置里没有这一项时按 1。 */
+  const CHART_FONT_SCALE = config.chartFontScale || 1;
+  /** acumen 的字号 → 本页的 CSS 字号，见 ACUMEN_EM。 */
+  const chartFontPx = (acumenSize: number) =>
+    +(acumenSize * ACUMEN_EM * CHART_FONT_SCALE).toFixed(2);
 
   /**
    * 生成图表的静态 CSS 样式。
@@ -2695,7 +2721,8 @@ export async function apply(ctx: Context, config: Config) {
 
       /* 页眉居中：标题、元信息行的高与间距逐项按 acumen 的标题区来（32 / 12 / 18），
          下面的榜单因此落在与 acumen 同一个纵坐标上。组件自带的 padding 与间隙
-         会把这块撑高，这里按图表的原样压回去。 */
+         会把这块撑高，这里按图表的原样压回去。
+         行高是 acumen 给这两行留的位（随倍率缩放），字号是那边实际画出来的 em。 */
       .chart-header {
         margin: 0 0 24px;
         padding: 0;
@@ -2704,25 +2731,25 @@ export async function apply(ctx: Context, config: Config) {
         text-align: center;
       }
 
-      /* 标题 32px：与 acumen 的 title_font_size 同档 */
+      /* 标题：与 acumen 的 title_font_size（32）同档 */
       .ranking-title {
         margin: 0;
-        font-size: 32px;
-        line-height: 32px;
+        font-size: ${chartFontPx(32)}px;
+        line-height: ${32 * CHART_FONT_SCALE}px;
         font-weight: ${EMPHASIZED_WEIGHT.headline};
         color: ${INK};
       }
 
-      /* 元信息行（m3-header__support），18px：与 acumen 的 meta_font_size 同档。
+      /* 元信息行（m3-header__support）：与 acumen 的 meta_font_size（18）同档。
          分隔点自己带匀称的左右间距，不依赖字体里「·」的空腔。 */
       .ranking-subtitle {
-        font-size: 18px;
-        line-height: 18px;
+        font-size: ${chartFontPx(18)}px;
+        line-height: ${18 * CHART_FONT_SCALE}px;
         font-weight: 400;
         color: ${INK_SOFT};
       }
       .ranking-subtitle .sep {
-        margin: 0 9px;
+        margin: 0 ${chartFontPx(9)}px;
         opacity: 0.55;
       }
 
@@ -2962,6 +2989,11 @@ export async function apply(ctx: Context, config: Config) {
         // 这里是 1 倍）：行高 50、条最短 150、随发言数增长 700、名字左内缩 10、
         // 条尾到发言数 10、发言数与占比之间 8、名次字号 22、名次到头像 12。
         // 改动时三处一起改。
+        //
+        // 字号照 acumen 的数写，再乘 fontScale：那边的字号是字体上下伸的总高，
+        // 不是 em，照抄成 CSS px 会大三成多（见 ACUMEN_EM）。
+        // 取两位小数，与 monetary-rank 的 fontSizes 落到同一个数（名次列宽要逐像素一致）
+        const fontPx = (size) => +(size * config.fontScale).toFixed(2);
         const LAYOUT = {
           avatarSize: 50,       // 头像边长，也是每一行的高度
           rowGap: 10,           // 行与行之间的空隙
@@ -2973,12 +3005,11 @@ export async function apply(ctx: Context, config: Config) {
           namePad: 10,          // 名称距柱状条左端的距离
           textGap: 10,          // 柱状条末端与发言数之间的空隙
           columnGap: 14,        // 读数排成两列时，轨道右端到数值列的空隙
-          countFontSize: 30,    // 发言数字号，与 acumen 的 font_size 同档
-          percentFontSize: 20,  // 百分比字号，与 acumen 的 pct_font_size 同档
+          countFontSize: fontPx(30),   // 发言数字号，与 acumen 的 font_size 同档
+          percentFontSize: fontPx(20), // 百分比字号，与 acumen 的 pct_font_size 同档
           percentGap: 8,        // 发言数与百分比之间的空隙
-          rankFontSize: 22,     // 名次字号：比昵称小两档，只作次序参照
+          rankFontSize: fontPx(22),    // 名次字号：比昵称小两档，只作次序参照
           rankGap: 12,          // 名次列与头像之间的空隙
-          textNudge: 2,         // 行内文字相对行中心的纵向微调，与 acumen 的 text_mid_y 对齐
         };
         const ROW_HEIGHT = LAYOUT.avatarSize + LAYOUT.rowGap;
         // 轨道是定长的：条最长就铺满它，数值写在轨道右侧的留白上，与 acumen 一致。
@@ -2994,8 +3025,8 @@ export async function apply(ctx: Context, config: Config) {
         let PCT_RIGHT_X = 0;
 
         /* 行内文字只用一支字体，与 acumen 相同——那边整张图的昵称与读数都不走等宽栈。
-           字体栈照那边的取字体顺序：先系统里的 Noto Sans CJK SC（acumen 的
-           config.toml 里 font_family 就是它），再是本插件随包带的那支。 */
+           字体栈照那边的取字体顺序：先系统里的 Noto Sans CJK SC（acumen 原先的
+           font_family），再是本插件随包带的那支。 */
         const chartFont = (size) => \`\${size}px "\${config.chartNicknameFont}", HarmonyOS_Sans_Medium, "Microsoft YaHei", sans-serif\`;
 
         // --- 主绘制函数 ---
@@ -3184,10 +3215,27 @@ export async function apply(ctx: Context, config: Config) {
           }
         }
 
+        /**
+         * 行内文字的基线（相对行顶），按 CSS 行盒的算法来：上伸、下伸各自取整，
+         * 半行距向下取整。monetary-rank 的同一张榜是 HTML 排的，走的正是这套，
+         * 两边的字才落在同一个像素上——拿字号乘系数去估，换一档字号就差 1px。
+         */
+        function rowBaseline(context, height) {
+            context.font = chartFont(LAYOUT.countFontSize);
+            const metrics = context.measureText('国');
+            if (metrics.fontBoundingBoxAscent === undefined) {
+                // 量不了字体度量的老内核：按中日韩字体的常见比例估
+                return height / 2 + LAYOUT.countFontSize * 0.35 + 2;
+            }
+            const ascent = Math.round(metrics.fontBoundingBoxAscent);
+            const descent = Math.round(metrics.fontBoundingBoxDescent);
+            return Math.floor((height - ascent - descent) / 2) + ascent;
+        }
+
         async function drawRowText(context, row, rank) {
             const { data, y: barY, barWidth } = row;
             const barHeight = LAYOUT.avatarSize;
-            const baselineY = barY + barHeight / 2 + LAYOUT.countFontSize * 0.35 + LAYOUT.textNudge;
+            const baselineY = barY + rowBaseline(context, barHeight);
             const block = measureCountBlock(context, data);
 
             // --- 名次：右对齐收在头像左边。前三名是奖牌色，固定不跟主题也不跟头像走 ---
@@ -3248,13 +3296,13 @@ export async function apply(ctx: Context, config: Config) {
                     nameTextX: context.measureText(nameText).width + nameTextX,
                     barX: BAR_X,
                     barWidth: barWidth,
-                    textY: baselineY
+                    rowY: barY
                 });
             }
         }
 
         async function drawUserIcons(context, icons, positions) {
-            const { nameTextX, barX, barWidth, textY } = positions;
+            const { nameTextX, barX, barWidth, rowY } = positions;
 
             // 使用 Promise.all 等待所有图片加载和绘制
             await Promise.all(icons.map((iconBase64, i) => {
@@ -3263,7 +3311,8 @@ export async function apply(ctx: Context, config: Config) {
                     icon.src = "data:image/png;base64," + iconBase64;
                     icon.onload = () => {
                         const iconSize = 40;
-                        const iconY = textY - 30;
+                        // 在行里居中，不跟着文字基线走：字号一调，基线就挪了
+                        const iconY = rowY + (LAYOUT.avatarSize - iconSize) / 2;
                         let iconX = config.shouldMoveIconToBarEndLeft
                             ? barX + barWidth - (iconSize * (i + 1)) - 6
                             : nameTextX + (iconSize * i) + 8;
@@ -3824,6 +3873,8 @@ export async function apply(ctx: Context, config: Config) {
         valueFollowsBar: config.valueFollowsBar,
         chartTitleFont: config.chartTitleFont,
         chartNicknameFont: config.chartNicknameFont,
+        // acumen 字号 → CSS 字号的整体系数（换算系数 × 配置倍率）
+        fontScale: ACUMEN_EM * CHART_FONT_SCALE,
       };
 
       const htmlContent = _getChartHtmlContent({
