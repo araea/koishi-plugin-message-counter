@@ -1,6 +1,6 @@
-# koishi-plugin-message-counter
+# 发言计数器
 
-发言计数器 · 次数统计与排行榜，可生成水平柱状图
+Koishi 插件，统计发言次数并生成频道排行榜和柱状图。
 
 ## 安装
 
@@ -8,24 +8,24 @@
 yarn add koishi-plugin-message-counter
 ```
 
-在 Koishi 配置中启用，并提供 database 与 cron 服务。生成图表需要 puppeteer；有 canvas 服务时头像会先缩到 50×50 再缓存，没有也照常出图（缩略图与取主色都在图表的浏览器端做），上传柱状条背景仍需要 canvas。
+在 Koishi 中启用，并安装 `database` 与 `cron` 服务。生成图表需要 `puppeteer`；`canvas` 用于头像缓存和柱状条背景上传。
 
 ## 指令
 
 | 指令 | 说明 |
 | --- | --- |
-| `msgcount` | 帮助 |
+| `msgcount` | 查看帮助 |
 | `msgcount.查询 [用户]` | 查看发言次数与排名 |
-| `msgcount.排行榜 [人数]` | 本频道发言排行 |
-| `msgcount.频道排行榜 [人数]` | 各频道发言排行 |
+| `msgcount.排行榜 [人数]` | 查看本频道排行 |
+| `msgcount.频道排行榜 [人数]` | 查看各频道排行 |
 | `msgcount.上传柱状条背景` | 上传个人柱状条底图 |
 | `msgcount.重载资源` | 重载图标与字体，权限 2 |
 | `msgcount.清理缓存` | 清理头像缓存，权限 3 |
-| `msgcount.清空记录` | 清空发言记录，权限 3 |
+| `msgcount.清空记录` | 清空全部发言记录，权限 3 |
 
-时段选项：`-d` 今日、`--yd` 昨日、`-w` 本周、`-m` 本月、`-y` 今年、`-t` 总计。关闭「统计昨日发言」后，`--yd` 与「抓龙王」不可用。
+时间范围：`-d` 今日、`--yd` 昨日、`-w` 本周、`-m` 本月、`-y` 今年、`-t` 总计。关闭「统计昨日发言」后，`--yd` 和「抓龙王」不可用。
 
-资源目录为 `data/messageCounter/` 下的 `icons`、`barBgImgs` 与 `fonts`。
+资源目录位于 `data/messageCounter/`，包括 `icons`、`barBgImgs` 和 `fonts`。
 
 ## 许可证
 
