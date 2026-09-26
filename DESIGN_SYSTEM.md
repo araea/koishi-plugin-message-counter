@@ -54,7 +54,7 @@ node markdown-to-image-service/scripts/sync-design-system.mjs --check
 | Markdown | M3 明暗主题；旧主题名按明暗迁移；代码高亮与 Mermaid 使用 M3 角色；长代码可换行 |
 | message-counter / monetary-rank | M3 角色与共享图表字阶、HCT 头像配色、完整文字榜单；保留昵称截断 |
 | Wordle | 替换复制的 NYT 外观；状态符号与图例；明暗角色；异常释放并发锁；安全解析模式编号；裸词只在确定是猜测时回应 |
-| MCDLE | 历史猜测完整文字属性；两列属性卡减少超宽表格 |
+| MCDLE | 猜测按行排成一张表，方便逐项对照；单句页脚居中 |
 | 2048 / ciyi | 数字与奖牌前景按实际对比度选色 |
 | 斗牛 / 21 点 | 付款核对记录、如实反馈退款失败、明确下注金额、可显式跳过的短窗口 |
 | sentinel | 完整封印列表按每页 10 位展示 |

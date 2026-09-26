@@ -4,7 +4,7 @@
   "materialColorUtilities": "0.4.0",
   "files": {
     "src/ux.ts": "0ef6cac3a45725a9fdb9350ae99d7ad40761551b2f7ce681038219271ed2af9a",
-    "DESIGN_SYSTEM.md": "65e51dd694d2f761e3ad8cde491816505b3a96a5f75724757f4a17db82d315db",
+    "DESIGN_SYSTEM.md": "01aa609e8a876dab38df0b62d2784d29a41151cf34ac908f2c518597f04dcbd6",
     "scripts/check-design-system.mjs": "5d8c8ee8df6ed52d9589f120d2c95db58f1b61475115dc945155405cebed99ef",
     "src/m3.ts": "dc4974dac8fccc4192dc5a122ede13ec51c8b08e200c81b791f441040d51442e",
     "src/material-color.ts": "70bd86a298eb211fdee6f62aa5a9e9cbe228e508dad1762c7d8fa334701ef621",
