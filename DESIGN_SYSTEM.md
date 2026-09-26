@@ -7,13 +7,13 @@
 - 视觉、组件、形状、排版与语义颜色以 [Material 3 / Expressive](https://m3.material.io/) 为准。
 - [Apple HIG](https://developer.apple.com/design/human-interface-guidelines/accessibility) 用于操作反馈、平台惯例、可恢复性与可访问性，不引入 Apple 视觉组件。
 - [WCAG 2.2 AA](https://www.w3.org/TR/WCAG22/) 用于非文本内容、颜色与对比度、时间限制、输入错误和破坏性操作审查。
-- 色彩使用 Google Material Color Utilities 0.4.0 的 HCT 与 Tonal Spot 动态角色，明确使用 2025 色彩规范。历史 `lch` API 名仅用于源码兼容，计算已经统一为 HCT。
+- 色彩使用 Google Material Color Utilities 0.4.0 的 HCT 与 Tonal Spot 动态角色，明确使用 2025 色彩规范。历史 `lch` API 名仅用于源码兼容，计算已经统一为 HCT。彩色角色（primary / secondary / tertiary / error 及其容器）走官方 Tonal Spot；中性面（surface 系列、on-surface 系列、outline 系列）由 HCT 按本设计系统的色调重算——表面留住一点源色味道、文字取深色档，避免成片近白、文字偏浅的发晃感。
 - `m3.ts` 是角色颜色、字阶、间距、圆角、层级和基础组件的唯一源文件。`material-color*.ts` 是固定版本的官方算法生成物，授权见 `THIRD_PARTY_NOTICES.md`。
 - 不额外添加静态截图无法表达的动画；基础 CSS 禁用减少动态效果偏好下的动画和过渡。
 
 ## 输出、交互与内容
 
-1. 图片是信息的增强形式。信息卡、榜单、棋盘在图文模式中附带文字；文字模式保留信息，减少对截图的依赖。
+1. 图文模式只发渲染图，不附文字；完整文字只在用户切到「文字」模式时出现。图片的等价文字随图片标记，切换到文字模式时展开，因此不会在群里重复刷屏。
 2. `插件主指令.显示 文字` / `插件主指令.显示 图文` 切换个人显示偏好；同一机器人中的这些插件共享选择。设置保存在内存，重启恢复图文。文本回复不能把后续条目无提示地压掉；较长管理列表分页。
 3. 裸输入必须符合词法、对局状态及参与条件。多个插件匹配时不执行，要求明确完整指令；完整指令继续可用。
 4. 回复说明当前结果、未完成原因和可执行的下一步，不用管理员日志替代用户可用的反馈。退款、赔付与渲染失败不能伪装成功。

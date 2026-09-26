@@ -11,7 +11,7 @@ function state(ctx: Context): State {
 }
 const userKey = (session: Session) => `${session.platform}:${session.selfId}:${session.userId}`
 
-/** Default output is an image plus its usable text equivalent. Preferences affect this user only. */
+/** 图文模式默认只发渲染图；完整文字只在用户切到「文字」模式时出现。偏好只影响本人。 */
 export function usePresentation(ctx: Context, command: string) {
   const shared = state(ctx)
   ctx.command(`${command}.显示 [mode:string]`, '选择图文或文字输出')
@@ -23,9 +23,10 @@ export function usePresentation(ctx: Context, command: string) {
     })
   return {
     textOnly: (session: Session) => shared.modes.get(userKey(session)) === true,
+    /** 图文模式只给图片；图片缺失或用户选了文字模式时才退回文字。 */
     present(session: Session, image: h.Fragment | null | undefined, text: h.Fragment): h.Fragment {
       if (!image || shared.modes.get(userKey(session))) return text
-      return [...h.normalize(image), h('p', {}, h.normalize(text))]
+      return h.normalize(image)
     },
   }
 }
@@ -61,14 +62,45 @@ export async function promptInput(session: Session, instruction: string): Promis
 
 export const IMAGE_FAILURE = '图片暂时无法生成，已保留文字内容。可以稍后重试；若持续失败，请联系管理员。'
 
-/** Preserve companion text when image messages are switched to text mode. */
+/**
+ * 渲染图的等价文字。图文模式随图片一起丢掉、文字模式展开成正文，
+ * 因此它永远不会原样发到聊天平台。
+ */
+export const IMAGE_TEXT_TYPE = 'ux-image-text'
+export function imageText(text: h.Fragment): h {
+  return h(IMAGE_TEXT_TYPE, {}, h.normalize(text))
+}
+function isImage(element: h): boolean {
+  return element.type === 'img' || element.type === 'image'
+}
+function isImageText(element: h): boolean {
+  return element.type === IMAGE_TEXT_TYPE
+}
+
+/** 图文模式：保留图片与普通文字，去掉图片的等价文字。 */
+export function imagesOnly(content: h.Fragment): h[] {
+  const walk = (elements: h[]): h[] => elements.flatMap(element => {
+    if (isImageText(element)) return []
+    if (isImage(element) || !element.children.length) return [element]
+    return [h(element.type, element.attrs, walk(element.children))]
+  })
+  return walk(h.normalize(content))
+}
+
+/** 文字模式：去掉图片，把等价文字展开成普通文本。 */
 export function withoutImages(content: h.Fragment): h[] {
   const walk = (elements: h[]): h[] => elements.flatMap(element => {
-    if (element.type === 'img' || element.type === 'image') return []
+    if (isImage(element)) return []
+    if (isImageText(element)) return walk(element.children)
     if (element.children.length) return [h(element.type, element.attrs, walk(element.children))]
     return [element]
   })
   return walk(h.normalize(content))
+}
+
+/** 发送前的统一选择：文字模式去掉图片，图文模式去掉等价文字。 */
+export function choosePresentation(content: h.Fragment, textOnly: boolean): h[] {
+  return textOnly ? withoutImages(content) : imagesOnly(content)
 }
 export function isTextOnly(ctx: Context, session: Session): boolean {
   return state(ctx).modes.get(userKey(session)) === true

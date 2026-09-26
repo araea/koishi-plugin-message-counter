@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-message-counter",
   "description": "Koishi 发言统计插件：查询发言数量，生成频道排行榜和柱状图。",
-  "version": "4.9.0",
+  "version": "4.9.1",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [

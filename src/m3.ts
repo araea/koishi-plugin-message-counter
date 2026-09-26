@@ -126,10 +126,23 @@ export interface Scheme {
   shadow: string
 }
 
+/**
+ * 中性面的彩度。
+ *
+ * 官方 TonalSpot 的中性色几乎不带上色，浅色 surface 落在接近纯白的 #faf8ff 一类，
+ * 成片铺开就显得发白、发晃；文字也偏浅。这里改用 HCT 重算中性面：表面留住一点
+ * 源色的味道、文字回到深色档。彩色角色（primary / secondary / tertiary / error）
+ * 仍走官方算法，色板口径不变。
+ */
+const NEUTRAL_CHROMA = 6
+const NEUTRAL_VARIANT_CHROMA = 12
+
 /** 生成一套完整的角色配色。`dark` 为真时返回暗色方案。 */
 export function scheme(hue: number, dark = false, options: SourceOptions = {}): Scheme {
   const source = Hct.from(hue, options.chroma ?? 56, 50)
   const dynamic = new SchemeTonalSpot(source, dark, 0, '2025')
+  const neutral = (tone: number) => hexFromArgb(Hct.from(hue, NEUTRAL_CHROMA, tone).toInt())
+  const variant = (tone: number) => hexFromArgb(Hct.from(hue, NEUTRAL_VARIANT_CHROMA, tone).toInt())
   return {
     primary: hexFromArgb(dynamic.primary),
     onPrimary: hexFromArgb(dynamic.onPrimary),
@@ -147,23 +160,23 @@ export function scheme(hue: number, dark = false, options: SourceOptions = {}): 
     onError: hexFromArgb(dynamic.onError),
     errorContainer: hexFromArgb(dynamic.errorContainer),
     onErrorContainer: hexFromArgb(dynamic.onErrorContainer),
-    background: hexFromArgb(dynamic.background),
-    onBackground: hexFromArgb(dynamic.onBackground),
-    surface: hexFromArgb(dynamic.surface),
-    onSurface: hexFromArgb(dynamic.onSurface),
-    surfaceVariant: hexFromArgb(dynamic.surfaceVariant),
-    onSurfaceVariant: hexFromArgb(dynamic.onSurfaceVariant),
-    surfaceDim: hexFromArgb(dynamic.surfaceDim),
-    surfaceBright: hexFromArgb(dynamic.surfaceBright),
-    surfaceContainerLowest: hexFromArgb(dynamic.surfaceContainerLowest),
-    surfaceContainerLow: hexFromArgb(dynamic.surfaceContainerLow),
-    surfaceContainer: hexFromArgb(dynamic.surfaceContainer),
-    surfaceContainerHigh: hexFromArgb(dynamic.surfaceContainerHigh),
-    surfaceContainerHighest: hexFromArgb(dynamic.surfaceContainerHighest),
-    outline: hexFromArgb(dynamic.outline),
-    outlineVariant: hexFromArgb(dynamic.outlineVariant),
-    inverseSurface: hexFromArgb(dynamic.inverseSurface),
-    inverseOnSurface: hexFromArgb(dynamic.inverseOnSurface),
+    background: dark ? neutral(6) : neutral(97),
+    onBackground: dark ? neutral(90) : neutral(10),
+    surface: dark ? neutral(6) : neutral(97),
+    onSurface: dark ? neutral(90) : neutral(10),
+    surfaceVariant: dark ? variant(30) : variant(90),
+    onSurfaceVariant: dark ? variant(80) : variant(30),
+    surfaceDim: dark ? neutral(6) : neutral(88),
+    surfaceBright: dark ? neutral(24) : neutral(98),
+    surfaceContainerLowest: dark ? neutral(4) : neutral(100),
+    surfaceContainerLow: dark ? neutral(10) : neutral(96),
+    surfaceContainer: dark ? neutral(12) : neutral(94),
+    surfaceContainerHigh: dark ? neutral(17) : neutral(92),
+    surfaceContainerHighest: dark ? neutral(22) : neutral(90),
+    outline: dark ? variant(60) : variant(50),
+    outlineVariant: dark ? variant(30) : variant(80),
+    inverseSurface: dark ? neutral(90) : neutral(20),
+    inverseOnSurface: dark ? neutral(20) : neutral(95),
     inversePrimary: hexFromArgb(dynamic.inversePrimary),
     scrim: hexFromArgb(dynamic.scrim),
     shadow: hexFromArgb(dynamic.shadow),
