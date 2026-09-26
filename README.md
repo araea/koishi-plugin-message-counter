@@ -27,14 +27,8 @@ yarn add koishi-plugin-message-counter
 
 资源目录位于 `data/messageCounter/`，包括 `icons`、`barBgImgs` 和 `fonts`。
 
+`msgcount.清空记录` 先显示影响范围和确认码，只有在 5 分钟内由同一用户、同一频道确认后才清空。
+
 ## 许可证
 
 可按 [Apache-2.0](LICENSE-APACHE) 或 [MIT](LICENSE-MIT) 使用。
-
-## 显示与交互
-
-有渲染图时只发图片，不再附带同内容的文字；图片生成失败时才退回文字。作品素材与感官测试的适用边界见 [设计系统](./DESIGN_SYSTEM.md)。
-
-本次更新：主指令在 help 列表里补回描述；去掉「.显示」显示模式指令，有图只发图、出图失败才退回文字；多轮输入不再追加计时说明。
-
-`msgcount.清空记录` 先显示影响范围和确认码，只有在 5 分钟内由同一用户、同一频道确认后才清空。
