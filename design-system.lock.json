@@ -1,0 +1,14 @@
+{
+  "version": "2026-09-26",
+  "source": "koishi-plugin-markdown-to-image-service",
+  "materialColorUtilities": "0.4.0",
+  "files": {
+    "src/ux.ts": "e3f92898a93beb603fdf0190514a298928ce591a38c647d7e33e29b89009c6b7",
+    "DESIGN_SYSTEM.md": "0c7af4649f78c27446ffb7c4326ca85fe06fcebc8e1f3d955ba27bed4c4c37f7",
+    "scripts/check-design-system.mjs": "5d8c8ee8df6ed52d9589f120d2c95db58f1b61475115dc945155405cebed99ef",
+    "src/m3.ts": "2e33ad22f8bc78914daf9d682fa448e49f7b9a56521d4bcbb5dbee5c1531737b",
+    "src/material-color.ts": "70bd86a298eb211fdee6f62aa5a9e9cbe228e508dad1762c7d8fa334701ef621",
+    "src/material-color-browser.ts": "3a5a4cf1b93d4d651a944a0e260a16600404a4f74fb974a85cf53bf018c524d1",
+    "THIRD_PARTY_NOTICES.md": "74b41aa12dc16889fdd41014936c5a228f3e03bfa86193ca262c22fb66c16226"
+  }
+}

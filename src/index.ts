@@ -1,3 +1,6 @@
+import { clientColorScript, LEGACY_CHART_SIZE } from './m3'
+import { createClearAction } from './clear'
+import { usePresentation } from './ux'
 import { Context, h, Logger, Schema, sleep, Bot, Dict, $ } from "koishi";
 import {
   baseline,
@@ -83,27 +86,28 @@ const ACUMEN_EM = 1000 / (1044 + 282);
  * 条色都按同一套来，两边的图才谈得上一致。下面这五个值与 acumen 的
  * `chart/utils.rs`、`chart/renderer.rs` 一一对应，改一处要两边一起改。
  */
-const PAPER = "#fffefa"; // surface，页面底色
-const INK = "#1f2a27"; // on-surface，标题
-const INK_SOFT = "#4f5c57"; // on-surface-variant，元信息行
+const SCHEME = scheme(268);
+const PAPER = SCHEME.surface; // surface，页面底色
+const INK = SCHEME.onSurface; // on-surface，标题
+const INK_SOFT = SCHEME.onSurfaceVariant; // on-surface-variant，元信息行
 /** on-surface-faint 在暖白纸上差一线（4.44∶1），这是它过 4.5∶1 之后的值，
  *  即 acumen 的 `ColorScheme::readable_faint()`：名次这类参照数字的墨色。 */
-const INK_FAINT = "#66726d";
+const INK_FAINT = SCHEME.onSurfaceVariant;
 /** 刻度竖线：8% 的黑，压在轨道或实色条上都读得出来，与 acumen 的构图线同一档。 */
 const HAIRLINE = "rgba(0, 0, 0, 0.08)";
 /** 头像底下那圈发丝细的边。acumen 用的是不透明的 outline-variant，
  *  垫在头像下面收住浅色头像的圆边；它压在纸上，不是一个半透明遮罩。 */
-const GRID_LINE = "#dee5df";
+const GRID_LINE = SCHEME.outlineVariant;
 /** 前三名的名次色：金、银、铜。含义在颜色本身，不跟主题也不跟头像走。 */
-const MEDALS = ["#8a640a", "#687076", "#8c5834"];
+const MEDALS = [SCHEME.primary, SCHEME.secondary, SCHEME.tertiary];
 /** 取不到头像时的兜底色，即 acumen 的 FALLBACK_THEME（主色）。 */
-const FALLBACK_THEME = "#1f6350";
+const FALLBACK_THEME = SCHEME.primary;
 
 /**
  * 用户可选的背景方案仍按本插件的主色相推：那是配置项，与图表的默认纸色无关。
  */
 const HUE = 268;
-const SCHEME = scheme(HUE);
+
 
 export interface Config {
   // --- 核心功能 ---
@@ -777,6 +781,7 @@ const periodMapping: Record<PeriodKey, { field: CountField; name: string }> = {
 };
 
 export async function apply(ctx: Context, config: Config) {
+  const presentation = usePresentation(ctx, 'msgcount')
   // cl*
   // 定义一个唯一的 Symbol 作为处理标记，防止与其他插件冲突
   const PROCESSED = Symbol("message-counter.processed");
@@ -1214,14 +1219,9 @@ export async function apply(ctx: Context, config: Config) {
     .alias("messageCounter")
     .action(({ session }) => session?.execute(`help msgcount`));
 
-  ctx
-    .command("msgcount.清空记录", "清空全部发言记录", { authority: 3 })
-    .action(async ({ session }) => {
-      if (!session) return;
-      await session.send("⏳ 正在清空所有发言记录……");
-      await ctx.database.remove("message_counter_records", {});
-      await session.send("✅ 所有发言记录已清空。");
-    });
+  ctx.command('msgcount.清空记录', '预览并确认清空全部发言记录', { authority: 3 })
+    .option('confirm', '--confirm <token:string> 确认码')
+    .action(createClearAction(ctx.database));
 
   // 查询指令
   const queryCommand = ctx
@@ -1470,6 +1470,7 @@ export async function apply(ctx: Context, config: Config) {
       }));
 
       return renderLeaderboard({
+        textOnly: presentation.textOnly(session),
         rankTimeTitle,
         rankTitle,
         rankingData,
@@ -1547,6 +1548,7 @@ export async function apply(ctx: Context, config: Config) {
       }));
 
       return renderLeaderboard({
+        textOnly: presentation.textOnly(session),
         rankTimeTitle,
         rankTitle,
         rankingData,
@@ -2680,7 +2682,7 @@ export async function apply(ctx: Context, config: Config) {
   const CHART_FONT_SCALE = config.chartFontScale || 1;
   /** acumen 的字号 → 本页的 CSS 字号，见 ACUMEN_EM。 */
   const chartFontPx = (acumenSize: number) =>
-    +(acumenSize * ACUMEN_EM * CHART_FONT_SCALE).toFixed(2);
+    +((LEGACY_CHART_SIZE[acumenSize] ?? acumenSize) * CHART_FONT_SCALE).toFixed(2);
 
   /**
    * 生成图表的静态 CSS 样式。
@@ -2993,7 +2995,7 @@ export async function apply(ctx: Context, config: Config) {
         // 字号照 acumen 的数写，再乘 fontScale：那边的字号是字体上下伸的总高，
         // 不是 em，照抄成 CSS px 会大三成多（见 ACUMEN_EM）。
         // 取两位小数，与 monetary-rank 的 fontSizes 落到同一个数（名次列宽要逐像素一致）
-        const fontPx = (size) => +(size * config.fontScale).toFixed(2);
+        const fontPx = (size) => +((config.typeSizes[size] ?? size) * config.fontScale).toFixed(2);
         const LAYOUT = {
           avatarSize: 50,       // 头像边长，也是每一行的高度
           rowGap: 10,           // 行与行之间的空隙
@@ -3429,6 +3431,7 @@ export async function apply(ctx: Context, config: Config) {
         /** 刻度竖线的颜色：8% 的黑，压在轨道或实色条上都读得出来。 */
         const HAIRLINE = '${HAIRLINE}';
         /** 纸面：与 acumen 的 surface 同一支。读数排成两列时全落在纸上，按纸量对比度。 */
+        ${clientColorScript()}
         const PAPER = '${PAPER}';
         /** 取不到头像、或头像读不出色相时的兜底色。这一行漏注入过：浏览器里一引用就抛错，整张画布空白（#29）。 */
         const FALLBACK_THEME = '${FALLBACK_THEME}';
@@ -3568,20 +3571,14 @@ export async function apply(ctx: Context, config: Config) {
 
         /** 主题色只留色相，彩度收进窄带，亮度归一到 BAR_LUMINANCE。 */
         function harmonizeTheme(color) {
-            const [h, s] = toHsl(color);
-            const chroma = (Math.max(color[0], color[1], color[2]) - Math.min(color[0], color[1], color[2])) / 255;
-            // 彩度低到读不出方向的头像退到固定的回退色相，但彩度压到窄带之下：
-            // 一张本来就没有颜色的头像，不该因为「没有颜色」反而成为整张榜上最扎眼的一条。
-            if (chroma < HUE_NOISE_FLOOR) return atLuminance(fallbackHue(), 0.08, BAR_LUMINANCE);
-            return atLuminance(h, clamp(s, MIN_SATURATION, MAX_SATURATION), BAR_LUMINANCE);
+            return hexToRgb(M3.harmonize('#' + color.map(v => Math.round(v).toString(16).padStart(2, '0')).join(''), 45, 36, 268));
         }
 
         /** 这一行的淡色轨道：同一支色相，亮度归一到 TRACK_LUMINANCE。
          *  「混一半白」得到的是固定的比例、不是固定的对比度：一支本来就亮的黄，
          *  混一半白之后与自己只差 1.50∶1，条尾在哪根本看不出来。 */
         function trackTone(bar) {
-            const [h, s] = toHsl(bar);
-            return atLuminance(h, s, TRACK_LUMINANCE);
+            return hexToRgb(M3.harmonize('#' + bar.map(v => Math.round(v).toString(16).padStart(2, '0')).join(''), 90, 24, 268));
         }
 
         const mixWithWhite = (color, opacity) => color
@@ -3874,7 +3871,8 @@ export async function apply(ctx: Context, config: Config) {
         chartTitleFont: config.chartTitleFont,
         chartNicknameFont: config.chartNicknameFont,
         // acumen 字号 → CSS 字号的整体系数（换算系数 × 配置倍率）
-        fontScale: ACUMEN_EM * CHART_FONT_SCALE,
+        typeSizes: LEGACY_CHART_SIZE,
+        fontScale: CHART_FONT_SCALE,
       };
 
       const htmlContent = _getChartHtmlContent({
@@ -4029,11 +4027,13 @@ export async function apply(ctx: Context, config: Config) {
   }
 
   async function renderLeaderboard({
+    textOnly = false,
     rankTimeTitle,
     rankTitle,
     rankingData,
     totalCount = 0,
   }: {
+    textOnly?: boolean;
     rankTimeTitle: string;
     rankTitle: string;
     rankingData: RankingData[];
@@ -4041,7 +4041,7 @@ export async function apply(ctx: Context, config: Config) {
     totalCount?: number;
   }): Promise<string | h> {
     // 渲染为水平柱状图
-    if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
+    if (!textOnly && config.isLeaderboardToHorizontalBarChartConversionEnabled) {
       if (!ctx.puppeteer) {
         warnOnce(
           "puppeteer-missing",
@@ -4069,7 +4069,7 @@ export async function apply(ctx: Context, config: Config) {
             { rankTimeTitle, rankTitle, totalCount, data: chartReadyData },
             { iconCache, barBgImgCache, fontFilesCache, emptyHtmlPath },
           );
-          return h.image(imageBuffer, `image/${config.imageType}`);
+          return h('p', {}, [h.image(imageBuffer, `image/${config.imageType}`), h('p', {}, h.text(formatLeaderboardAsText(rankTimeTitle, rankTitle, rankingData, config.isUserMessagePercentageVisible)))]);
         } catch (error) {
           logger.error("Failed to generate leaderboard chart:", error);
         }
@@ -4093,8 +4093,8 @@ export async function apply(ctx: Context, config: Config) {
   ): string {
     // 首行给榜单标题（带状态符），出图时间退到第二行，与出图版的页眉同序
     let result = `📋 ${rankTitle}\n${rankTimeTitle}\n\n`;
-    // 纯文本不出图，列四条封顶，其余折成一行汇总
-    const shown = data.slice(0, 4);
+    // 文字输出保留请求范围内的全部条目
+    const shown = data;
     shown.forEach((item, index) => {
       const percentageStr = showPercentage
         ? ` (${Math.round(item.percentage)}%)`

@@ -1,112 +1,35 @@
-/**
- * Material 3 Expressive 设计系统。
- *
- * 只依赖标准库，输出纯 CSS 变量与常量，任何渲染后端（puppeteer / canvas）都能用。
- * 色板按 M3 的做法从一个源色推出六套色调板，再按角色映射成明暗两套配色。
- */
-
-// ---------------------------------------------------------------------------
-// 色彩：CIELCh 色调板
-// ---------------------------------------------------------------------------
-
-/** M3 的「色调」就是 CIE L*，0 为黑、100 为白。 */
+/** Shared M3 tokens. Generated copies: scripts/sync-design-system.mjs. */
+import { Hct, SchemeTonalSpot, hexFromArgb, argbFromHex } from './material-color'
+import { MATERIAL_COLOR_SCRIPT } from './material-color-browser'
 export type Tone = number
-
-const WHITE_X = 95.047
-const WHITE_Y = 100
-const WHITE_Z = 108.883
-
-function labToXyz(l: number, a: number, b: number) {
-  const fy = (l + 16) / 116
-  const fx = fy + a / 500
-  const fz = fy - b / 200
-  const f = (t: number) => (t > 6 / 29 ? t * t * t : (3 * (6 / 29) ** 2) * (t - 4 / 29))
-  return [f(fx) * WHITE_X, f(fy) * WHITE_Y, f(fz) * WHITE_Z]
-}
-
-/** 线性分量 -> sRGB 分量，返回值可能越界，交给调用方判断。 */
-function gamma(value: number) {
-  return value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055
-}
-
-function xyzToRgb(x: number, y: number, z: number) {
-  x /= 100
-  y /= 100
-  z /= 100
-  return [
-    gamma(3.2406 * x - 1.5372 * y - 0.4986 * z),
-    gamma(-0.9689 * x + 1.8758 * y + 0.0415 * z),
-    gamma(0.0557 * x - 0.204 * y + 1.057 * z),
-  ]
-}
-
-const EPSILON = 1 / 512
-
-/** LCh -> #rrggbb。超出 sRGB 色域时按二分法降低彩度，色调与色相保持不变。 */
+/** Historical API name retained for compatibility; uses official Material HCT. */
 export function lch(tone: Tone, chroma: number, hue: number) {
-  const radian = (hue * Math.PI) / 180
-  const at = (c: number) => xyzToRgb(...labToXyz(tone, Math.cos(radian) * c, Math.sin(radian) * c) as [number, number, number])
-  const inGamut = (rgb: number[]) => rgb.every((value) => value >= -EPSILON && value <= 1 + EPSILON)
-
-  let rgb = at(chroma)
-  if (!inGamut(rgb)) {
-    // 彩度为 0 的灰轴必定在色域内，所以二分一定收敛
-    let low = 0
-    let high = chroma
-    while (high - low > 0.05) {
-      const mid = (low + high) / 2
-      if (inGamut(at(mid))) low = mid
-      else high = mid
-    }
-    rgb = at(low)
-  }
-
-  return '#' + rgb
-    .map((value) => Math.round(Math.min(1, Math.max(0, value)) * 255).toString(16).padStart(2, '0'))
-    .join('')
+  return hexFromArgb(Hct.from(hue, chroma, tone).toInt())
 }
-
-/** 线性化的 sRGB 分量。 */
-function degamma(value: number) {
-  value /= 255
-  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
-}
-
-/** `#rrggbb` -> LCh，`lch()` 的逆运算。 */
 export function lchOf(hex: string) {
-  const value = parseInt(hex.replace('#', '').slice(0, 6), 16) || 0
-  const r = degamma((value >> 16) & 255)
-  const g = degamma((value >> 8) & 255)
-  const b = degamma(value & 255)
-
-  const x = (0.4124 * r + 0.3576 * g + 0.1805 * b) * 100 / WHITE_X
-  const y = (0.2126 * r + 0.7152 * g + 0.0722 * b) * 100 / WHITE_Y
-  const z = (0.0193 * r + 0.1192 * g + 0.9505 * b) * 100 / WHITE_Z
-
-  const f = (t: number) => (t > (6 / 29) ** 3 ? Math.cbrt(t) : t / (3 * (6 / 29) ** 2) + 4 / 29)
-  const [fx, fy, fz] = [f(x), f(y), f(z)]
-  const a = 500 * (fx - fy)
-  const bb = 200 * (fy - fz)
-
-  return {
-    tone: 116 * fy - 16,
-    chroma: Math.hypot(a, bb),
-    hue: ((Math.atan2(bb, a) * 180) / Math.PI + 360) % 360,
-  }
+  const value = Hct.fromInt(argbFromHex(hex))
+  return { tone: value.tone, chroma: value.chroma, hue: value.hue }
 }
-
-/**
- * 把一个任意来源的颜色（头像主色、用户自选色）收进本设计系统。
- *
- * 只保留它的色相，色调与彩度一律换成设计系统里的取值——于是每个人都还有
- * 自己的颜色，整张图的明度节奏却是齐的，不会因为某个头像特别暗就糊成一团。
- * 彩度太低的灰色头像没有可用的色相，退回主色。
- */
 export function harmonize(hex: string, tone: Tone, chroma = 48, fallbackHue = 0) {
   const source = lchOf(hex)
-  const hue = source.chroma < 4 ? fallbackHue : source.hue
-  return lch(tone, source.chroma < 4 ? Math.min(chroma, 6) : chroma, hue)
+  return lch(tone, source.chroma < 4 ? Math.min(chroma, 6) : chroma, source.chroma < 4 ? fallbackHue : source.hue)
 }
+export function contrast(a: string, b: string) {
+  const luminance = (hex: string) => {
+    const n = argbFromHex(hex)
+    const rgb = [n >>> 16 & 255, n >>> 8 & 255, n & 255].map(v => {
+      const c = v / 255
+      return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4
+    })
+    return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722
+  }
+  const x = luminance(a), y = luminance(b)
+  return (Math.max(x, y) + .05) / (Math.min(x, y) + .05)
+}
+export function onColor(background: string) {
+  return contrast(background, '#000000') >= contrast(background, '#ffffff') ? '#000000' : '#ffffff'
+}
+export const SPACING = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const
 
 /** 一套色调板：固定色相与彩度，按色调取色。 */
 export type Palette = (tone: Tone) => string
@@ -205,41 +128,45 @@ export interface Scheme {
 
 /** 生成一套完整的角色配色。`dark` 为真时返回暗色方案。 */
 export function scheme(hue: number, dark = false, options: SourceOptions = {}): Scheme {
-  const p = palettesOf(hue, options)
-  const { primary: P, secondary: S, tertiary: T, neutral: N, neutralVariant: V, error: E } = p
-
-  if (dark) {
-    return {
-      primary: P(80), onPrimary: P(20), primaryContainer: P(30), onPrimaryContainer: P(90),
-      secondary: S(80), onSecondary: S(20), secondaryContainer: S(30), onSecondaryContainer: S(90),
-      tertiary: T(80), onTertiary: T(20), tertiaryContainer: T(30), onTertiaryContainer: T(90),
-      error: E(80), onError: E(20), errorContainer: E(30), onErrorContainer: E(90),
-      background: N(6), onBackground: N(90),
-      surface: N(6), onSurface: N(90),
-      surfaceVariant: V(30), onSurfaceVariant: V(80),
-      surfaceDim: N(6), surfaceBright: N(24),
-      surfaceContainerLowest: N(4), surfaceContainerLow: N(10), surfaceContainer: N(12),
-      surfaceContainerHigh: N(17), surfaceContainerHighest: N(22),
-      outline: V(60), outlineVariant: V(30),
-      inverseSurface: N(90), inverseOnSurface: N(20), inversePrimary: P(40),
-      scrim: N(0), shadow: N(0),
-    }
-  }
-
+  const source = Hct.from(hue, options.chroma ?? 56, 50)
+  const dynamic = new SchemeTonalSpot(source, dark, 0, '2025')
   return {
-    primary: P(40), onPrimary: P(100), primaryContainer: P(90), onPrimaryContainer: P(30),
-    secondary: S(40), onSecondary: S(100), secondaryContainer: S(90), onSecondaryContainer: S(30),
-    tertiary: T(40), onTertiary: T(100), tertiaryContainer: T(90), onTertiaryContainer: T(30),
-    error: E(40), onError: E(100), errorContainer: E(90), onErrorContainer: E(30),
-    background: N(98), onBackground: N(10),
-    surface: N(98), onSurface: N(10),
-    surfaceVariant: V(90), onSurfaceVariant: V(30),
-    surfaceDim: N(87), surfaceBright: N(98),
-    surfaceContainerLowest: N(100), surfaceContainerLow: N(96), surfaceContainer: N(94),
-    surfaceContainerHigh: N(92), surfaceContainerHighest: N(90),
-    outline: V(50), outlineVariant: V(80),
-    inverseSurface: N(20), inverseOnSurface: N(95), inversePrimary: P(80),
-    scrim: N(0), shadow: N(0),
+    primary: hexFromArgb(dynamic.primary),
+    onPrimary: hexFromArgb(dynamic.onPrimary),
+    primaryContainer: hexFromArgb(dynamic.primaryContainer),
+    onPrimaryContainer: hexFromArgb(dynamic.onPrimaryContainer),
+    secondary: hexFromArgb(dynamic.secondary),
+    onSecondary: hexFromArgb(dynamic.onSecondary),
+    secondaryContainer: hexFromArgb(dynamic.secondaryContainer),
+    onSecondaryContainer: hexFromArgb(dynamic.onSecondaryContainer),
+    tertiary: hexFromArgb(dynamic.tertiary),
+    onTertiary: hexFromArgb(dynamic.onTertiary),
+    tertiaryContainer: hexFromArgb(dynamic.tertiaryContainer),
+    onTertiaryContainer: hexFromArgb(dynamic.onTertiaryContainer),
+    error: hexFromArgb(dynamic.error),
+    onError: hexFromArgb(dynamic.onError),
+    errorContainer: hexFromArgb(dynamic.errorContainer),
+    onErrorContainer: hexFromArgb(dynamic.onErrorContainer),
+    background: hexFromArgb(dynamic.background),
+    onBackground: hexFromArgb(dynamic.onBackground),
+    surface: hexFromArgb(dynamic.surface),
+    onSurface: hexFromArgb(dynamic.onSurface),
+    surfaceVariant: hexFromArgb(dynamic.surfaceVariant),
+    onSurfaceVariant: hexFromArgb(dynamic.onSurfaceVariant),
+    surfaceDim: hexFromArgb(dynamic.surfaceDim),
+    surfaceBright: hexFromArgb(dynamic.surfaceBright),
+    surfaceContainerLowest: hexFromArgb(dynamic.surfaceContainerLowest),
+    surfaceContainerLow: hexFromArgb(dynamic.surfaceContainerLow),
+    surfaceContainer: hexFromArgb(dynamic.surfaceContainer),
+    surfaceContainerHigh: hexFromArgb(dynamic.surfaceContainerHigh),
+    surfaceContainerHighest: hexFromArgb(dynamic.surfaceContainerHighest),
+    outline: hexFromArgb(dynamic.outline),
+    outlineVariant: hexFromArgb(dynamic.outlineVariant),
+    inverseSurface: hexFromArgb(dynamic.inverseSurface),
+    inverseOnSurface: hexFromArgb(dynamic.inverseOnSurface),
+    inversePrimary: hexFromArgb(dynamic.inversePrimary),
+    scrim: hexFromArgb(dynamic.scrim),
+    shadow: hexFromArgb(dynamic.shadow),
   }
 }
 
@@ -266,7 +193,7 @@ export const SHAPE = {
 
 /** 正文与标题字体栈，覆盖 Windows / macOS / Linux 与随包字体三种情况。 */
 export const FONT_STACK =
-  '"Roboto Flex", "Roboto", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Source Han Sans SC", system-ui, sans-serif'
+  '"Roboto Flex", "Roboto", "Noto Sans SC", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", "Source Han Sans SC", system-ui, sans-serif'
 
 /** 等宽字体栈，用于比分、倒计时这类需要对齐的数字。 */
 export const MONO_STACK =
@@ -339,7 +266,8 @@ export function systemVars() {
     `--md-sys-typescale-${kebab(name)}-weight:${style.weight}`,
     `--md-sys-typescale-${kebab(name)}-tracking:${style.tracking}px`,
   ])
-  return [...shape, ...elevation, ...type, `--md-sys-typescale-font:${FONT_STACK}`, `--md-sys-typescale-font-mono:${MONO_STACK}`].join(';')
+  const spacing = Object.entries(SPACING).map(([name, value]) => `--m3-spacing-${name}:${value}px`)
+  return [...shape, ...elevation, ...type, ...spacing, `--md-sys-typescale-font:${FONT_STACK}`, `--md-sys-typescale-font-mono:${MONO_STACK}`].join(';')
 }
 
 /** 一段可直接塞进 `<style>` 的基础样式：令牌 + 排版重置。 */
@@ -357,21 +285,9 @@ body{
   text-rendering:optimizeLegibility;
   font-variant-numeric:tabular-nums;
 }
-.m3-display-large{font-size:57px;line-height:64px;font-weight:600;letter-spacing:-.25px}
-.m3-display-medium{font-size:45px;line-height:52px;font-weight:600;letter-spacing:0}
-.m3-display-small{font-size:36px;line-height:44px;font-weight:600;letter-spacing:0}
-.m3-headline-large{font-size:32px;line-height:40px;font-weight:600;letter-spacing:0}
-.m3-headline-medium{font-size:28px;line-height:36px;font-weight:600;letter-spacing:0}
-.m3-headline-small{font-size:24px;line-height:32px;font-weight:600;letter-spacing:0}
-.m3-title-large{font-size:22px;line-height:28px;font-weight:600;letter-spacing:0}
-.m3-title-medium{font-size:16px;line-height:24px;font-weight:600;letter-spacing:.15px}
-.m3-title-small{font-size:14px;line-height:20px;font-weight:600;letter-spacing:.1px}
-.m3-body-large{font-size:16px;line-height:24px;font-weight:400;letter-spacing:.5px}
-.m3-body-medium{font-size:14px;line-height:20px;font-weight:400;letter-spacing:.25px}
-.m3-body-small{font-size:12px;line-height:16px;font-weight:400;letter-spacing:.4px}
-.m3-label-large{font-size:14px;line-height:20px;font-weight:600;letter-spacing:.1px}
-.m3-label-medium{font-size:12px;line-height:16px;font-weight:600;letter-spacing:.5px}
-.m3-label-small{font-size:11px;line-height:16px;font-weight:600;letter-spacing:.5px}
+${Object.entries(TYPE).map(([name, value]) => `.m3-${kebab(name)}{font-size:${value.size}px;line-height:${value.line}px;font-weight:${value.weight};letter-spacing:${value.tracking}px}`).join('\n')}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
 `
 }
 
@@ -449,12 +365,12 @@ export function components() {
 }
 /*
  * 前三名用真正的金银铜，而不是主题的主 / 次 / 第三色：
- * 名次的含义是固定的，跟着主题变色反而认不出来。三种金属色本身也走 LCh，
+ * 名次的含义是固定的，跟着主题变色反而认不出来。三种金属色本身也走 HCT，
  * 色调彼此拉开一档，所以放在任何主题里明暗关系都成立。
  */
-.m3-badge--gold{background:${MEDAL.gold};color:#fff}
-.m3-badge--silver{background:${MEDAL.silver};color:#fff}
-.m3-badge--bronze{background:${MEDAL.bronze};color:#fff}
+.m3-badge--gold{background:${MEDAL.gold};color:${onColor(MEDAL.gold)}}
+.m3-badge--silver{background:${MEDAL.silver};color:${onColor(MEDAL.silver)}}
+.m3-badge--bronze{background:${MEDAL.bronze};color:${onColor(MEDAL.bronze)}}
 
 /*
  * 进度 / 排行条。填充与轨道是两个独立的全圆角色块，中间留 4px 空隙——
@@ -494,62 +410,23 @@ export function components() {
  * 浏览器端的配色小库，序列化进页面脚本用。
  *
  * 有些图是在页面里用 canvas 画的，那边拿不到这个模块。与其在客户端另写一套
- * HSL 近似，不如把同一套 LCh 运算原样送过去——服务端与浏览器端算出来的颜色
+ * HSL 近似，不如把同一套 HCT 运算原样送过去——服务端与浏览器端算出来的颜色
  * 必须一致，否则「同一支色相」的承诺在两边会对不上。
  *
  * 暴露的接口与本模块同名：`M3.lch` / `M3.lchOf` / `M3.harmonize`。
  */
 export function clientColorScript() {
-  return `const M3 = (() => {
-  const WX = ${WHITE_X}, WY = ${WHITE_Y}, WZ = ${WHITE_Z}, EPS = ${EPSILON};
-  const gamma = (v) => v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
-  const degamma = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) };
-
-  function at(tone, chroma, hue) {
-    const rad = hue * Math.PI / 180;
-    const a = Math.cos(rad) * chroma, b = Math.sin(rad) * chroma;
-    const fy = (tone + 16) / 116, fx = fy + a / 500, fz = fy - b / 200;
-    const f = (t) => t > 6 / 29 ? t * t * t : 3 * Math.pow(6 / 29, 2) * (t - 4 / 29);
-    const x = f(fx) * WX / 100, y = f(fy) * WY / 100, z = f(fz) * WZ / 100;
-    return [
-      gamma(3.2406 * x - 1.5372 * y - 0.4986 * z),
-      gamma(-0.9689 * x + 1.8758 * y + 0.0415 * z),
-      gamma(0.0557 * x - 0.204 * y + 1.057 * z),
-    ];
-  }
-  const inGamut = (rgb) => rgb.every((v) => v >= -EPS && v <= 1 + EPS);
-
-  function lch(tone, chroma, hue) {
-    let rgb = at(tone, chroma, hue);
-    if (!inGamut(rgb)) {
-      let lo = 0, hi = chroma;
-      while (hi - lo > 0.05) {
-        const mid = (lo + hi) / 2;
-        if (inGamut(at(tone, mid, hue))) lo = mid; else hi = mid;
-      }
-      rgb = at(tone, lo, hue);
-    }
-    return '#' + rgb.map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, '0')).join('');
-  }
-
-  function lchOf(hex) {
-    const n = parseInt(String(hex).replace('#', '').slice(0, 6), 16) || 0;
-    const r = degamma((n >> 16) & 255), g = degamma((n >> 8) & 255), b = degamma(n & 255);
-    const x = (0.4124 * r + 0.3576 * g + 0.1805 * b) * 100 / WX;
-    const y = (0.2126 * r + 0.7152 * g + 0.0722 * b) * 100 / WY;
-    const z = (0.0193 * r + 0.1192 * g + 0.9505 * b) * 100 / WZ;
-    const f = (t) => t > Math.pow(6 / 29, 3) ? Math.cbrt(t) : t / (3 * Math.pow(6 / 29, 2)) + 4 / 29;
-    const fx = f(x), fy = f(y), fz = f(z);
-    const a = 500 * (fx - fy), bb = 200 * (fy - fz);
-    return { tone: 116 * fy - 16, chroma: Math.hypot(a, bb), hue: (Math.atan2(bb, a) * 180 / Math.PI + 360) % 360 };
-  }
-
-  function harmonize(hex, tone, chroma, fallbackHue) {
-    const src = lchOf(hex);
-    const gray = src.chroma < 4;
-    return lch(tone, gray ? Math.min(chroma, 6) : chroma, gray ? (fallbackHue || 0) : src.hue);
-  }
-
-  return { lch, lchOf, harmonize };
-})();`
+  return MATERIAL_COLOR_SCRIPT + `;const M3 = (() => {
+    const { Hct, hexFromArgb, argbFromHex } = MaterialColor;
+    const lch = (tone, chroma, hue) => hexFromArgb(Hct.from(hue, chroma, tone).toInt());
+    const lchOf = (hex) => { const c = Hct.fromInt(argbFromHex(hex)); return {tone:c.tone,chroma:c.chroma,hue:c.hue}; };
+    const harmonize = (hex, tone, chroma = 48, fallbackHue = 0) => {
+      const c = lchOf(hex); return lch(tone, c.chroma < 4 ? Math.min(chroma,6) : chroma, c.chroma < 4 ? fallbackHue : c.hue);
+    };
+    return {lch, lchOf, harmonize};
+  })();`;
 }
+
+/** Shared chart typography; names keep the existing measurement/ellipsis policy. */
+export const CHART_TYPE = { count: TYPE.titleLarge.size, percent: TYPE.bodyMedium.size, rank: TYPE.titleMedium.size, title: TYPE.headlineSmall.size, meta: TYPE.bodyMedium.size } as const
+export const LEGACY_CHART_SIZE: Record<number, number> = {30: CHART_TYPE.count,20: CHART_TYPE.percent,22: CHART_TYPE.rank,32: CHART_TYPE.title,18: CHART_TYPE.meta,9: SPACING.sm}
