@@ -1,6 +1,5 @@
 import { clientColorScript, LEGACY_CHART_SIZE } from './m3'
 import { createClearAction } from './clear'
-import { usePresentation } from './ux'
 import { Context, h, Logger, Schema, sleep, Bot, Dict, $ } from "koishi";
 import {
   baseline,
@@ -781,7 +780,6 @@ const periodMapping: Record<PeriodKey, { field: CountField; name: string }> = {
 };
 
 export async function apply(ctx: Context, config: Config) {
-  const presentation = usePresentation(ctx, 'msgcount')
   // cl*
   // 定义一个唯一的 Symbol 作为处理标记，防止与其他插件冲突
   const PROCESSED = Symbol("message-counter.processed");
@@ -1470,7 +1468,6 @@ export async function apply(ctx: Context, config: Config) {
       }));
 
       return renderLeaderboard({
-        textOnly: presentation.textOnly(session),
         rankTimeTitle,
         rankTitle,
         rankingData,
@@ -1548,7 +1545,6 @@ export async function apply(ctx: Context, config: Config) {
       }));
 
       return renderLeaderboard({
-        textOnly: presentation.textOnly(session),
         rankTimeTitle,
         rankTitle,
         rankingData,
@@ -4030,13 +4026,11 @@ export async function apply(ctx: Context, config: Config) {
   }
 
   async function renderLeaderboard({
-    textOnly = false,
     rankTimeTitle,
     rankTitle,
     rankingData,
     totalCount = 0,
   }: {
-    textOnly?: boolean;
     rankTimeTitle: string;
     rankTitle: string;
     rankingData: RankingData[];
@@ -4044,7 +4038,7 @@ export async function apply(ctx: Context, config: Config) {
     totalCount?: number;
   }): Promise<string | h> {
     // 渲染为水平柱状图
-    if (!textOnly && config.isLeaderboardToHorizontalBarChartConversionEnabled) {
+    if (config.isLeaderboardToHorizontalBarChartConversionEnabled) {
       if (!ctx.puppeteer) {
         warnOnce(
           "puppeteer-missing",
@@ -4072,7 +4066,7 @@ export async function apply(ctx: Context, config: Config) {
             { rankTimeTitle, rankTitle, totalCount, data: chartReadyData },
             { iconCache, barBgImgCache, fontFilesCache, emptyHtmlPath },
           );
-          // 图文模式只发图；完整文字榜单在文字模式（textOnly）下由下方统一返回
+          // 有图只发图；出图失败或关闭图表时由下方返回文字榜单
           return h.image(imageBuffer, `image/${config.imageType}`);
         } catch (error) {
           logger.error("Failed to generate leaderboard chart:", error);

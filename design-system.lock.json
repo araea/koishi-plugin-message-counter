@@ -3,8 +3,8 @@
   "source": "koishi-plugin-markdown-to-image-service",
   "materialColorUtilities": "0.4.0",
   "files": {
-    "src/ux.ts": "c214cd8874c775e1b071275bfa4e737a77afc6a29a5a01b6e80b079dbe263f4a",
-    "DESIGN_SYSTEM.md": "60f1cc3c252717fb791295e7248a7b918c049abb927b0b5f263dc4224fe1b179",
+    "src/ux.ts": "0ef6cac3a45725a9fdb9350ae99d7ad40761551b2f7ce681038219271ed2af9a",
+    "DESIGN_SYSTEM.md": "65e51dd694d2f761e3ad8cde491816505b3a96a5f75724757f4a17db82d315db",
     "scripts/check-design-system.mjs": "5d8c8ee8df6ed52d9589f120d2c95db58f1b61475115dc945155405cebed99ef",
     "src/m3.ts": "dc4974dac8fccc4192dc5a122ede13ec51c8b08e200c81b791f441040d51442e",
     "src/material-color.ts": "70bd86a298eb211fdee6f62aa5a9e9cbe228e508dad1762c7d8fa334701ef621",
