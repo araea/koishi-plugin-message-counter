@@ -37,7 +37,8 @@ npm i koishi-plugin-message-counter
 | `isBotMessageTrackingEnabled` | boolean | `false` | 统计 Bot 自己发送的消息 |
 | `enableCrossBotDeduplication` | boolean | `true` | 跨机器人消息去重 |
 | `enableYesterdayRanking` | boolean | `true` | 统计昨日发言 |
-| `defaultMaxDisplayCount` | number | `20` | 排行榜默认显示人数，0 表示全部 |
+| `defaultMaxDisplayCount` | number | `20` | 排行榜默认显示人数，0 表示全部（仍受上限约束） |
+| `maxDisplayCount` | number | `100` | 排行榜最多显示人数，指令后的数字超过按它出图；0 表示不设上限 |
 | `isTimeInfoSupplementEnabled` | boolean | `true` | 在排行榜标题显示生成时间 |
 | `isUserMessagePercentageVisible` | boolean | `true` | 显示各人的消息数占比 |
 | `hiddenUserIdsInLeaderboard` | string[] | `[]` | 全局隐藏的用户 ID |

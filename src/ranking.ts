@@ -38,6 +38,19 @@ export interface RankQuery {
   pin?: string
 }
 
+/**
+ * 这一张榜列多少名：指令给了就用指令的，没给用默认值；再收进上限。
+ *
+ * 返回 0 表示「全部」（`RankQuery.limit` 的约定）。默认值配成 0 时，有上限就列到
+ * 上限为止——「全部」在一个几千人的频道里是一张翻不到底的长图，排行榜也画不动。
+ * 上限配成 0 表示不设上限，保留从前的行为。
+ */
+export function displayLimit(requested: number | undefined, fallback: number, max: number) {
+  const n = requested ?? fallback
+  if (max <= 0) return n
+  return n <= 0 ? max : Math.min(n, max)
+}
+
 const QQ_AVATAR = (userId: string) => `https://q1.qlogo.cn/g?b=qq&nk=${userId}&s=640`
 const QQ_GROUP_AVATAR = (channelId: string) => {
   const id = channelId === '#' ? '426230045' : channelId

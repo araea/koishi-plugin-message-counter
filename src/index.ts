@@ -19,6 +19,7 @@ import * as fs from "fs/promises";
 import { constants as fsConstants } from "fs";
 import * as crypto from "crypto";
 import {
+  displayLimit,
   lookup,
   rankChannels,
   rankUsers,
@@ -122,6 +123,8 @@ export interface Config {
   // --- 排行榜设置 ---
   /** 排行榜默认显示的人数。 */
   defaultMaxDisplayCount: number;
+  /** 指令后面的数字最多能要到多少名；0 表示不设上限。 */
+  maxDisplayCount: number;
   /** 是否在显示排行榜时补充时间信息。 */
   isTimeInfoSupplementEnabled: boolean;
   /** 是否在排行榜中显示用户消息占比。 */
@@ -280,7 +283,10 @@ export const Config: Schema<Config> = Schema.intersect([
     defaultMaxDisplayCount: Schema.number()
       .min(0)
       .default(20)
-      .description("排行榜默认显示的人数，0 表示全部显示。"),
+      .description("排行榜默认显示的人数，0 表示全部显示（仍受下面的上限约束）。"),
+    maxDisplayCount: Schema.natural()
+      .default(100)
+      .description("排行榜最多显示的人数：指令后面的数字超过它按它出图，0 表示不设上限。一行约 60 像素，100 名已是六千像素的长图。"),
     isTimeInfoSupplementEnabled: Schema.boolean()
       .default(true)
       .description("在排行榜标题里显示生成时间。"),
@@ -1432,7 +1438,7 @@ export async function apply(ctx: Context, config: Config) {
     .action(async ({ session, options }, count) => {
       if (!session) return;
 
-      const number = count ?? config.defaultMaxDisplayCount;
+      const number = displayLimit(count, config.defaultMaxDisplayCount, config.maxDisplayCount);
 
       const whites = parseList(options?.whites);
       const blacks = [
@@ -1497,7 +1503,7 @@ export async function apply(ctx: Context, config: Config) {
     .action(async ({ session, options }, count) => {
       if (!session) return;
 
-      const number = count ?? config.defaultMaxDisplayCount;
+      const number = displayLimit(count, config.defaultMaxDisplayCount, config.maxDisplayCount);
 
       const whites = parseList(options?.whites);
       const blacks = [
@@ -1980,7 +1986,7 @@ export async function apply(ctx: Context, config: Config) {
           field,
           channelId,
           blacks: config.hiddenUserIdsInLeaderboard,
-          limit: config.defaultMaxDisplayCount,
+          limit: displayLimit(undefined, config.defaultMaxDisplayCount, config.maxDisplayCount),
         });
 
         const ranked = rows.filter((row) => row.count > 0);
