@@ -57,8 +57,7 @@ npm i koishi-plugin-message-counter
 
 `enableMostActiveUserMuting` 开启后，每日 0 点会禁言昨日发言最多者；启用前确认频道允许自动禁言。
 
-## 链接
+## 必要链接
 
 - [设计系统](DESIGN_SYSTEM.md)
-- [更新日志](CHANGELOG.md)
 - [MIT](LICENSE-MIT) / [Apache-2.0](LICENSE-APACHE)
