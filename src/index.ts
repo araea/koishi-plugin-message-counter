@@ -3023,9 +3023,6 @@ export async function apply(ctx: Context, config: Config) {
           percentGap: 8,        // 发言数与百分比之间的空隙
           rankFontSize: fontPx(22),    // 名次字号：比昵称小两档，只作次序参照
           rankGap: 12,          // 名次列与头像之间的空隙
-          // 昵称视觉上移：同一基线下数字的字形盒偏上、中日韩字形偏下，
-          // 名字看着比读数矮一截。这里给昵称单独补一点，保持与读数同一基线感。
-          nameRise: Math.round(fontPx(30) * 0.1),
         };
         const ROW_HEIGHT = LAYOUT.avatarSize + LAYOUT.rowGap;
         // 轨道是定长的：条最长就铺满它，数值写在轨道右侧的留白上，与 acumen 一致。
@@ -3331,7 +3328,7 @@ export async function apply(ctx: Context, config: Config) {
                 nameText += ellipsis;
             }
             const nameTextX = BAR_X + LAYOUT.namePad;
-            context.fillText(nameText, nameTextX, baselineY - LAYOUT.nameRise);
+            context.fillText(nameText, nameTextX, baselineY);
 
             // 绘制用户自定义图标
             if (userIcons.length > 0) {
