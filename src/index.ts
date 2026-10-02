@@ -1,5 +1,6 @@
 import { clientColorScript, LEGACY_CHART_SIZE } from './m3'
 import { createClearAction } from './clear'
+import { helpOf } from './help'
 import { Context, h, Logger, Schema, sleep, Bot, Dict, $ } from "koishi";
 import {
   baseline,
@@ -1223,7 +1224,15 @@ export async function apply(ctx: Context, config: Config) {
   ctx
     .command("msgcount", "发言计数器 · 谁在说话")
     .alias("messageCounter")
-    .action(({ session }) => session?.execute(`help msgcount`));
+    .userFields(["authority"])
+    .action(async ({ session }) => {
+      const { title, entries } = await helpOf(session, "msgcount");
+      return [
+        `📋 ${title}`,
+        ...entries.map(({ name, description }) => `${name} · ${description}`),
+        "发送「msgcount.排行榜」看本频道排行，「msgcount.查询」查自己或某人的发言次数。",
+      ].join("\n");
+    });
 
   ctx.command('msgcount.清空记录', '预览并确认清空全部发言记录', { authority: 3 })
     .option('confirm', '--confirm <token:string> 确认码')
