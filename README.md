@@ -47,7 +47,7 @@ npm i koishi-plugin-message-counter
 | `autoPush` | boolean | `false` | 定时自动推送排行榜 |
 | `enableMostActiveUserMuting` | boolean | `false` | 每日 0 点禁言昨日发言最多者 |
 
-其余为渲染与背景主题的视觉选项（图片格式、视口宽度、头像形状、背景类型与配色、字体、推送时机与「抓龙王」参数等），可在插件配置面板中调整。
+其余为渲染与背景主题的视觉选项，可在插件配置面板中调整。
 
 ## 限制 / 风险
 
@@ -57,7 +57,7 @@ npm i koishi-plugin-message-counter
 
 `enableMostActiveUserMuting` 开启后，每日 0 点会禁言昨日发言最多者；启用前确认频道允许自动禁言。
 
-## 必要链接
+## 链接
 
 - [设计系统](DESIGN_SYSTEM.md)
 - [MIT](LICENSE-MIT) / [Apache-2.0](LICENSE-APACHE)
