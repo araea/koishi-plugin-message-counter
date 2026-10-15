@@ -1,5 +1,6 @@
 import { clientColorScript, LEGACY_CHART_SIZE } from './m3'
 import { createClearAction } from './clear'
+import { MEDAL_INK, medalReach, medalSpec } from './medal'
 import { helpOf } from './help'
 import { Context, h, Logger, Schema, sleep, Bot, Dict, $ } from "koishi";
 import {
@@ -97,12 +98,15 @@ const HAIRLINE = "rgba(0, 0, 0, 0.05)";
 /** 头像底下那圈发丝细的边。acumen 用的是不透明的 outline-variant，
  *  垫在头像下面收住浅色头像的圆边；它压在纸上，不是一个半透明遮罩。 */
 const GRID_LINE = SCHEME.outlineVariant;
-/** 前三名的名次色：金、银、铜。含义在颜色本身，不跟主题也不跟头像走。 */
-const MEDALS = [SCHEME.primary, SCHEME.secondary, SCHEME.tertiary];
+/** 前三名的名次色：金、银、铜。含义在颜色本身，不跟主题也不跟头像走；
+ *  与 acumen 的 `MEDALS` 同一组色，头像外的奖牌圈（`medal.ts`）也以它为深端。 */
+const MEDALS = MEDAL_INK;
 /** 取不到头像时的兜底色，即 acumen 的 FALLBACK_THEME（主色）。 */
 const FALLBACK_THEME = SCHEME.primary;
 /** 条尾把手探出条外的高度。画布与页面样式两处都要用，所以放在 Node 侧。 */
 const HANDLE_OVERHANG = 3;
+/** 头像半径：行高 50 的一半。奖牌圈的规格按它算（`medal.ts`），画布的版式也读它。 */
+const AVATAR_RADIUS = 25;
 
 /**
  * 用户可选的背景方案仍按本插件的主色相推：那是配置项，与图表的默认纸色无关。
@@ -376,7 +380,9 @@ export const Config: Schema<Config> = Schema.intersect([
             Schema.const("square").description("方形"),
           ])
             .default("circle")
-            .description("排行榜中头像的形状。"),
+            .description(
+              "排行榜中头像的形状。前三名头像外的奖牌圈是正圆，选方形时不加。",
+            ),
           gridLinesOverBars: Schema.boolean()
             .default(true)
             .description(
@@ -722,6 +728,11 @@ interface RankingData {
   count: number;
   percentage: number;
   avatarBase64?: string;
+  /**
+   * 这一行在完整榜单里的真实名次。缺省就是行号加一；只有「没上榜、被追加在榜尾」的那一行
+   * 需要给：它写的是自己的名次，也不该戴前三名的奖牌。
+   */
+  rank?: number;
 }
 
 interface AssetData {
@@ -1461,7 +1472,7 @@ export async function apply(ctx: Context, config: Config) {
       const rankTitle = `${scopeName}${periodName}发言排行榜`;
       const rankTimeTitle = getCurrentBeijingTime();
 
-      const { rows, total: totalCount } = await rankUsers(ctx, {
+      const { rows, total: totalCount, pinnedRank } = await rankUsers(ctx, {
         field,
         channelId: isAcross ? undefined : session.channelId,
         whites,
@@ -1474,12 +1485,13 @@ export async function apply(ctx: Context, config: Config) {
         return "📋 这个范围内还没有发言记录\n换一个时段选项，或用 `-t` 看总计。";
       }
 
-      const rankingData: RankingData[] = rows.map((row) => ({
+      const rankingData: RankingData[] = rows.map((row, index) => ({
         name: (row.key === session.userId ? "★" : "") + row.name,
         userId: row.key,
         avatar: row.avatar,
         count: row.count,
         percentage: calculatePercentage(row.count, totalCount),
+        rank: pinnedRankOf(pinnedRank, index, rows.length),
       }));
 
       return renderLeaderboard({
@@ -1538,7 +1550,7 @@ export async function apply(ctx: Context, config: Config) {
         rankTitle = `全频道${periodName}发言排行榜`;
       }
 
-      const { rows, total: totalCount } = await rankChannels(ctx, {
+      const { rows, total: totalCount, pinnedRank } = await rankChannels(ctx, {
         field,
         userId,
         whites,
@@ -1551,12 +1563,13 @@ export async function apply(ctx: Context, config: Config) {
         return `📋 这些条件下还没有频道发言记录\n放宽黑白名单，或换一个时段选项。`;
       }
 
-      const rankingData: RankingData[] = rows.map((row) => ({
+      const rankingData: RankingData[] = rows.map((row, index) => ({
         name: (row.key === session.channelId ? "★" : "") + row.name,
         userId: row.key,
         avatar: row.avatar,
         count: row.count,
         percentage: calculatePercentage(row.count, totalCount),
+        rank: pinnedRankOf(pinnedRank, index, rows.length),
       }));
 
       return renderLeaderboard({
@@ -3010,7 +3023,7 @@ export async function apply(ctx: Context, config: Config) {
         // 取两位小数，与 monetary-rank 的 fontSizes 落到同一个数（名次列宽要逐像素一致）
         const fontPx = (size) => +((config.typeSizes[size] ?? size) * config.fontScale).toFixed(2);
         const LAYOUT = {
-          avatarSize: 50,       // 头像边长，也是每一行的高度
+          avatarSize: ${AVATAR_RADIUS * 2},       // 头像边长，也是每一行的高度
           rowGap: 10,           // 行与行之间的空隙
           avatarGap: 6,         // 头像与柱状条之间的空隙
           barMinWidth: 150,     // 柱状条的最小长度
@@ -3032,6 +3045,25 @@ export async function apply(ctx: Context, config: Config) {
           rankGap: 12,          // 名次列与头像之间的空隙
         };
         const ROW_HEIGHT = LAYOUT.avatarSize + LAYOUT.rowGap;
+
+        // 前三名头像外的奖牌圈，榜首另有柔光与小皇冠（规格在 Node 侧算好，见 medal.ts）。
+        // 圈是正圆，方形头像（用户自己选的形状）不加：一圈圆套着方块不成样子。
+        const MEDAL_SPECS = ${JSON.stringify([1, 2, 3].map((rank) => medalSpec(rank, AVATAR_RADIUS)))};
+        const MEDALS_ON = (config.avatarShape || 'circle') !== 'square';
+        // 画布上下的留白：首行上方要容得下柔光与皇冠，末行下方要容得下圈；
+        // 没有奖牌时就是把手探出的那一截。页面样式里用负边距把多出来的收回去，榜单位置不变。
+        const PAD_TOP = MEDALS_ON ? Math.max(LAYOUT.handleOverhang, ${medalReach(AVATAR_RADIUS)}) : LAYOUT.handleOverhang;
+        const PAD_BOTTOM = MEDALS_ON
+          ? Math.max(LAYOUT.handleOverhang, Math.ceil(MEDAL_SPECS[0].ring.outer - ${AVATAR_RADIUS}))
+          : LAYOUT.handleOverhang;
+        /** 第 index 行（从 0 起）的名次：没上榜、被追加在榜尾的那一行带着自己的真实名次。 */
+        const rankOf = (index) => rankingData[index].rank || index + 1;
+        /** 这一行有没有奖牌：只看真实名次，榜尾那位 57 名的发起人不戴。 */
+        const hasMedal = (index) => MEDALS_ON && rankOf(index) <= 3;
+        /** 第 index 行（从 0 起）的行顶。 */
+        const rowTop = (index) => ROW_HEIGHT * index + PAD_TOP;
+        /** 第 index 行头像的圆心。 */
+        const avatarCenter = (index) => [AVATAR_X + LAYOUT.avatarSize / 2, rowTop(index) + LAYOUT.avatarSize / 2];
         // 轨道是定长的：条最长就铺满它，数值写在轨道右侧的留白上，与 acumen 一致。
         const TRACK_WIDTH = LAYOUT.barMinWidth + LAYOUT.barSpan;
 
@@ -3063,7 +3095,7 @@ export async function apply(ctx: Context, config: Config) {
           // 列宽按「字号的 0.6 倍 × 位数」估，不拿画布去真量：monetary-rank 那边量不了字，
           // 两张榜必须落到同一个数，所以两边共用这一个模型（与那边估数字宽度的模型一致）。
           // 名次右对齐，模型比真实字宽略宽，多出来的那一点落在数字左边，看不出来。
-          const rankDigits = String(rankingData.length).length;
+          const rankDigits = Math.max(...rankingData.map((_, index) => String(rankOf(index)).length));
           RANK_RIGHT_X = Math.ceil(LAYOUT.rankFontSize * 0.6 * rankDigits);
           AVATAR_X = RANK_RIGHT_X + LAYOUT.rankGap;
           BAR_X = AVATAR_X + LAYOUT.avatarSize + LAYOUT.avatarGap;
@@ -3090,8 +3122,9 @@ export async function apply(ctx: Context, config: Config) {
             PCT_RIGHT_X = VALUE_RIGHT_X + LAYOUT.percentGap + percentColumnWidth;
             canvas.width = Math.ceil(PCT_RIGHT_X);
           }
-          // 首末两行的把手各探出条外 handleOverhang，画布上下各多留这一截
-          canvas.height = ROW_HEIGHT * rankingData.length - LAYOUT.rowGap + 2 * LAYOUT.handleOverhang;
+          // 首末两行的把手、奖牌各探出行外一截，画布上下各多留出来
+          canvas.height = ROW_HEIGHT * rankingData.length - LAYOUT.rowGap + PAD_TOP + PAD_BOTTOM;
+          canvas.style.margin = '-' + PAD_TOP + 'px auto -' + PAD_BOTTOM + 'px';
 
           // 重新获取上下文，因为尺寸变化会重置状态
           context = canvas.getContext('2d');
@@ -3113,7 +3146,7 @@ export async function apply(ctx: Context, config: Config) {
             const valueTone = ensureContrast(nameTone, ground, 4.5);
             rows.push({
               data,
-              y: ROW_HEIGHT * index + LAYOUT.handleOverhang,
+              y: rowTop(index),
               // 条长取整：monetary-rank 那边是 DOM 盒子，浏览器会把盒子的边落到整像素，
               // 画布这边跟着取整，两张榜的条尾、读数与名字的起点才落在同一个位置。
               barWidth: Math.round(LAYOUT.barMinWidth + (LAYOUT.barSpan * data.count) / maxCount),
@@ -3128,14 +3161,17 @@ export async function apply(ctx: Context, config: Config) {
             });
           }
 
-          // 图层顺序：轨道 → (刻度) → 条 → (刻度) → 把手 → 头像 → 文字。
-          // 文字永远在最上面，刻度压不到名字和数字上，也不从把手上穿过去。
+          // 图层顺序：(榜首柔光) → 轨道 → (刻度) → 条 → (刻度) → 把手 → 头像 → 奖牌圈 → 文字。
+          // 文字永远在最上面，刻度压不到名字和数字上，也不从把手上穿过去；
+          // 柔光垫在最底下，轨道与条会盖住它，它只染纸面。
+          if (hasMedal(0)) drawChampionGlow(context);
           drawTracks(context, rows, TRACK_WIDTH);
           if (!config.gridLinesOverBars) drawGridLines(context, TRACK_WIDTH);
           await drawBars(context, rows, TRACK_WIDTH);
           if (config.gridLinesOverBars) drawGridLines(context, TRACK_WIDTH);
           drawHandles(context, rows, TRACK_WIDTH);
           await drawAvatars(context);
+          drawMedals(context);
           await drawTexts(context, rows);
         }
 
@@ -3258,7 +3294,7 @@ export async function apply(ctx: Context, config: Config) {
         /** 行内文字：名次、名字写在条内，发言数与占比跟着条尾或排成右边两列。 */
         async function drawTexts(context, rows) {
           for (const [index, row] of rows.entries()) {
-            await drawRowText(context, row, index + 1);
+            await drawRowText(context, row, rankOf(index));
           }
         }
 
@@ -3389,13 +3425,15 @@ export async function apply(ctx: Context, config: Config) {
           const shape = config.avatarShape || 'circle';
 
           for (const [index, data] of rankingData.entries()) {
-            const y = ROW_HEIGHT * index + LAYOUT.handleOverhang;
+            const y = rowTop(index);
             let image = await loadImage(data.avatarBase64);
             // 解不开的头像（旧版缓存下的坏字节）换成默认头像，与取不到头像的行一个样
             if (!image.width) image = await loadImage(fallbackAvatar);
             if (!image.width) continue;
 
-            if (shape === 'circle') {
+            if (hasMedal(index)) {
+              // 前三名有奖牌圈包着，不再垫发丝边
+            } else if (shape === 'circle') {
               // 头像底下垫一圈发丝细的暗边：浅色头像贴在暖白纸上边缘会化掉。
               // 与 acumen 同法——半径比头像大 1px 的实心圆，垫在头像下面。
               context.save();
@@ -3419,6 +3457,71 @@ export async function apply(ctx: Context, config: Config) {
             traceAvatarShape(context, AVATAR_X, y, size, shape);
             context.clip();
             context.drawImage(image, AVATAR_X, y, size, size);
+            context.restore();
+          }
+        }
+
+        /**
+         * 榜首头像外的一圈柔光：金色从圈的外沿起 30% 不透明、向外平方衰减。
+         * 先于轨道与条画，之后画的东西会盖住它；只挨着头像的那一圈露在纸面上。
+         * 画成圆环而不是整圆：圈与头像之间的那道纸缝要保持是纸色。
+         */
+        function drawChampionGlow(context) {
+          const glow = MEDAL_SPECS[0].glow;
+          if (!glow || rankingData.length === 0) return;
+          const [cx, cy] = avatarCenter(0);
+          const [r, g, b] = hexToRgb(glow.color);
+          const gradient = context.createRadialGradient(cx, cy, glow.from, cx, cy, glow.to);
+          for (const [offset, alpha] of glow.stops) {
+            gradient.addColorStop(offset, 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')');
+          }
+          context.save();
+          context.beginPath();
+          context.arc(cx, cy, glow.to, 0, Math.PI * 2);
+          context.arc(cx, cy, glow.from, 0, Math.PI * 2, true);
+          context.fillStyle = gradient;
+          context.fill('evenodd');
+          context.restore();
+        }
+
+        /**
+         * 前三名头像外的奖牌圈：金、银、铜的渐变圈（左上略亮、右下略深），与头像之间隔一道纸缝；
+         * 榜首另戴一顶斜向右上的小皇冠。名次那一列已经用同一组颜色写了「第几名」，
+         * 这一圈只是把同一个意思再说一遍，所以细、克制。
+         */
+        function drawMedals(context) {
+          for (let index = 0; index < rankingData.length; index++) {
+            if (!hasMedal(index)) continue;
+            const { ring, crown } = MEDAL_SPECS[rankOf(index) - 1];
+            const [cx, cy] = avatarCenter(index);
+            context.save();
+            context.translate(cx, cy);
+
+            const gradient = context.createLinearGradient(-ring.diagonal, -ring.diagonal, ring.diagonal, ring.diagonal);
+            for (const [offset, color] of ring.stops) gradient.addColorStop(offset, color);
+            context.beginPath();
+            context.arc(0, 0, ring.radius, 0, Math.PI * 2);
+            context.lineWidth = ring.width;
+            context.strokeStyle = gradient;
+            context.stroke();
+
+            if (crown) {
+              // 本地坐标：x 沿皇冠底边、y 自底边向外；矩阵把它摆到圈的右上角
+              context.transform(...crown.matrix);
+              const body = context.createLinearGradient(0, crown.from, 0, crown.to);
+              for (const [offset, color] of crown.stops) body.addColorStop(offset, color);
+              context.beginPath();
+              crown.body.forEach(([x, y], i) => (i ? context.lineTo(x, y) : context.moveTo(x, y)));
+              context.closePath();
+              context.fillStyle = body;
+              context.fill();
+              context.fillStyle = crown.tipColor;
+              for (const [x, y] of crown.tips) {
+                context.beginPath();
+                context.arc(x, y, crown.tipRadius, 0, Math.PI * 2);
+                context.fill();
+              }
+            }
             context.restore();
           }
         }
@@ -3450,7 +3553,7 @@ export async function apply(ctx: Context, config: Config) {
             // 刻度线与 acumen 同为一档 8% 的黑：压在轨道与实色条上都读得出来
             context.fillStyle = HAIRLINE;
             for (let row = 0; row < rankingData.length; row++) {
-                const y = ROW_HEIGHT * row + LAYOUT.handleOverhang;
+                const y = rowTop(row);
                 context.save();
                 traceRoundRect(context, BAR_X, y, trackWidth, LAYOUT.avatarSize, LAYOUT.barRadius);
                 context.clip();
@@ -3786,7 +3889,9 @@ export async function apply(ctx: Context, config: Config) {
 
     // 元信息行：上榜人数 + 合计（每行的百分比正是以它为基数）+ 出图时间
     const metaParts: string[] = [];
-    if (data.length > 1) metaParts.push(`前 ${data.length} 名`);
+    // 榜尾追加的发起人（带着自己的真实名次）不算在「前 N 名」里
+    const listed = data.filter((item) => item.rank === undefined).length;
+    if (listed > 1) metaParts.push(`前 ${listed} 名`);
     if (totalCount > 0) metaParts.push(`合计 ${totalCount.toLocaleString("en-US")}`);
     if (config.isTimeInfoSupplementEnabled) metaParts.push(rankTimeTitle);
     const metaLine = metaParts.length
@@ -4035,6 +4140,11 @@ export async function apply(ctx: Context, config: Config) {
     );
   }
 
+  /** 被追加在榜尾的那一行（没进前 N 的发起人）给真实名次，其余行返回 undefined、按行号算。 */
+  function pinnedRankOf(pinnedRank: number | undefined, index: number, length: number) {
+    return pinnedRank !== undefined && index === length - 1 ? pinnedRank : undefined;
+  }
+
   function calculatePercentage(number: number, total: number): number {
     if (total === 0) return 0;
     return (number / total) * 100;
@@ -4116,7 +4226,7 @@ export async function apply(ctx: Context, config: Config) {
       const percentageStr = showPercentage
         ? ` (${Math.round(item.percentage)}%)`
         : "";
-      result += `${index + 1}. ${item.name}：${
+      result += `${item.rank ?? index + 1}. ${item.name}：${
         item.count
       } 次${percentageStr}\n`;
     });
