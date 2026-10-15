@@ -1,9 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { MEDAL_INK, medalOuterRadius, medalReach, medalSpec } from '../src/medal'
-import { scheme } from '../src/m3'
-
-const PAPER = scheme(268).surface
+import { PAPER } from '../src/paper'
 
 const rgb = (hex: string): [number, number, number] =>
   [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as [number, number, number]

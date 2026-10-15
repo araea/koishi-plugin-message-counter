@@ -1,6 +1,7 @@
 import { clientColorScript, LEGACY_CHART_SIZE } from './m3'
 import { createClearAction } from './clear'
 import { MEDAL_INK, medalReach, medalSpec } from './medal'
+import { GRID_LINE, INK, INK_SOFT, PAPER } from './paper'
 import { helpOf } from './help'
 import { Context, h, Logger, Schema, sleep, Bot, Dict, $ } from "koishi";
 import {
@@ -80,24 +81,19 @@ const FONT_OPTIONS = {
 const ACUMEN_EM = 1000 / (1044 + 282);
 
 /**
- * 图表的纸色与墨色，取自 acumen 的 `ColorScheme::default`（scheme-manual）。
+ * 图表的纸色与墨色：`paper.ts` 里那一族暖白，与 acumen 统计图逐档相同。
  *
  * acumen 的发言榜与本插件的排行榜会在同一个群里并排出现，纸色、墨色与每行的
- * 条色都按同一套来，两边的图才谈得上一致。下面这五个值与 acumen 的
- * `chart/utils.rs`、`chart/renderer.rs` 一一对应，改一处要两边一起改。
+ * 条色都按同一套来，两边的图才谈得上一致。条色与轨道仍由头像主色经 HCT 推出
+ * （`SCHEME` 只提供主题色相），与纸面无关。
  */
 const SCHEME = scheme(268);
-const PAPER = SCHEME.surface; // surface，页面底色
-const INK = SCHEME.onSurface; // on-surface，标题
-const INK_SOFT = SCHEME.onSurfaceVariant; // on-surface-variant，元信息行
-/** on-surface-faint 在暖白纸上差一线（4.44∶1），这是它过 4.5∶1 之后的值，
- *  即 acumen 的 `ColorScheme::readable_faint()`：名次这类参照数字的墨色。 */
-const INK_FAINT = SCHEME.onSurfaceVariant;
+/** 次级墨与名次这类参照数字的墨色是同一档（acumen 的 `readable_faint()` 取的也是它）。 */
+const INK_FAINT = INK_SOFT;
 /** 刻度竖线：5% 的黑，与 acumen 的构图线同一档。条是浅色容器，再深就比条尾的把手抢眼。 */
 const HAIRLINE = "rgba(0, 0, 0, 0.05)";
-/** 头像底下那圈发丝细的边。acumen 用的是不透明的 outline-variant，
- *  垫在头像下面收住浅色头像的圆边；它压在纸上，不是一个半透明遮罩。 */
-const GRID_LINE = SCHEME.outlineVariant;
+/* 头像底下那圈发丝细的边（`GRID_LINE`，见 paper.ts）：acumen 用的是不透明的描边色，
+   垫在头像下面收住浅色头像的圆边；它压在纸上，不是一个半透明遮罩。 */
 /** 前三名的名次色：金、银、铜。含义在颜色本身，不跟主题也不跟头像走；
  *  与 acumen 的 `MEDALS` 同一组色，头像外的奖牌圈（`medal.ts`）也以它为深端。 */
 const MEDALS = MEDAL_INK;
